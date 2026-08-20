@@ -1,0 +1,404 @@
+@import "tailwindcss";
+
+/* ============================================================
+ * Design Tokens（唯一来源）
+ * 所有页面/组件只允许引用这里的语义 token，禁止散落硬编码值。
+ * oklch/color-mix 由 Vite 的 Lightning CSS 按 targets 降级为静态值。
+ * ============================================================ */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* 颜色：背景 / 表面 / 前景 / 弱化 / 边框（仅颜色深浅两档，宽度恒为 1px） */
+  --color-bg: oklch(98% 0.004 250);
+  --color-surface: oklch(100% 0 0);
+  --color-fg: oklch(22% 0.02 240);
+  --color-muted: oklch(51% 0.018 240);
+  --color-border: oklch(91% 0.008 240);
+  --color-border-strong: oklch(82% 0.01 240);
+  --color-soft: color-mix(in oklch, oklch(22% 0.02 240) 5%, transparent);
+  --color-accent: oklch(58% 0.16 145);
+  --color-accent-strong: color-mix(in oklch, oklch(58% 0.16 145) 62%, oklch(22% 0.02 240));
+  --color-accent-soft: color-mix(in oklch, oklch(58% 0.16 145) 12%, transparent);
+  --color-danger: #d70015;
+  --color-danger-soft: color-mix(in oklch, #d70015 10%, transparent);
+  --color-warn: #b25000;
+  --color-warn-soft: color-mix(in oklch, #b25000 12%, transparent);
+  --color-ok: oklch(50% 0.14 145);
+  --color-ok-soft: color-mix(in oklch, oklch(58% 0.16 145) 14%, transparent);
+
+  /* 兼容别名（shadcn 基础组件沿用旧名，指向同一 token） */
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-fg);
+  --color-muted-fg: var(--color-muted);
+  --color-fill: var(--color-soft);
+  --color-primary: var(--color-fg);
+  --color-primary-fg: var(--color-surface);
+  --color-primary-soft: var(--color-soft);
+  --color-sidebar: var(--color-surface);
+  --color-sidebar-foreground: var(--color-fg);
+  --color-sidebar-accent: var(--color-soft);
+  --color-sidebar-accent-foreground: var(--color-fg);
+  --color-sidebar-border: var(--color-border);
+  --color-sidebar-ring: var(--color-accent);
+
+  /* 圆角：六档，全站统一 */
+  --radius-xs: 5px;
+  --radius-sm: 7px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* 字号：语义档位（mono 元信息 / 说明 / 正文 / 输入 / 面板标题） */
+  --text-meta: 10px;
+  --text-caption: 12px;
+  --text-body: 14px;
+  --text-input: 15px;
+  --text-panel: 13px;
+
+  /* 阴影与动效 */
+  --shadow-pop: 0 10px 30px color-mix(in oklch, oklch(22% 0.02 240) 5%, transparent);
+  --shadow-panel: 0 1px 2px color-mix(in oklch, oklch(22% 0.02 240) 4%, transparent);
+  --ease-out: cubic-bezier(0.21, 1, 0.32, 1);
+}
+
+/* ============================================================
+ * Base
+ * ============================================================ */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--color-soft);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--color-fg) 18%, transparent);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer base {
+  button {
+    cursor: pointer;
+  }
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* ============================================================
+ * 页面骨架（仅布局结构；视觉一律走 token/组件）
+ * ============================================================ */
+.page {
+  width: 100%;
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 42px 30px 64px;
+}
+
+.page-heading {
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.page-sub {
+  margin-top: 9px;
+  color: var(--color-muted);
+  font-size: var(--text-caption);
+  line-height: 1.7;
+}
+
+/* 视图切换动画 */
+.view {
+  display: none;
+}
+.view.active {
+  display: block;
+  animation: view-enter 0.22s ease both;
+}
+.view.active > * {
+  animation: rise 0.55s var(--ease-out) both;
+}
+.view.active > *:nth-child(2) {
+  animation-delay: 70ms;
+}
+.view.active > *:nth-child(3) {
+  animation-delay: 120ms;
+}
+.view.active > *:nth-child(4) {
+  animation-delay: 170ms;
+}
+.view.active > *:nth-child(5) {
+  animation-delay: 230ms;
+}
+
+/* 流式打字光标 */
+.streaming::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--color-fg);
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  animation: caret 0.8s steps(1) infinite;
+}
+
+/* ============================================================
+ * 动画
+ * ============================================================ */
+@keyframes view-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes doc-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-accent) 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklch, var(--color-accent) 0%, transparent);
+  }
+}
+@keyframes requeue {
+  0% {
+    background: var(--color-accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* ============================================================
+ * Markdown 正文排版（react-markdown 输出容器）
+ * ============================================================ */
+.md-body {
+  overflow-wrap: anywhere;
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: var(--color-fg);
+}
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  font-weight: 650;
+  margin: 1.1em 0 0.45em;
+  overflow-wrap: anywhere;
+}
+.md-body h1:first-child,
+.md-body h2:first-child,
+.md-body h3:first-child {
+  margin-top: 0.15em;
+}
+.md-body h1 {
+  font-size: 1.35em;
+}
+.md-body h2 {
+  font-size: 1.15em;
+}
+.md-body h3 {
+  font-size: 1.02em;
+}
+.md-body h4 {
+  font-size: 0.95em;
+}
+.md-body p {
+  margin: 0.55em 0;
+}
+.md-body ul,
+.md-body ol {
+  padding-left: 1.4em;
+  margin: 0.5em 0;
+  list-style: revert;
+}
+.md-body li {
+  margin: 0.22em 0;
+}
+.md-body blockquote {
+  margin: 0.7em 0;
+  padding: 2px 14px;
+  border-left: 3px solid var(--color-fg);
+  color: var(--color-muted);
+  background: var(--color-soft);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.md-body code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--color-soft);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+}
+.md-body pre {
+  background: var(--color-fg);
+  color: var(--color-surface);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 0.7em 0;
+}
+.md-body pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.md-body table {
+  border-collapse: collapse;
+  margin: 0.7em 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid var(--color-border-strong);
+  padding: 6px 10px;
+  text-align: left;
+}
+.md-body th {
+  background: var(--color-bg);
+  font-weight: 600;
+}
+.md-body hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 1.1em 0;
+}
+.md-body img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+.md-body a {
+  color: var(--color-fg);
+}
+.md-body a:hover {
+  text-decoration: underline;
+}
+.md-body a.wikilink {
+  cursor: pointer;
+}
+.md-body .secret-ref {
+  display: inline-block;
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+  border-radius: var(--radius-xs);
+  padding: 0 6px;
+  font-size: 0.9em;
+}
+.md-body .redacted,
+.md-body .img-blocked {
+  display: inline-block;
+  background: var(--color-soft);
+  color: var(--color-muted);
+  border-radius: var(--radius-xs);
+  padding: 0 6px;
+  font-size: 0.9em;
+}
+
+/* ============================================================
+ * 响应式（断点唯一：820px，与 useIsMobile(820) 保持一致）
+ * ============================================================ */
+@media (max-width: 820px) {
+  .page {
+    padding: 28px 16px 96px;
+  }
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: 24px 14px 96px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

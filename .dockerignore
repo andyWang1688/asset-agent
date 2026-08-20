@@ -1,0 +1,28 @@
+# 敏感与本地文件绝不进入构建上下文（运行时通过挂载注入）
+.env
+.env.*
+secrets/
+certs/
+data/
+workspace/
+*.db
+*.db-shm
+*.db-wal
+*.key
+
+# 工具与测试
+.git
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+tools/
+.idea/
+*.puml
+
+# 前端产物与依赖（frontend 有自己的构建上下文）
+frontend/node_modules/
+frontend/dist/
+frontend/api-schema.json
+frontend/*.local

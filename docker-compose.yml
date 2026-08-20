@@ -1,0 +1,75 @@
+services:
+  # 注意：backend 服务必须保持单进程/单副本运行（勿加 --workers、勿扩容多副本）：
+  # 确认闸门与落盘互斥为进程内锁；跨进程幂等依赖 sources.sha256 UNIQUE 兜底，但不覆盖 Vaultwarden 写入。
+  frontend:
+    build: ./frontend
+    container_name: asset-assistant-frontend
+    ports:
+      # 唯一对宿主机暴露的端口：浏览器始终只访问这一个 Origin
+      - "127.0.0.1:8000:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: asset-assistant-backend
+    # 不映射宿主机端口：仅在 Docker 内网由 frontend 的 /api 反向代理访问
+    expose:
+      - "8000"
+    volumes:
+      - ./workspace:/app/workspace
+      - ./data:/app/data
+      - ./secrets:/run/secrets:ro
+      - ./certs:/certs:ro
+    environment:
+      WORKSPACE_DIR: /app/workspace
+      DATA_DIR: /app/data
+      VAULTWARDEN_URL: https://vaultwarden:80
+      LOCAL_KEY_FILE: /run/secrets/local.key
+      # 待确认队列密钥（可选）：缺省时回退 local.key；业务代码只读环境变量指向的文件，
+      # 不依赖任何 Docker 路径/服务名/网络，本机运行同样可用 PENDING_QUEUE_KEY_FILE 指向任意文件。
+      PENDING_QUEUE_KEY_FILE: /run/secrets/queue.key
+      NODE_EXTRA_CA_CERTS: /run/secrets/ca.crt
+      BW_EMAIL_FILE: /run/secrets/bw_email
+      BW_PASSWORD_FILE: /run/secrets/bw_password
+      BW_CLIENTID_FILE: /run/secrets/bw_clientid
+      BW_CLIENTSECRET_FILE: /run/secrets/bw_clientsecret
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - vaultwarden
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: asset-assistant-vaultwarden
+    ports:
+      - "127.0.0.1:8081:80"
+    volumes:
+      - vw-data:/data
+      - ./certs:/certs:ro
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      SIGNUPS_ALLOWED: "true"
+      SIGNUPS_VERIFY: "false"
+      WEBSOCKET_ENABLED: "false"
+      ROCKET_TLS: '{certs="/certs/server.crt",key="/certs/server.key"}'
+    healthcheck:
+      test: ["CMD", "curl", "-sk", "https://127.0.0.1:80/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  vw-data:

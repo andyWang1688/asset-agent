@@ -1,0 +1,30 @@
+FROM python:3.12-slim
+
+ARG BW_VERSION=2026.7.0
+
+# bw CLI（官方 Bitwarden CLI）：优先用构建上下文内预下载的 docker/bw-linux[-arm64]-*.zip，缺失时回退 GitHub
+COPY docker/ /tmp/bwdist/
+RUN set -eu \
+    && apt-get update && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && BW_VERSION=${BW_VERSION:-2026.7.0} \
+    && ARCH=$(uname -m) \
+    && if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then SUFFIX="-arm64"; else SUFFIX=""; fi \
+    && ZIP="bw-linux${SUFFIX}-${BW_VERSION}.zip" \
+    && (test -f "/tmp/bwdist/${ZIP}" && cp "/tmp/bwdist/${ZIP}" /tmp/bw.zip \
+        || curl -fsSL --retry 3 -o /tmp/bw.zip "https://github.com/bitwarden/clients/releases/download/cli-v${BW_VERSION}/${ZIP}") \
+    && unzip -o /tmp/bw.zip -d /usr/local/bin \
+    && chmod +x /usr/local/bin/bw \
+    && rm -rf /tmp/bw.zip /tmp/bwdist
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app app
+COPY schema schema
+
+ENV BITWARDENCLI_APPDATA_DIR=/app/data/bw-cli
+EXPOSE 8000
+# 单进程运行（无 --workers）：确认闸门/落盘互斥为进程内锁，禁止多 worker 部署。
+ENTRYPOINT ["sh", "-c", "mkdir -p /app/data/bw-cli && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

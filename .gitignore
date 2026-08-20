@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+workspace/
+data/
+secrets/
+.env
+certs/
+.pnpm-store/
+.idea/
+node_modules/
+dist/
+*.visual-check.*

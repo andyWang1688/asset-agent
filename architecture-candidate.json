@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AI 资产助手：本地安全知识编译架构",
+    "output": "ai-asset-assistant-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [2100, 1000],
+    "views": [
+      {"id": "ingest_path", "label": "资料进入 Wiki", "focus": ["browser", "web_api", "ingest_scan", "confirm_gate", "finalize", "worker", "wiki_compiler", "llm_cloud", "workspace", "sqlite"], "note": "本机资料经检测、人工裁决、复扫与模型编译，成为结构化 Markdown Wiki，并同步建立 SQLite FTS5 检索索引。"},
+      {"id": "secret_boundary", "label": "秘密隔离边界", "focus": ["ingest_scan", "confirm_gate", "finalize", "vaultwarden", "sqlite"], "note": "credential 原文仅短暂在内存、加密队列或 Vaultwarden 中存在，不进入模型与知识资产。"},
+      {"id": "query_path", "label": "知识检索问答", "focus": ["browser", "web_api", "query_service", "sqlite", "llm_cloud"], "note": "问题先扫描，FTS5 召回页面，模型依据脱敏内容回答，输出再次扫描并保留引用。"},
+      {"id": "failure_path", "label": "故障恢复与幂等", "focus": ["finalize", "worker", "vaultwarden", "sqlite"], "note": "凭证写入失败时加密暂存并挂起任务；Worker 重试成功后恢复编译。"}
+    ]
+  },
+  "components": [
+    {"id": "browser", "type": "external", "label": "本机用户与浏览器", "sublabel": "单页 UI · 127.0.0.1", "tag": "单用户 / 无登录", "pos": [30, 220], "size": [170, 76]},
+    {"id": "web_api", "type": "frontend", "label": "FastAPI Web/API", "sublabel": "静态页面 + /api/*", "tag": "Origin / Referer / CSRF", "pos": [265, 220], "size": [175, 76]},
+    {"id": "ingest_scan", "type": "security", "label": "输入解析与本地检测", "sublabel": "Text / MD / TXT / PDF", "tag": "Regex → Context → Entropy", "pos": [505, 220], "size": [180, 76]},
+    {"id": "confirm_gate", "type": "security", "label": "统一确认闸门", "sublabel": "逐项裁决每个 Finding", "tag": "store / redact / allow", "pos": [750, 220], "size": [180, 76]},
+    {"id": "finalize", "type": "backend", "label": "脱敏与两阶段落库", "sublabel": "裁决应用 · 编辑后复扫", "tag": "sha256 UNIQUE 抢占", "pos": [995, 220], "size": [180, 76]},
+    {"id": "worker", "type": "backend", "label": "后台 Worker", "sublabel": "TTL · 凭证重试 · 任务轮询", "tag": "单进程异步循环", "pos": [1240, 220], "size": [180, 76]},
+    {"id": "wiki_compiler", "type": "backend", "label": "Wiki 编译器", "sublabel": "JSON 计划 · 路径校验 · 双写", "tag": "index / log 确定性维护", "pos": [1485, 220], "size": [180, 76]},
+    {"id": "vaultwarden", "type": "security", "label": "Vaultwarden", "sublabel": "credential 原文长期归宿", "tag": "bw CLI · 自签 HTTPS", "pos": [995, 25], "size": [180, 76]},
+    {"id": "sqlite", "type": "database", "label": "SQLite + FTS5", "sublabel": "任务 / 配置 / 审计 / 页面镜像", "tag": "WAL · AES-GCM 密文队列", "pos": [995, 510], "size": [200, 80]},
+    {"id": "workspace", "type": "database", "label": "Workspace 文件事实源", "sublabel": "脱敏 Raw + Markdown Wiki", "tag": "可编辑 / 可版本化 / 可重建", "pos": [1485, 510], "size": [200, 80]},
+    {"id": "query_service", "type": "backend", "label": "检索问答服务", "sublabel": "问题扫描 · 召回 · 引用", "tag": "模型输出再次扫描", "pos": [1240, 790], "size": [190, 80]},
+    {"id": "llm_cloud", "type": "cloud", "label": "可配置云端模型", "sublabel": "OpenAI 兼容 / Anthropic", "tag": "仅接收脱敏内容", "pos": [1810, 510], "size": [200, 80]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "本机 Docker / 文件系统边界 · 仅绑定 127.0.0.1", "wraps": ["web_api", "ingest_scan", "confirm_gate", "finalize", "worker", "wiki_compiler", "vaultwarden", "sqlite", "workspace", "query_service"], "pad": 20},
+    {"kind": "security-group", "label": "敏感内容受控处理区", "wraps": ["confirm_gate", "finalize", "vaultwarden"], "pad": 12}
+  ],
+  "connections": [
+    {"id": "browser_api", "from": "browser", "to": "web_api", "label": "同源 HTTP", "variant": "emphasis"},
+    {"id": "api_ingest", "from": "web_api", "to": "ingest_scan", "label": "/api/ingest", "variant": "emphasis"},
+    {"id": "ingest_gate", "from": "ingest_scan", "to": "confirm_gate", "label": "Finding", "variant": "security"},
+    {"id": "gate_finalize", "from": "confirm_gate", "to": "finalize", "label": "完整裁决", "variant": "security"},
+    {"id": "finalize_worker", "from": "finalize", "to": "worker", "label": "创建任务", "variant": "emphasis"},
+    {"id": "worker_compiler", "from": "worker", "to": "wiki_compiler", "label": "安全 Raw", "variant": "emphasis"},
+    {"id": "finalize_vault", "from": "finalize", "to": "vaultwarden", "label": "保存 credential", "variant": "security"},
+    {"id": "finalize_sqlite", "from": "finalize", "to": "sqlite", "label": "状态与密文", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
+    {"id": "worker_sqlite", "from": "worker", "to": "sqlite", "label": "轮询 / 重试", "variant": "dashed"},
+    {"id": "worker_vault", "from": "worker", "to": "vaultwarden", "label": "失败凭证重试", "variant": "dashed", "fromSide": "top", "toSide": "right", "via": [[1330, 125], [1215, 125], [1215, 63]]},
+    {"id": "compiler_workspace", "from": "wiki_compiler", "to": "workspace", "label": "写 Markdown", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"},
+    {"id": "workspace_sqlite", "from": "workspace", "to": "sqlite", "label": "页面镜像 / FTS5", "variant": "default", "labelAt": [1340, 500]},
+    {"id": "api_query", "from": "web_api", "to": "query_service", "label": "/api/query", "fromSide": "bottom", "toSide": "left", "via": [[352.5, 690], [1165, 690], [1165, 830]]},
+    {"id": "query_sqlite", "from": "query_service", "to": "sqlite", "label": "FTS5 召回", "variant": "default"},
+    {"id": "compiler_llm", "from": "wiki_compiler", "to": "llm_cloud", "label": "编译请求 ↔ JSON 计划", "variant": "dashed"},
+    {"id": "query_llm", "from": "query_service", "to": "llm_cloud", "label": "安全问题 ↔ 引用回答", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom", "via": [[1335, 920], [1910, 920]]}
+  ],
+  "cards": [
+    {"dot": "rose", "title": "安全不变量", "items": ["credential 原文不进入模型流量、Raw、Wiki、对话、日志或异常", "Finding 未逐项处置则拒绝确认；Worker 编译前按当前策略复扫", "模型 API Key 与两类待处理队列均以 AES-256-GCM 加密"]},
+    {"dot": "cyan", "title": "知识编译主链", "items": ["内存解析与检测 → 一次性确认 → 秘密分流 → 异步编译", "模型只返回受目录白名单约束的 JSON 维护计划", "Markdown Wiki 是事实源；SQLite 保存派生索引和运行状态"]},
+    {"dot": "amber", "title": "一致性与恢复", "items": ["sources.sha256 UNIQUE + confirmed=0 占位实现来源幂等抢占", "Vaultwarden 故障时任务挂起，AES-GCM 密文最多保留 7 天并自动重试", "必须保持 uvicorn 单进程/单副本；进程锁不提供分布式写入保护"]}
+  ]
+}
