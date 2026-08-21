@@ -91,7 +91,7 @@ function MtRow({ task }: { task: MtTask }) {
   )
 }
 
-function TaskDrawer({ tasks, collecting }: { tasks: MtTask[]; collecting: boolean }) {
+function TaskDrawer({ tasks, collecting, onClear }: { tasks: MtTask[]; collecting: boolean; onClear: () => void }) {
   return (
     <div
       className="w-[min(100%,720px)] overflow-hidden transition-[max-height,opacity,margin-bottom] duration-500 ease-out"
@@ -101,6 +101,16 @@ function TaskDrawer({ tasks, collecting }: { tasks: MtTask[]; collecting: boolea
         className="mx-2.5 rounded-lg border border-border bg-surface px-[17px] pb-[19px] pt-[15px] shadow-panel transition-transform duration-500 ease-out"
         style={collecting ? undefined : { transform: 'translateY(14px) scale(0.98)' }}
       >
+        <div className="mb-1 flex items-center justify-between">
+          <span className="font-mono text-meta text-muted">整理任务</span>
+          <button
+            type="button"
+            onClick={onClear}
+            className="font-mono text-meta text-muted transition-colors duration-150 hover:text-fg"
+          >
+            清除
+          </button>
+        </div>
         {tasks.map((t) => (
           <MtRow key={t.id} task={t} />
         ))}
@@ -177,12 +187,12 @@ export function ChatPage({ active }: { active: boolean }) {
     if (m === 'ask') setFile(null)
   }, [])
 
-  // 完成的任务停留 5 秒后自动从抽屉移除
+  // 结束（完成/失败）的任务保留 30 秒后自动从抽屉移除，也可手动清除
   useEffect(() => {
-    if (!mtTasks.some((t) => t.status === 'done')) return
+    if (!mtTasks.some((t) => t.status === 'done' || t.status === 'failed')) return
     const timer = window.setTimeout(() => {
-      setMtTasks((prev) => prev.filter((t) => t.status !== 'done'))
-    }, 5000)
+      setMtTasks((prev) => prev.filter((t) => t.status !== 'done' && t.status !== 'failed'))
+    }, 30000)
     return () => window.clearTimeout(timer)
   }, [mtTasks])
 
@@ -305,7 +315,7 @@ export function ChatPage({ active }: { active: boolean }) {
 
         {mode === 'ask' && messages.length > 0 && <MessageList messages={messages} asking={asking} />}
 
-        <TaskDrawer tasks={mtTasks} collecting={collecting} />
+        <TaskDrawer tasks={mtTasks} collecting={collecting} onClear={() => setMtTasks([])} />
 
         <div className="relative z-10 w-[min(100%,720px)]">
           {knowledgeMissing && (

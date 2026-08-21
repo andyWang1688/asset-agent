@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { api } from '@/lib/api'
-import type { ChatEntry } from '@/lib/types'
 
 export interface ChatMessage {
   q: string
@@ -10,28 +9,10 @@ export interface ChatMessage {
   error?: string
 }
 
-/** 询问知识：历史 + 提问（/api/query 与 /api/chat/history） */
+/** 询问知识：仅承载本次会话的问答；历史记录统一在对话历史面板查看 */
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [asking, setAsking] = useState(false)
-  const mounted = useRef(true)
-
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
-
-  const loadHistory = useCallback(async () => {
-    try {
-      const rows: ChatEntry[] = await api.chatHistory()
-      if (!mounted.current) return
-      setMessages(rows.slice().reverse().map((r) => ({ q: r.question, a: r.answer, cites: r.citations || [] })))
-    } catch {
-      /* 历史加载失败不阻塞 */
-    }
-  }, [])
 
   const ask = useCallback(async (question: string) => {
     setAsking(true)
@@ -52,9 +33,5 @@ export function useChat() {
     }
   }, [])
 
-  useEffect(() => {
-    void loadHistory()
-  }, [loadHistory])
-
-  return { messages, asking, ask, loadHistory }
+  return { messages, asking, ask }
 }
