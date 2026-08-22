@@ -75,6 +75,9 @@ export interface ChatEntry {
   question: string
   answer: string
   citations: string[]
+  session_id: string | null
+  title: string | null
+  pinned: boolean
   created_at: string
 }
 

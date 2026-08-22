@@ -12,3 +12,5 @@ certs/
 node_modules/
 dist/
 *.visual-check.*
+.agent-teams/
+.dsh-vision-toolkit/

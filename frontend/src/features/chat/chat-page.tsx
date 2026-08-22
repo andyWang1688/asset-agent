@@ -94,7 +94,7 @@ function MtRow({ task }: { task: MtTask }) {
 function TaskDrawer({ tasks, collecting, onClear }: { tasks: MtTask[]; collecting: boolean; onClear: () => void }) {
   return (
     <div
-      className="w-[min(100%,720px)] overflow-hidden transition-[max-height,opacity,margin-bottom] duration-500 ease-out"
+      className="w-[min(100%,720px)] shrink-0 overflow-hidden transition-[max-height,opacity,margin-bottom] duration-500 ease-out"
       style={collecting ? { maxHeight: 320, opacity: 1, marginBottom: -18 } : { maxHeight: 0, opacity: 0, marginBottom: 0 }}
     >
       <div
@@ -154,9 +154,9 @@ function StreamSub({ k, text, speed }: { k: string; text: string; speed: number 
   )
 }
 
-export function ChatPage({ active }: { active: boolean }) {
+export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<typeof useChat> }) {
   const { health, setTab } = useApp()
-  const { messages, asking, ask } = useChat()
+  const { messages, asking, ask, newChat, sessionTitle } = chat
   const { waiting, view, loadingView, load: loadSubs, openView, setViewDirect, closeView } = useSubmissions()
   const { watch } = useTaskWatch()
 
@@ -172,6 +172,7 @@ export function ChatPage({ active }: { active: boolean }) {
   const hasInput = value.trim().length > 0 || !!file
   const sendDisabled = knowledgeMissing || sending || asking || !hasInput
   const collecting = mode === 'collect' && mtTasks.length > 0
+  const inSession = mode === 'ask' && messages.length > 0
 
   // 重新进入对话页时重播流式标题
   const [playKey, setPlayKey] = useState(0)
@@ -282,42 +283,65 @@ export function ChatPage({ active }: { active: boolean }) {
     <>
       <div
         className={cn(
-          'flex min-h-[calc(100vh-164px)] flex-col items-center px-0 pb-[72px] pt-[30px] transition-[justify-content] duration-300 max-[820px]:min-h-[calc(100vh-140px)]',
-          collecting ? 'justify-end pt-0' : 'justify-center',
+          'flex flex-col items-center px-0 transition-[justify-content] duration-300',
+          collecting
+            ? 'min-h-[calc(100vh-164px)] justify-end pb-[72px] pt-0 max-[820px]:min-h-[calc(100vh-140px)]'
+            : inSession
+              ? 'h-[calc(100vh-118px)] justify-start pb-4 pt-1 max-[820px]:h-[calc(100vh-150px)]'
+              : 'min-h-[calc(100vh-164px)] justify-center pb-[72px] pt-[30px] max-[820px]:min-h-[calc(100vh-140px)]',
         )}
       >
-        <div className="mb-[30px] text-center">
-          <StreamTitle k={streamKey} text={TITLES[mode].title} speed={95} />
-          <StreamSub k={streamKey + '-s'} text={TITLES[mode].sub} speed={32} />
-          <div className="relative mt-[18px] inline-flex gap-0.5 rounded-md border border-border bg-surface p-1" data-active={mode}>
-            <span
-              className={cn(
-                'absolute bottom-1 left-1 top-1 w-[calc(50%-5px)] rounded-sm bg-fg transition-transform duration-300 ease-out',
-                mode === 'collect' && 'translate-x-[calc(100%+2px)]',
-              )}
-            />
+        {inSession ? (
+          <div className="flex w-[min(100%,720px)] shrink-0 items-center gap-2.5 py-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-panel font-semibold">{sessionTitle || messages[0].q}</h2>
+              <small className="mt-0.5 block font-mono text-meta text-muted">询问知识 · {messages.length} 条</small>
+            </div>
             <button
               type="button"
-              className={cn('relative z-10 min-w-[88px] rounded-sm px-3.5 py-2 text-caption transition-colors duration-200', mode === 'ask' ? 'font-semibold text-surface' : 'text-muted')}
-              onClick={() => changeMode('ask')}
+              onClick={newChat}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-border bg-surface px-3 py-[7px] text-caption text-fg transition-[border-color,background,transform] duration-150 hover:border-fg/30 hover:bg-soft active:scale-[0.96]"
             >
-              询问知识
-            </button>
-            <button
-              type="button"
-              className={cn('relative z-10 min-w-[88px] rounded-sm px-3.5 py-2 text-caption transition-colors duration-200', mode === 'collect' ? 'font-semibold text-surface' : 'text-muted')}
-              onClick={() => changeMode('collect')}
-            >
-              收集资料
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              新对话
             </button>
           </div>
-        </div>
+        ) : (
+          <div className="mb-[30px] text-center">
+            <StreamTitle k={streamKey} text={TITLES[mode].title} speed={95} />
+            <StreamSub k={streamKey + '-s'} text={TITLES[mode].sub} speed={32} />
+            <div className="relative mt-[18px] inline-flex gap-0.5 rounded-md border border-border bg-surface p-1" data-active={mode}>
+              <span
+                className={cn(
+                  'absolute bottom-1 left-1 top-1 w-[calc(50%-5px)] rounded-sm bg-fg transition-transform duration-300 ease-out',
+                  mode === 'collect' && 'translate-x-[calc(100%+2px)]',
+                )}
+              />
+              <button
+                type="button"
+                className={cn('relative z-10 min-w-[88px] rounded-sm px-3.5 py-2 text-caption transition-colors duration-200', mode === 'ask' ? 'font-semibold text-surface' : 'text-muted')}
+                onClick={() => changeMode('ask')}
+              >
+                询问知识
+              </button>
+              <button
+                type="button"
+                className={cn('relative z-10 min-w-[88px] rounded-sm px-3.5 py-2 text-caption transition-colors duration-200', mode === 'collect' ? 'font-semibold text-surface' : 'text-muted')}
+                onClick={() => changeMode('collect')}
+              >
+                收集资料
+              </button>
+            </div>
+          </div>
+        )}
 
         {mode === 'ask' && messages.length > 0 && <MessageList messages={messages} asking={asking} />}
 
         <TaskDrawer tasks={mtTasks} collecting={collecting} onClear={() => setMtTasks([])} />
 
-        <div className="relative z-10 w-[min(100%,720px)]">
+        <div className="relative z-10 w-[min(100%,720px)] shrink-0">
           {knowledgeMissing && (
             <div className="mb-2 flex items-center justify-center gap-2 px-1 text-caption text-muted">
               <span>请先配置知识库模型</span>
@@ -376,18 +400,20 @@ export function ChatPage({ active }: { active: boolean }) {
 
           {error && <p className="mt-2 text-center text-caption text-danger">{error}</p>}
 
-          <div className="mt-3.5 flex flex-wrap justify-center gap-2">
-            {HINTS[mode].map((h) => (
-              <button
-                key={h}
-                type="button"
-                onClick={() => setValue(h)}
-                className="rounded-pill border border-border bg-surface px-3.5 py-[7px] text-caption text-muted transition-colors duration-150 hover:border-fg hover:bg-soft hover:text-fg"
-              >
-                {h}
-              </button>
-            ))}
-          </div>
+          {!inSession && (
+            <div className="mt-3.5 flex flex-wrap justify-center gap-2">
+              {HINTS[mode].map((h) => (
+                <button
+                  key={h}
+                  type="button"
+                  onClick={() => setValue(h)}
+                  className="rounded-pill border border-border bg-surface px-3.5 py-[7px] text-caption text-muted transition-colors duration-150 hover:border-fg hover:bg-soft hover:text-fg"
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

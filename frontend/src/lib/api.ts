@@ -66,8 +66,17 @@ export const api = {
   cancelSubmission: (id: number) =>
     request<{ cancelled: boolean; restore_text: string }>(`/api/pending/submissions/${id}/cancel`, { method: 'POST' }),
 
-  query: (question: string) => request<QueryResult>('/api/query', { method: 'POST', body: JSON.stringify({ question }) }),
+  query: (question: string, sessionId?: string | null) =>
+    request<QueryResult>('/api/query', { method: 'POST', body: JSON.stringify({ question, session_id: sessionId ?? null }) }),
   chatHistory: () => request<ChatEntry[]>('/api/chat/history'),
+  setSessionTitle: (sessionId: string, title: string) =>
+    request<{ ok: boolean }>('/api/chat/session/title', { method: 'POST', body: JSON.stringify({ session_id: sessionId, title }) }),
+  setSessionPin: (sessionId: string, pinned: boolean) =>
+    request<{ ok: boolean }>('/api/chat/session/pin', { method: 'POST', body: JSON.stringify({ session_id: sessionId, pinned }) }),
+  adoptSession: (sessionId: string, entryIds: number[]) =>
+    request<{ ok: boolean }>('/api/chat/session/adopt', { method: 'POST', body: JSON.stringify({ session_id: sessionId, entry_ids: entryIds }) }),
+  deleteSession: (sessionId: string) =>
+    request<{ ok: boolean }>('/api/chat/session?session_id=' + encodeURIComponent(sessionId), { method: 'DELETE' }),
 
   wikiPages: () => request<WikiPage[]>('/api/wiki/pages'),
   wikiPage: (path: string) => request<WikiDoc>(`/api/wiki/page?path=${encodeURIComponent(path)}`),

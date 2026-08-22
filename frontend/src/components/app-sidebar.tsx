@@ -49,7 +49,7 @@ function NavGroup({
   label: string
   items: NavItemDef[]
   taskCount: number
-  onNavigate?: () => void
+  onNavigate?: (t: Tab) => void
 }) {
   const { tab, setTab } = useApp()
   return (
@@ -63,7 +63,7 @@ function NavGroup({
             aria-current={tab === t ? 'page' : undefined}
             onClick={() => {
               setTab(t)
-              onNavigate?.()
+              onNavigate?.(t)
             }}
             className={
               'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-panel transition-all duration-150 active:scale-[0.97] ' +
@@ -89,7 +89,7 @@ function NavGroup({
 }
 
 /** 设计稿侧栏：AA 品牌 + 工作区/本地设置导航 + 本地模式页脚 */
-export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
   const { attention } = useTasks()
   return (
     <aside className="sticky top-0 flex h-svh flex-col border-r border-border bg-surface px-3 pt-[18px]">
@@ -111,7 +111,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 /** 移动端底部导航（≤820px 显示） */
-export function MobileBottomNav() {
+export function MobileBottomNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
   const { tab, setTab } = useApp()
   return (
     <nav
@@ -123,7 +123,10 @@ export function MobileBottomNav() {
           key={t}
           type="button"
           aria-label={label}
-          onClick={() => setTab(t)}
+          onClick={() => {
+            setTab(t)
+            onNavigate?.(t)
+          }}
           className={
             'flex flex-1 flex-col items-center gap-[3px] rounded-md px-1 py-[5px] text-[10.5px] transition-colors duration-150 ' +
             (tab === t ? 'font-semibold text-fg' : 'text-fg opacity-55')

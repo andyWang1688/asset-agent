@@ -3,6 +3,8 @@ import { useApp, type Tab } from '@/store/app-context'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppSidebar, MobileBottomNav } from '@/components/app-sidebar'
 import { HistoryPanel } from '@/components/history-panel'
+import type { ChatMessage } from '@/hooks/use-chat'
+import { cn } from '@/lib/utils'
 
 const PAGE_NAMES: Record<Tab, string> = {
   chat: '对话',
@@ -34,8 +36,18 @@ function Topbar({ pageName, onOpenHistory }: { pageName: string; onOpenHistory: 
   )
 }
 
-/** 应用外壳：218px 固定侧栏 + 顶栏 + 内容页；≤820px 隐藏侧栏改底部导航 */
-export function AppShell({ children }: { children: ReactNode }) {
+/** 应用外壳：218px 固定侧栏 + 顶栏 + 内容页；≤820px 隐藏侧栏改底部导航；历史面板打开时桌面端内容让位 */
+export function AppShell({
+  children,
+  onOpenSession,
+  onNewChat,
+  onNavigate,
+}: {
+  children: ReactNode
+  onOpenSession: (sessionId: string, messages: ChatMessage[], title?: string | null) => void
+  onNewChat: () => void
+  onNavigate: (t: Tab) => void
+}) {
   const { tab } = useApp()
   const isMobile = useIsMobile(820)
   const [histOpen, setHistOpen] = useState(false)
@@ -55,20 +67,25 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-svh flex-col">
         <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
         <main className="page">{children}</main>
-        <MobileBottomNav />
-        <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} />
+        <MobileBottomNav onNavigate={onNavigate} />
+        <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
       </div>
     )
   }
 
   return (
-    <div className="grid min-h-svh grid-cols-[218px_minmax(0,1fr)]">
-      <AppSidebar />
+    <div
+      className={cn(
+        'grid min-h-svh grid-cols-[218px_minmax(0,1fr)] transition-[margin-right] duration-500 ease-out',
+        histOpen && 'mr-[218px]',
+      )}
+    >
+      <AppSidebar onNavigate={onNavigate} />
       <div className="min-w-0">
         <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
         <main className="page">{children}</main>
       </div>
-      <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} />
+      <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
     </div>
   )
 }
