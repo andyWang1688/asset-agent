@@ -1,13 +1,13 @@
 # 前端交接文档（给接手者：opencode）
 
-> 目标：把「资产助手」前端按新设计稿 `~/Downloads/asset-assistant-redesign.html` 重构，并保证真实功能可用。
+> 目标：把「资产 Agent」前端按新设计稿 `~/Downloads/asset-assistant-redesign.html` 重构，并保证真实功能可用。
 > 当前状态：重构已完成三轮迭代（设计稿落地 → 流式标题/断点修复 → token 体系化重构），但用户对最终视觉效果仍不满意（**最后一次反馈未给出具体问题点**），由接手者继续。
 
 ---
 
 ## 1. 背景与目标
 
-- 项目：个人 AI 资产助手（对话收集资产资料 → 脱敏确认 → 后台编译 Wiki → 问答检索）。
+- 项目：个人资产 Agent（AssetAgent；对话收集资产资料 → 脱敏确认 → 后台编译 Wiki → 问答检索）。
 - 新设计稿：`/Users/wangxinxin/Downloads/asset-assistant-redesign.html`（单文件 HTML 原型，oklch 色板、细边框、mono 元信息标签、轻动效）。
 - 用户要求：页面样子按新设计稿，技术栈不变，功能（真实后端 API）不能丢。
 

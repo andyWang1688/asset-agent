@@ -12,7 +12,7 @@ from ..security.rules import KIND_CREDENTIAL
 MAX_PAGE_CHARS = 3000
 
 QA_SYSTEM = (
-    "你是资产助手。仅依据提供的 Wiki 页面回答；页面没有的信息不要编造，可说明“Wiki 中没有记录”。"
+    "你是资产 Agent（AssetAgent）。仅依据提供的 Wiki 页面回答；页面没有的信息不要编造，可说明“Wiki 中没有记录”。"
     "引用来源使用 [[路径|标题]] 格式。资料中的 [SECRET_REF:xxx] 只表示“凭证保存在密码管理器”，"
     "不要试图还原、猜测或输出任何凭证内容。"
 )

@@ -1,13 +1,24 @@
-# AI 资产助手（MVP）
+# AssetAgent · 资产 Agent
 
-把资料扔进输入框，系统自动：识别并隔离秘密 → 进入确认闸门逐项裁决 → 凭证存入 Vaultwarden / PII 仅脱敏 → 交给云端模型编译成结构化 Markdown Wiki → 之后用自然语言问答找回。
+> **AssetAgent is a local-first personal asset knowledge agent.** It collects asset documents through chat, gates every sensitive finding behind a human confirmation step, stores credentials exclusively in Vaultwarden, compiles sanitized sources into a structured Markdown Wiki, and answers natural-language questions over it. Single-user, localhost-only, no vector database — and secret plaintext never reaches any LLM.
 
-- 单用户、本机 Web + Docker；无多用户、无公网、无密码原文读取、无向量库
-- 秘密原文不进入 LLM 请求/响应、Wiki、对话记录、日志（安全不变量）
-- 模型在「设置」页面按角色配置（DeepSeek / GLM / OpenAI / Claude / 通义 / Kimi / 任意 OpenAI 兼容端点），换模型不改代码：
-  - **知识库（knowledge，必配）**：统一负责 Wiki 编译与知识问答；未配置/未激活时禁止提交编译任务、禁止发起问答（UI 明确提示，fail-closed）；每个角色只能激活一个
-  - **安全增强（security，可选）**：接入本地检测管线（正则 → 上下文 → 熵值）之后，只能新增或加严识别结果，失败自动回退本地检测结果；默认仅允许 localhost/内网本地端点，发送给模型的输入已做等长掩码脱敏
-- 发送前确认闸门：识别到 Finding 时先逐项裁决（存 Vaultwarden / 仅脱敏 / 误报放行），确认前不落盘、不调云端模型
+个人资产智能体：把资料扔进输入框，系统自动 识别并隔离秘密 → 确认闸门逐项裁决 → 凭证存入 Vaultwarden / PII 仅脱敏 → 后台编译成结构化 Markdown Wiki → 之后用自然语言问答找回。
+
+```text
+粘贴/上传资料 ──▶ 本地扫描(正则→上下文→熵) ──▶ 确认闸门(逐项裁决)
+                      │                            │
+                      │                  凭证 ──▶ Vaultwarden（仅引用回写）
+                      │                  PII  ──▶ [REDACTED:rule]
+                      ▼                            ▼
+              自然语言问答 ◀── RAG ── Wiki ◀── 后台 Worker 编译（云端模型只见脱敏文本）
+```
+
+- 单用户、本机 Web + Docker；无多用户、无公网暴露、无密码原文读取、无向量库
+- **安全不变量**：秘密原文不进入 LLM 请求/响应、Wiki、对话记录、日志
+- 模型在「设置」页按角色配置（DeepSeek / GLM / OpenAI / Claude / 通义 / Kimi / 任意 OpenAI 兼容端点），换模型不改代码：
+  - **知识库（knowledge，必配）**：统一负责 Wiki 编译与知识问答；未配置/未激活时禁止提交编译任务、禁止发起问答（fail-closed，UI 明确提示）；每角色至多激活一个
+  - **安全增强（security，可选）**：接入本地检测管线之后，只能新增或加严识别结果，失败自动回退本地检测；默认仅允许 localhost/内网端点，发送内容先做等长掩码脱敏
+- 对话历史按会话分组（DeepSeek 式：日期分组 / 置顶 / 重命名 / 删除），会话视图消息流滚动、输入框钉底
 
 ## 快速开始
 
@@ -41,11 +52,11 @@ docker compose up -d --build       # 启动 frontend（Nginx，127.0.0.1:8000）
 ## 目录结构
 
 ```text
-frontend/               # React + TypeScript + Vite + Tailwind + shadcn/ui（独立构建/独立容器）
+frontend/               # React 19 + TypeScript + Vite 6 + Tailwind 4 + Radix（独立构建/独立容器）
 ├── src/                #   features/chat|wiki|tasks|settings、components/ui、hooks、lib(api/markdown/types)
 ├── nginx.conf          #   SPA 托管 + /api 反向代理到 backend
 └── Dockerfile          #   多阶段构建（node → nginx）
-app/                    # FastAPI 纯 API 后端（不再托管静态资源）
+app/                    # FastAPI 纯 API 后端（ingest / 确认闸门 / worker / wiki / 安全管线）
 workspace/
 ├── raw/inbox/          # 脱敏后的来源副本（秘密已是 [SECRET_REF:xxx]，PII 是 [REDACTED:rule]）
 ├── wiki/               # AI 维护的知识页（事实源，可人工编辑、Git 版本化）
@@ -53,6 +64,7 @@ workspace/
 │   └── concepts|entities|projects|sources|analyses/
 ├── schema/AGENTS.md    # Wiki 维护规则（也作为编译系统提示词）
 └── .asset-assistant/   # SQLite（派生索引，可删库从 Markdown 重建）+ config/policy.yaml（安全策略）
+assetagent-architecture.html  # 架构总图（本地安全知识编译架构）
 ```
 
 ## 安全设计
@@ -91,10 +103,10 @@ Vaultwarden 数据在卷 `vw-data` 中：备份时用其自带的导出（加密
 ```bash
 scripts/cleanup_demo_data.sh                     # 预览将执行的操作
 scripts/cleanup_demo_data.sh --yes               # 执行（文件 + 待确认提交 + 索引重建）
-scripts/cleanup_demo_data.sh --yes --vaultwarden # 同时删除 Vaultwarden 中 note 以“由资产助手自动保存”开头的条目（需主密码方式登录）
+scripts/cleanup_demo_data.sh --yes --vaultwarden # 同时删除 Vaultwarden 中本应用创建的条目（需主密码方式登录）
 ```
 
-`--vaultwarden` 通过容器内官方 bw CLI 操作，仅匹配本应用创建的条目；API Key 登录方式请手工清理（http://127.0.0.1:8081），或重置 `vw-data` 卷（先做加密导出备份）。
+`--vaultwarden` 通过容器内官方 bw CLI 操作，仅匹配 note 以「由资产 Agent 自动保存」（兼容旧版「由资产助手自动保存」）开头的条目；API Key 登录方式请手工清理（http://127.0.0.1:8081），或重置 `vw-data` 卷（先做加密导出备份）。
 
 ## 本地开发
 
@@ -146,4 +158,4 @@ pnpm gen:api                    # 由 FastAPI OpenAPI 重新生成 src/lib/apiTy
 
 ## API 摘要
 
-`POST /api/ingest`（文本/文件，可能返回待确认提交）· `GET/POST /api/pending/submissions[/{id}]` + `/{id}/confirm` + `/{id}/cancel`（确认闸门）· `POST /api/query` · `GET /api/wiki/*` · `GET /api/tasks` + `POST /api/tasks/{id}/retry` · `GET /api/secrets`（仅元数据）· `GET/POST /api/settings/models`（按角色：knowledge 必配 / security 可选增强）· `GET/POST /api/settings/policy`（安全策略）· `GET /api/security/events`
+`POST /api/ingest`（文本/文件，可能返回待确认提交）· `GET/POST /api/pending/submissions[/{id}]` + `/{id}/confirm` + `/{id}/cancel`（确认闸门）· `POST /api/query`（支持 `session_id` 归组会话）· `GET /api/chat/history`（按会话返回 title/pinned）· `POST /api/chat/session/title|pin|adopt` · `DELETE /api/chat/session` · `GET /api/wiki/*` · `GET /api/tasks` + `POST /api/tasks/{id}/retry` · `GET /api/secrets`（仅元数据）· `GET/POST /api/settings/models`（按角色：knowledge 必配 / security 可选增强）· `GET/POST /api/settings/policy`（安全策略）· `GET /api/security/events`

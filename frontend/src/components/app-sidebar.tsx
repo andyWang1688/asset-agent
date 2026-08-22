@@ -97,7 +97,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
         <span className="grid h-[26px] w-[26px] place-items-center rounded-sm bg-fg font-mono text-meta font-bold text-surface">
           AA
         </span>
-        资产助手
+        资产 Agent
       </div>
       <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} onNavigate={onNavigate} />
       <NavGroup label="本地设置" items={NAV_LOCAL} taskCount={0} onNavigate={onNavigate} />

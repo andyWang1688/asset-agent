@@ -150,12 +150,12 @@ async def _store_credentials(
     source_id: int | None = None,
 ) -> tuple[list[dict], list[tuple[int, str]]]:
     """把 store 裁决写入凭证库。Vaultwarden 失败时进入 AES-GCM 加密队列（任务挂起）。
-    幂等：凭证库已有“由资产助手自动保存”的同名条目时复用，不重复创建。"""
+    幂等：凭证库已有 note 以“由资产 Agent 自动保存”（或旧版“由资产助手自动保存”）开头的同名条目时复用，不重复创建。"""
     names = redactor.ref_names(findings)
     known: dict[str, dict] = {}
     try:
         for m in await creds.list_items():
-            if (m.note or "").startswith("由资产助手自动保存"):
+            if (m.note or "").startswith(("由资产 Agent 自动保存", "由资产助手自动保存")):
                 known.setdefault(m.name, {"name": m.name, "item_id": m.item_id})
     except CredentialError:
         known = {}  # 元数据不可用不阻断：写入时按失败入队
@@ -176,7 +176,7 @@ async def _store_credentials(
             entry["item_id"] = known[name]["item_id"]
             refs_out.append(entry)
             continue
-        note = f"由资产助手自动保存。来源: {original_name}（{kind}）; 来源哈希: {sha[:16]}; 规则: {f.rule}"
+        note = f"由资产 Agent 自动保存。来源: {original_name}（{kind}）; 来源哈希: {sha[:16]}; 规则: {f.rule}"
         payload = SecretPayload(name=name, value=f.value, kind="login", note=note)
         try:
             item = await creds.create_secret(payload)

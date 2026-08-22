@@ -1,4 +1,4 @@
-"""AI 资产助手入口：单容器纯 API 服务 + 后台 Worker。
+"""AssetAgent（资产 Agent）入口：单容器纯 API 服务 + 后台 Worker。
 仅绑定容器内网（由前端 Nginx 同源反向代理 /api/*）；严格限制 Origin/CORS，
 写接口拒绝跨源请求（CSRF 防护）。前端由 frontend/ 独立构建与托管。"""
 import os
@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
     await worker.stop()
 
 
-app = FastAPI(title="AI 资产助手", lifespan=lifespan)
+app = FastAPI(title="AssetAgent", lifespan=lifespan)
 app.include_router(router)
 
 

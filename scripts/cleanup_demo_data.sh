@@ -7,7 +7,7 @@
 #   scripts/cleanup_demo_data.sh --yes --vaultwarden      # 同时清理 Vaultwarden 测试条目
 #
 # 说明：
-#   - --vaultwarden 只删除 note 以“由资产助手自动保存”开头的条目（本应用创建），
+#   - --vaultwarden 只删除 note 以“由资产 Agent 自动保存”（或旧版“由资产助手自动保存”）开头的条目（本应用创建），
 #     通过容器内官方 bw CLI 操作；需要 secrets/bw_email + secrets/bw_password（主密码方式），
 #     API Key 登录方式请手工清理。
 #   - 脚本中的 bw 登录/解锁与运行中的应用共用 bw 配置目录：应用会在下一次调用时自动
@@ -44,7 +44,7 @@ done
 echo "2) 线上：取消所有 waiting 待确认提交"
 echo "3) 线上：重建 Wiki 索引（POST /api/wiki/rebuild）"
 if [ "$VW" = 1 ]; then
-  echo "4) Vaultwarden：删除 note 以“由资产助手自动保存”开头的条目（dry-run 列表见下）"
+  echo "4) Vaultwarden：删除 note 以“由资产 Agent 自动保存”/“由资产助手自动保存”开头的条目（dry-run 列表见下）"
 else
   echo "4) Vaultwarden：跳过（加 --vaultwarden 清理本应用创建的测试条目）"
 fi
@@ -89,7 +89,7 @@ try:
 except Exception:
     items = []
 for it in items:
-    if (it.get("notes") or "").startswith("由资产助手自动保存"):
+    if (it.get("notes") or "").startswith(("由资产 Agent 自动保存","由资产助手自动保存")):
         print(it.get("id"), it.get("name"), sep="\t")
 ')
   if [ -z "$ITEMS" ]; then
