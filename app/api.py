@@ -230,6 +230,7 @@ def retry_task(request: Request, task_id: int):
 
 class QueryBody(BaseModel):
     question: str
+    session_id: str | None = None
 
 
 @router.post("/api/query")
@@ -240,7 +241,8 @@ async def query(request: Request, body: QueryBody):
         raise HTTPException(400, "未配置知识库模型：问答已禁用。请先在「设置」页配置并激活一个知识库模型。")
     try:
         return await query_service.answer(
-            ctx.settings, provider, body.question, security_provider=ctx.get_security_provider()
+            ctx.settings, provider, body.question,
+            security_provider=ctx.get_security_provider(), session_id=body.session_id,
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -252,17 +254,67 @@ async def query(request: Request, body: QueryBody):
 def chat_history(limit: int = 50):
     import json
 
+    sessions = {s["session_id"]: s for s in db.list_sessions()}
     rows = db.list_chat(limit)
-    return [
-        {
-            "id": r["id"],
-            "question": r["question"],
-            "answer": r["answer"],
-            "citations": json.loads(r["citations"] or "[]"),
-            "created_at": r["created_at"],
-        }
-        for r in rows
-    ]
+    out = []
+    for r in rows:
+        key = r["session_id"] or f"legacy-{r['id']}"
+        s = sessions.get(key)
+        out.append(
+            {
+                "id": r["id"],
+                "question": r["question"],
+                "answer": r["answer"],
+                "citations": json.loads(r["citations"] or "[]"),
+                "session_id": r["session_id"],
+                "title": s["title"] if s else None,
+                "pinned": bool(s["pinned"]) if s else False,
+                "created_at": r["created_at"],
+            }
+        )
+    return out
+
+
+class SessionTitleBody(BaseModel):
+    session_id: str
+    title: str
+
+
+class SessionPinBody(BaseModel):
+    session_id: str
+    pinned: bool
+
+
+class SessionAdoptBody(BaseModel):
+    session_id: str
+    entry_ids: list[int]
+
+
+@router.post("/api/chat/session/adopt")
+def chat_session_adopt(body: SessionAdoptBody):
+    db.adopt_session(body.session_id, body.entry_ids)
+    return {"ok": True}
+
+
+@router.post("/api/chat/session/title")
+def chat_session_title(body: SessionTitleBody):
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(400, "标题不能为空")
+    db.set_session_title(body.session_id, title[:60])
+    return {"ok": True}
+
+
+@router.post("/api/chat/session/pin")
+def chat_session_pin(body: SessionPinBody):
+    db.set_session_pinned(body.session_id, body.pinned)
+    return {"ok": True}
+
+
+@router.delete("/api/chat/session")
+def chat_session_delete(session_id: str):
+    db.delete_session(session_id)
+    return {"ok": True}
 
 
 @router.get("/api/wiki/pages")

@@ -41,14 +41,16 @@ async def _scan_question(settings: Settings, question: str, security_provider=No
 
 
 async def answer(settings: Settings, provider: LLMProvider, question: str,
-                 security_provider=None) -> dict:
+                 security_provider=None, session_id: str | None = None) -> dict:
     question = question.strip()
     if not question:
         raise ValueError("问题为空")
+    if session_id:
+        db.ensure_session(session_id)
     safe_question = await _scan_question(settings, question, security_provider=security_provider)
     hits = db.search_pages(safe_question, limit=5)
     if not hits:
-        db.insert_chat(safe_question, "Wiki 中未找到相关内容。", [])
+        db.insert_chat(safe_question, "Wiki 中未找到相关内容。", [], session_id)
         return {"answer": "Wiki 中未找到相关内容。", "citations": []}
 
     context = []
@@ -67,5 +69,5 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
     if hits_found:
         db.log_security("llm_output_secret", f"问答响应命中规则 {hits_found}，片段已删除")
     citations = sorted({h["path"] for h in hits})
-    db.insert_chat(safe_question, clean, citations)
+    db.insert_chat(safe_question, clean, citations, session_id)
     return {"answer": clean, "citations": citations}

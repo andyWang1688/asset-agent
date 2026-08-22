@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS chat_log (
   question TEXT,
   answer TEXT,
   citations TEXT DEFAULT '[]',
+  session_id TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  session_id TEXT PRIMARY KEY,
+  title TEXT,
+  pinned INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now','localtime'))
 );
 CREATE TABLE IF NOT EXISTS security_events (
@@ -168,6 +175,9 @@ def _migrate() -> None:
     mcols = {r["name"] for r in _c().execute("PRAGMA table_info(model_configs)")}
     if "role" not in mcols:
         _c().execute("ALTER TABLE model_configs ADD COLUMN role TEXT DEFAULT 'knowledge'")
+    ccols = {r["name"] for r in _c().execute("PRAGMA table_info(chat_log)")}
+    if "session_id" not in ccols:
+        _c().execute("ALTER TABLE chat_log ADD COLUMN session_id TEXT")
     for role in ("knowledge", "security"):
         rows = _c().execute(
             "SELECT id FROM model_configs WHERE role=? AND is_active=1 ORDER BY id", (role,)
@@ -336,15 +346,44 @@ def delete_submission(submission_id: int) -> None:
     _w("DELETE FROM pending_submissions WHERE id=?", (submission_id,))
 
 
-def insert_chat(question: str, answer: str, citations) -> None:
+def insert_chat(question: str, answer: str, citations, session_id: str | None = None) -> None:
     import json
 
-    _w("INSERT INTO chat_log(question,answer,citations) VALUES(?,?,?)",
-       (question, answer, json.dumps(citations, ensure_ascii=False)))
+    _w("INSERT INTO chat_log(question,answer,citations,session_id) VALUES(?,?,?,?)",
+       (question, answer, json.dumps(citations, ensure_ascii=False), session_id))
 
 
 def list_chat(limit: int = 50):
     return _r("SELECT * FROM chat_log ORDER BY id DESC LIMIT ?", (limit,))
+
+
+def ensure_session(session_id: str) -> None:
+    _w("INSERT OR IGNORE INTO chat_sessions(session_id) VALUES(?)", (session_id,))
+
+
+def adopt_session(session_id: str, entry_ids) -> None:
+    ensure_session(session_id)
+    for i in entry_ids:
+        _w("UPDATE chat_log SET session_id=? WHERE id=?", (session_id, i))
+
+
+def set_session_title(session_id: str, title: str) -> None:
+    ensure_session(session_id)
+    _w("UPDATE chat_sessions SET title=? WHERE session_id=?", (title, session_id))
+
+
+def set_session_pinned(session_id: str, pinned: bool) -> None:
+    ensure_session(session_id)
+    _w("UPDATE chat_sessions SET pinned=? WHERE session_id=?", (1 if pinned else 0, session_id))
+
+
+def delete_session(session_id: str) -> None:
+    _w("DELETE FROM chat_log WHERE session_id=?", (session_id,))
+    _w("DELETE FROM chat_sessions WHERE session_id=?", (session_id,))
+
+
+def list_sessions():
+    return _r("SELECT * FROM chat_sessions")
 
 
 def log_security(kind: str, detail: str) -> None:
