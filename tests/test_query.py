@@ -44,3 +44,14 @@ async def test_answer_redacts_pii_in_question(settings):
     chats = db.list_chat()
     assert "11010519491231002X" not in chats[0]["question"]
     assert any(e["kind"] == "query_redacted" for e in db.list_security())
+
+
+async def test_answer_redacts_email_and_mobile_in_question(settings):
+    db.upsert_page("projects/demo.md", "Demo", "Demo 项目介绍。")
+    provider = FakeProvider("根据 [[projects/demo.md|Demo]]：说明。")
+    await service.answer(settings, provider, "Demo 联系 user@example.com 或 13812345678")
+    sent = str(provider.calls)
+    assert "user@example.com" not in sent
+    assert "13812345678" not in sent
+    assert "[REDACTED:email]" in sent
+    assert "[REDACTED:mobile_phone_cn]" in sent

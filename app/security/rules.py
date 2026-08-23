@@ -83,6 +83,8 @@ RULES: list[tuple] = [
     ("jwt_token", r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b", "token"),
     ("private_key_block", r"-----BEGIN (?:[A-Z0-9 ]*)?PRIVATE KEY-----[\s\S]{20,2000}?-----END (?:[A-Z0-9 ]*)?PRIVATE KEY-----", "private_key"),
     ("db_connection_string", r"\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqp|clickhouse|oracle)://[^\s\"'`]+:[^\s\"'`@]+@[^\s\"'`]+", "connection_string"),
+    ("email", r"(?i)(?<![A-Z0-9.!#$%&'*+/=?^_`{|}~-])[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}(?![A-Z0-9-])", KIND_PII),
+    ("mobile_phone_cn", r"(?<!\d)1[3-9]\d{9}(?!\d)", KIND_PII),
     ("id_card", r"\b[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[0-9Xx]\b", "id_card", _id_card_valid),
     ("bank_card", r"\b\d{16,19}\b", "bank_card", _luhn_valid),
     ("recovery_code", r"\b[A-Z0-9]{4,6}(?:[ -][A-Z0-9]{4,6}){4,}\b", "recovery_code"),

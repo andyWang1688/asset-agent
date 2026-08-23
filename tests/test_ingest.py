@@ -62,6 +62,19 @@ async def test_ingest_secret_flow_with_confirmation(settings):
     assert all("Sup3rSecret!" not in json.dumps(c, ensure_ascii=False) for c in provider.calls)
 
 
+async def test_ingest_pii_enters_confirmation_gate(settings):
+    r = await receiver.ingest(
+        settings,
+        FakeCredentialStore(),
+        text="联系人 user@example.com，手机 13812345678。",
+        knowledge_provider_getter=lambda: FakeProvider(PLAN),
+    )
+    assert r["pending_confirmation"] is True
+    assert r["summary"]["pii"] == 2
+    assert {f["rule"] for f in r["findings"]} == {"email", "mobile_phone_cn"}
+    assert all(f["suggested_action"] == "redact" for f in r["findings"])
+
+
 async def test_ingest_duplicate(settings):
     creds = FakeCredentialStore()
     provider = FakeProvider(PLAN)

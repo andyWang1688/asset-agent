@@ -33,6 +33,32 @@ def test_kind_mapping_pii():
     assert findings and findings[0].kind == KIND_PII
 
 
+def test_email_detected_as_pii():
+    findings = scan_text("联系邮箱 user.name+alerts@example.com")
+    email = next(f for f in findings if f.rule == "email")
+    assert email.kind == KIND_PII
+    assert email.value == "user.name+alerts@example.com"
+
+
+def test_mobile_phone_detected_as_pii():
+    findings = scan_text("联系电话 13812345678")
+    mobile = next(f for f in findings if f.rule == "mobile_phone_cn")
+    assert mobile.kind == KIND_PII
+    assert mobile.value == "13812345678"
+
+
+def test_invalid_email_and_plain_long_digits_not_flagged_as_pii():
+    text = "无效邮箱 a..b@example.com，普通编号 12345678901，长数字 20260822123456789012"
+    assert not [f for f in scan_text(text) if f.kind == KIND_PII]
+
+
+def test_email_and_mobile_rules_can_be_disabled():
+    policy = default_policy()
+    policy["detection"]["builtin_rules"]["disabled"] = ["email", "mobile_phone_cn"]
+    findings = ScanEngine(policy).scan("联系 user@example.com 或 13812345678")
+    assert not [f for f in findings if f.rule in {"email", "mobile_phone_cn"}]
+
+
 def test_db_password_api_key_connection_string_detected():
     text = (
         "db password=Sup3rSecret!\n"
