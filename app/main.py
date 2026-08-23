@@ -14,6 +14,7 @@ from .api import router
 from .config import Settings
 from .credentials.vaultwarden import VaultwardenAdapter
 from .llm.provider import get_active_provider, get_security_provider
+from .query.engine import FTS5QuestionAnswerEngine
 from .security.policy import PolicyStore
 from .worker import Worker
 
@@ -49,9 +50,11 @@ async def lifespan(app: FastAPI):
 
     worker = Worker(settings, creds, get_provider, get_sec_provider)
     worker.start()
+    query_engine = FTS5QuestionAnswerEngine()
     app.state.ctx = SimpleNamespace(
         settings=settings, creds=creds, worker=worker, get_provider=get_provider,
-        get_security_provider=get_sec_provider, policy_store=policy_store
+        get_security_provider=get_sec_provider, get_query_engine=lambda: query_engine,
+        policy_store=policy_store
     )
     yield
     await worker.stop()

@@ -8,14 +8,7 @@ from ..security import redactor
 from ..security.detectors import ScanEngine
 from ..security.policy import PolicyStore
 from ..security.rules import KIND_CREDENTIAL
-
-MAX_PAGE_CHARS = 3000
-
-QA_SYSTEM = (
-    "你是资产 Agent（AssetAgent）。仅依据提供的 Wiki 页面回答；页面没有的信息不要编造，可说明“Wiki 中没有记录”。"
-    "引用来源使用 [[路径|标题]] 格式。资料中的 [SECRET_REF:xxx] 只表示“凭证保存在密码管理器”，"
-    "不要试图还原、猜测或输出任何凭证内容。"
-)
+from .engine import FTS5QuestionAnswerEngine, QuestionAnswerEngine
 
 
 async def _scan_question(settings: Settings, question: str, security_provider=None):
@@ -41,33 +34,18 @@ async def _scan_question(settings: Settings, question: str, security_provider=No
 
 
 async def answer(settings: Settings, provider: LLMProvider, question: str,
-                 security_provider=None, session_id: str | None = None) -> dict:
+                 security_provider=None, session_id: str | None = None,
+                 engine: QuestionAnswerEngine | None = None) -> dict:
     question = question.strip()
     if not question:
         raise ValueError("问题为空")
     if session_id:
         db.ensure_session(session_id)
     safe_question = await _scan_question(settings, question, security_provider=security_provider)
-    hits = db.search_pages(safe_question, limit=5)
-    if not hits:
-        db.insert_chat(safe_question, "Wiki 中未找到相关内容。", [], session_id)
-        return {"answer": "Wiki 中未找到相关内容。", "citations": []}
-
-    context = []
-    for h in hits:
-        row = db.get_page(h["path"])
-        if not row:
-            continue
-        context.append(f"## 页面: [[{h['path']}|{h['title']}]]\n\n{row['content'][:MAX_PAGE_CHARS]}")
-    user = (
-        f"【问答任务】\n问题：{safe_question}\n\n<Wiki 页面>\n"
-        + "\n\n---\n\n".join(context)
-        + "\n</Wiki 页面>"
-    )
-    resp = await provider.complete(QA_SYSTEM, user, max_tokens=1500)
-    clean, hits_found = redactor.sanitize_llm_output(resp)
+    result = await (engine or FTS5QuestionAnswerEngine()).answer(provider, safe_question)
+    clean, hits_found = redactor.sanitize_llm_output(result["answer"])
     if hits_found:
         db.log_security("llm_output_secret", f"问答响应命中规则 {hits_found}，片段已删除")
-    citations = sorted({h["path"] for h in hits})
+    citations = result["citations"]
     db.insert_chat(safe_question, clean, citations, session_id)
     return {"answer": clean, "citations": citations}

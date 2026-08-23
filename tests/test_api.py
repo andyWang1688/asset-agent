@@ -104,3 +104,59 @@ def test_api_flow(tmp_path, monkeypatch):
         # 安全事件
         events = client.get("/api/security/events").json()
         assert isinstance(events, list)
+
+def test_query_engine_is_replaceable(tmp_path, monkeypatch):
+    class FakeQueryEngine:
+        def __init__(self):
+            self.calls = []
+
+        async def answer(self, provider, question):
+            self.calls.append((provider, question))
+            return {"answer": "替身回答", "citations": ["fake.md"]}
+
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
+    monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
+    provider = FakeProvider("不应调用")
+    monkeypatch.setattr(main, "get_active_provider", lambda settings: provider)
+
+    engine = FakeQueryEngine()
+    with TestClient(main.app) as client:
+        main.app.state.ctx.get_query_engine = lambda: engine
+        response = client.post(
+            "/api/query", json={"question": "测试问题", "session_id": "session-1"}
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"answer": "替身回答", "citations": ["fake.md"]}
+    assert engine.calls[0][1] == "测试问题"
+    assert provider.calls == []
+
+
+def test_replacement_engine_stays_behind_security_gates(tmp_path, monkeypatch):
+    class FakeQueryEngine:
+        def __init__(self):
+            self.calls = []
+
+        async def answer(self, provider, question):
+            self.calls.append(question)
+            return {
+                "answer": "密码是 sk-proj-abcdEFGH12345678901234567890",
+                "citations": [],
+            }
+
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
+    monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
+    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider("不应调用"))
+
+    engine = FakeQueryEngine()
+    with TestClient(main.app) as client:
+        main.app.state.ctx.get_query_engine = lambda: engine
+        blocked = client.post("/api/query", json={"question": "password=Sup3rSecret! 是什么"})
+        sanitized = client.post("/api/query", json={"question": "Demo 联系 user@example.com"})
+
+    assert blocked.status_code == 400
+    assert len(engine.calls) == 1
+    assert "user@example.com" not in engine.calls[0]
+    assert "sk-proj" not in sanitized.json()["answer"]

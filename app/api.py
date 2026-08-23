@@ -262,6 +262,7 @@ async def query(request: Request, body: QueryBody):
         return await query_service.answer(
             ctx.settings, provider, body.question,
             security_provider=ctx.get_security_provider(), session_id=body.session_id,
+            engine=ctx.get_query_engine(),
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
