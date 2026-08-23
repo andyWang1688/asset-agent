@@ -132,6 +132,20 @@ export interface PolicyResp {
   yaml: string
 }
 
+export interface DetectionRule {
+  name: string
+  kind: string
+  enabled: boolean
+  validator?: string | null
+}
+
+export interface CustomRuleBody {
+  name: string
+  pattern: string
+  kind: string
+  validator?: string
+}
+
 export interface TestResult {
   ok: boolean
   reply?: string

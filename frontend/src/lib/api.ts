@@ -1,5 +1,7 @@
 import type {
   ChatEntry,
+  CustomRuleBody,
+  DetectionRule,
   Health,
   IngestResult,
   ModelBody,
@@ -94,6 +96,20 @@ export const api = {
 
   policy: () => request<PolicyResp>('/api/settings/policy'),
   savePolicy: (yaml: string) => request<{ ok: boolean; policy: unknown }>('/api/settings/policy', { method: 'POST', body: JSON.stringify({ yaml }) }),
+  builtinRules: () => request<{ rules: DetectionRule[] }>('/api/settings/policy/builtin-rules'),
+  setBuiltinRule: (name: string, enabled: boolean) =>
+    request<{ ok: boolean; rule: DetectionRule }>(`/api/settings/policy/builtin-rules/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+  customRules: () => request<{ rules: DetectionRule[]; validators: string[] }>('/api/settings/policy/custom-rules'),
+  addCustomRule: (body: CustomRuleBody) =>
+    request<{ ok: boolean; rule: DetectionRule }>('/api/settings/policy/custom-rules', { method: 'POST', body: JSON.stringify(body) }),
+  setCustomRule: (name: string, enabled: boolean) =>
+    request<{ ok: boolean; rule: DetectionRule }>(`/api/settings/policy/custom-rules/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
 
   securityEvents: () => request<SecurityEvent[]>('/api/security/events'),
 }

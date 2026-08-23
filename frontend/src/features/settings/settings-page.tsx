@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
@@ -19,8 +22,22 @@ import { useModels } from '@/hooks/use-models'
 import { api, errMsg } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { ModelRow, SecurityEvent } from '@/lib/types'
+import type { DetectionRule, ModelRow, SecurityEvent } from '@/lib/types'
 import { ModelSheet } from './model-sheet'
+
+const KIND_LABELS: Record<string, string> = {
+  credential: '凭证',
+  pii: '个人信息（PII）',
+  unknown_suspect: '疑似敏感信息',
+}
+
+const VALIDATOR_LABELS: Record<string, string> = {
+  id_card: '身份证校验',
+  luhn: 'Luhn 校验',
+}
+
+/** 去掉后端表单错误的字段路径前缀（detection.extra_rules[0].），保留友好信息 */
+const friendlyRuleError = (msg: string) => msg.replace(/^detection\.extra_rules\[\d+\]\./, '')
 
 function ModelCard({
   m,
@@ -95,6 +112,12 @@ export function SettingsPage() {
   const [editing, setEditing] = useState<ModelRow | null>(null)
   const [deleting, setDeleting] = useState<ModelRow | null>(null)
   const [events, setEvents] = useState<SecurityEvent[]>([])
+  const [builtinRules, setBuiltinRules] = useState<DetectionRule[]>([])
+  const [customRules, setCustomRules] = useState<DetectionRule[]>([])
+  const [validators, setValidators] = useState<string[]>([])
+  const [ruleForm, setRuleForm] = useState({ name: '', pattern: '', kind: 'pii', validator: '' })
+  const [ruleError, setRuleError] = useState('')
+  const [ruleSaving, setRuleSaving] = useState(false)
   const [policyOpen, setPolicyOpen] = useState(false)
   const [policyYaml, setPolicyYaml] = useState('')
   const [policyLoaded, setPolicyLoaded] = useState(false)
@@ -106,7 +129,11 @@ export function SettingsPage() {
   }
   useEffect(() => {
     loadEvents()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void Promise.all([api.builtinRules(), api.customRules()]).then(([builtins, custom]) => {
+      setBuiltinRules(builtins.rules)
+      setCustomRules(custom.rules)
+      setValidators(custom.validators)
+    }).catch(() => setRuleError('规则加载失败'))
   }, [])
 
   const loadPolicy = async () => {
@@ -120,6 +147,36 @@ export function SettingsPage() {
       setPolicyError(errMsg(e))
     }
   }
+
+  const toggleRule = async (rule: DetectionRule, builtin: boolean) => {
+    try {
+      const result = builtin ? await api.setBuiltinRule(rule.name, !rule.enabled) : await api.setCustomRule(rule.name, !rule.enabled)
+      const setter = builtin ? setBuiltinRules : setCustomRules
+      setter((rows) => rows.map((r) => (r.name === rule.name ? result.rule : r)))
+      toast.success(result.rule.enabled ? '规则已启用' : '规则已停用')
+    } catch (e) {
+      toast.error(errMsg(e))
+    }
+  }
+
+  const addRule = async () => {
+    setRuleError('')
+    if (!/^[a-z0-9_]{1,40}$/.test(ruleForm.name)) return setRuleError('名称须为 1–40 位小写字母、数字或下划线')
+    if (!ruleForm.pattern.trim()) return setRuleError('请输入匹配模式')
+    if (ruleForm.pattern.length > 300) return setRuleError('匹配模式长度不得超过 300 个字符')
+    setRuleSaving(true)
+    try {
+      const result = await api.addCustomRule({ ...ruleForm, validator: ruleForm.validator || undefined })
+      setCustomRules((rows) => [...rows, result.rule])
+      setRuleForm({ name: '', pattern: '', kind: 'pii', validator: '' })
+      toast.success('自定义规则已新增')
+    } catch (e) {
+      setRuleError(friendlyRuleError(errMsg(e)))
+    } finally {
+      setRuleSaving(false)
+    }
+  }
+
 
   const openSheet = (role: string, model: ModelRow | null) => {
     setEditing(model)
@@ -151,6 +208,36 @@ export function SettingsPage() {
 
       <div className="mt-7 max-w-[860px]">
         <div className="mb-4 overflow-hidden rounded-lg border border-border bg-surface shadow-panel [&>section+section]:border-t [&>section+section]:border-border">
+          <section>
+            <div className="border-b border-border px-[17px] py-4">
+              <h2 className="text-input font-semibold">检测规则</h2>
+              <p className="mt-1 text-caption text-muted">逐条启停内置规则，或新增受护栏约束的自定义规则；无需编辑 YAML。</p>
+            </div>
+            <div className="border-b border-border px-[17px] py-4">
+              <h3 className="mb-2.5 text-panel font-semibold">内置规则</h3>
+              <div className="divide-y divide-border rounded-md border border-border">
+                {builtinRules.map((rule) => (
+                  <div key={rule.name} className="flex items-center gap-3 px-3 py-2.5">
+                    <div className="min-w-0 flex-1"><strong className="text-caption font-medium">{rule.name}</strong><p className="text-meta text-muted">内置 · {KIND_LABELS[rule.kind] ?? rule.kind}</p></div>
+                    <span className="text-meta text-muted">{rule.enabled ? '已启用' : '已停用'}</span>
+                    <Switch checked={rule.enabled} onCheckedChange={() => void toggleRule(rule, true)} aria-label={`切换 ${rule.name}`} />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="border-b border-border px-[17px] py-4">
+              <div className="mb-2.5 flex items-center justify-between"><h3 className="text-panel font-semibold">自定义规则</h3><span className="text-meta text-muted">最多 20 条 · 模式最多 300 字符</span></div>
+              {customRules.length > 0 && <div className="mb-4 divide-y divide-border rounded-md border border-border">{customRules.map((rule) => <div key={rule.name} className="flex items-center gap-3 px-3 py-2.5"><div className="min-w-0 flex-1"><strong className="text-caption font-medium">{rule.name}</strong><p className="text-meta text-muted">自定义 · {KIND_LABELS[rule.kind] ?? rule.kind}{rule.validator ? ` · ${VALIDATOR_LABELS[rule.validator] ?? rule.validator}` : ''}</p></div><span className="text-meta text-muted">{rule.enabled ? '已启用' : '已停用'}</span><Switch checked={rule.enabled} onCheckedChange={() => void toggleRule(rule, false)} aria-label={`切换 ${rule.name}`} /></div>)}</div>}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Input placeholder="规则名称，如 employee_id" value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} />
+                <Input placeholder="正则匹配模式" value={ruleForm.pattern} onChange={(e) => setRuleForm({ ...ruleForm, pattern: e.target.value })} />
+                <Select value={ruleForm.kind} onValueChange={(kind) => setRuleForm({ ...ruleForm, kind })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select>
+                <Select value={ruleForm.validator || 'none'} onValueChange={(validator) => setRuleForm({ ...ruleForm, validator: validator === 'none' ? '' : validator })}><SelectTrigger><SelectValue placeholder="校验函数（可选）" /></SelectTrigger><SelectContent><SelectItem value="none">不使用校验函数</SelectItem>{validators.map((v) => <SelectItem key={v} value={v}>{VALIDATOR_LABELS[v] ?? v}</SelectItem>)}</SelectContent></Select>
+              </div>
+              <div className="mt-2.5 flex items-center gap-2.5"><Button variant="primary" size="sm" disabled={ruleSaving} onClick={() => void addRule()}>{ruleSaving ? '新增中…' : '新增规则'}</Button>{ruleError && <p className="text-caption text-danger">{ruleError}</p>}</div>
+            </div>
+          </section>
+
           <section>
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[17px] py-4">
               <div>
@@ -204,11 +291,12 @@ export function SettingsPage() {
             </div>
           </section>
 
+
           <section>
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[17px] py-4">
               <div>
                 <h2 className="text-input font-semibold">高级安全策略</h2>
-                <p className="mt-1 text-caption text-muted">编辑 config/policy.yaml；默认折叠。</p>
+                <p className="mt-1 text-caption text-muted">编辑 config/policy.yaml；默认折叠。检测规则的增删启停请用上方表单与开关。</p>
               </div>
               <Button
                 variant="compact"
@@ -251,6 +339,7 @@ export function SettingsPage() {
               </div>
             )}
           </section>
+
 
           <section>
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[17px] py-4">

@@ -38,9 +38,29 @@ def test_api_flow(tmp_path, monkeypatch):
         toggled = client.post(
             "/api/settings/policy/builtin-rules/email", json={"enabled": False}
         ).json()
-        assert toggled["rule"] == {"name": "email", "enabled": False}
+        assert toggled["rule"] == {"name": "email", "kind": "pii", "enabled": False}
         policy = client.get("/api/settings/policy").json()
         assert "email" in policy["policy"]["detection"]["builtin_rules"]["disabled"]
+
+        # 自定义规则表单 API：新增后立即生效，可逐条停用
+        created_rule = client.post(
+            "/api/settings/policy/custom-rules",
+            json={"name": "employee_id", "pattern": r"EMP-\d{6}", "kind": "pii"},
+        ).json()["rule"]
+        assert created_rule["enabled"] is True
+        assert "pattern" not in created_rule
+        custom = client.get("/api/settings/policy/custom-rules").json()
+        assert custom["rules"][0]["name"] == "employee_id"
+        assert custom["validators"] == ["id_card", "luhn"]
+        disabled = client.post(
+            "/api/settings/policy/custom-rules/employee_id", json={"enabled": False}
+        ).json()["rule"]
+        assert disabled["enabled"] is False
+        invalid = client.post(
+            "/api/settings/policy/custom-rules",
+            json={"name": "bad", "pattern": "a" * 301, "kind": "pii"},
+        )
+        assert invalid.status_code == 400 and "长度" in invalid.json()["detail"]
 
         # 模型配置页面化：保存 + 列表不泄露 key + 测试
         saved = client.post(
@@ -104,6 +124,7 @@ def test_api_flow(tmp_path, monkeypatch):
         # 安全事件
         events = client.get("/api/security/events").json()
         assert isinstance(events, list)
+
 
 def test_query_engine_is_replaceable(tmp_path, monkeypatch):
     class FakeQueryEngine:

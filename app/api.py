@@ -13,6 +13,7 @@ from .llm import provider as llm
 from .query import service as query_service
 from .security import submissions
 from .security.policy import PolicyStore
+from .security.rules import VALIDATORS
 from .wiki import compiler
 
 router = APIRouter()
@@ -39,6 +40,17 @@ class PolicyBody(BaseModel):
 
 
 class BuiltinRuleBody(BaseModel):
+    enabled: bool
+
+
+class CustomRuleBody(BaseModel):
+    name: str
+    pattern: str
+    kind: str
+    validator: str | None = None
+
+
+class CustomRuleToggleBody(BaseModel):
     enabled: bool
 
 
@@ -189,6 +201,31 @@ def set_builtin_rule(request: Request, rule_name: str, body: BuiltinRuleBody):
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     db.log_security("policy_updated", f"内置规则 {rule_name} 已{'启用' if body.enabled else '停用'}")
+    return {"ok": True, "rule": rule}
+
+
+@router.get("/api/settings/policy/custom-rules")
+def get_custom_rules(request: Request):
+    return {"rules": _policy_store(request).custom_rules(), "validators": sorted(VALIDATORS)}
+
+
+@router.post("/api/settings/policy/custom-rules")
+def add_custom_rule(request: Request, body: CustomRuleBody):
+    try:
+        rule = _policy_store(request).add_custom_rule(body.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.log_security("policy_updated", f"自定义规则 {rule['name']} 已新增并启用")
+    return {"ok": True, "rule": rule}
+
+
+@router.post("/api/settings/policy/custom-rules/{rule_name}")
+def set_custom_rule(request: Request, rule_name: str, body: CustomRuleToggleBody):
+    try:
+        rule = _policy_store(request).set_custom_rule(rule_name, body.enabled)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.log_security("policy_updated", f"自定义规则 {rule_name} 已{'启用' if body.enabled else '停用'}")
     return {"ok": True, "rule": rule}
 
 

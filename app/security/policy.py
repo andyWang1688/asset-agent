@@ -202,6 +202,10 @@ def validate_policy(data: object) -> dict:
         validator = rule.get("validator")
         if validator is not None and validator not in VALIDATORS:
             raise PolicyError(f"{p}.validator: 只能使用内置白名单 {sorted(VALIDATORS)}")
+        enabled = rule.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise PolicyError(f"{p}.enabled: 必须是布尔值")
+        rule["enabled"] = enabled
         try:
             compiled = regex.compile(pattern_s)
         except regex.error as e:
@@ -331,7 +335,10 @@ class PolicyStore:
     def builtin_rules(self) -> list[dict]:
         """返回内置规则逐条启停状态。状态来源于当前生效策略。"""
         disabled = set(self.load().get("detection", {}).get("builtin_rules", {}).get("disabled", []) or [])
-        return [{"name": name, "enabled": name not in disabled} for name in BUILTIN_RULE_NAMES]
+        from .rules import RULES, canonical_kind
+
+        kinds = {row[0]: canonical_kind(row[2]) for row in RULES}
+        return [{"name": name, "kind": kinds[name], "enabled": name not in disabled} for name in BUILTIN_RULE_NAMES]
 
     def set_builtin_rule(self, name: str, enabled: bool) -> dict:
         """切换单条内置规则，并通过策略校验后持久化到策略文件。"""
@@ -346,4 +353,42 @@ class PolicyStore:
         policy["detection"]["builtin_rules"]["disabled"] = disabled
         saved = validate_policy(policy)
         self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
-        return {"name": name, "enabled": name not in set(saved["detection"]["builtin_rules"]["disabled"])}
+        return next(rule for rule in self.builtin_rules() if rule["name"] == name)
+
+    def custom_rules(self) -> list[dict]:
+        """返回当前策略中的自定义规则（不返回正则源码，避免 UI 泄露配置内容）。"""
+        return [
+            {
+                "name": rule["name"],
+                "kind": rule["kind"],
+                "enabled": rule.get("enabled", True),
+                "validator": rule.get("validator"),
+                "confidence": rule.get("confidence", 0.9),
+            }
+            for rule in self.load().get("detection", {}).get("extra_rules", [])
+        ]
+
+    def add_custom_rule(self, rule: dict) -> dict:
+        """校验并追加一条自定义规则，返回不含 pattern 的安全摘要。"""
+        policy = self.load()
+        extra = list(policy["detection"].get("extra_rules", []) or [])
+        if any(r.get("name") == rule.get("name") for r in extra) or rule.get("name") in BUILTIN_RULE_NAMES:
+            raise PolicyError(f"规则名称已存在: {rule.get('name')}")
+        extra.append({**rule, "enabled": True})
+        policy["detection"]["extra_rules"] = extra
+        saved = validate_policy(policy)
+        self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
+        return self.custom_rules()[-1]
+
+    def set_custom_rule(self, name: str, enabled: bool) -> dict:
+        if not isinstance(enabled, bool):
+            raise PolicyError("enabled: 必须是布尔值")
+        policy = self.load()
+        extra = policy["detection"].get("extra_rules", []) or []
+        found = next((r for r in extra if r.get("name") == name), None)
+        if found is None:
+            raise PolicyError(f"未知自定义规则 {name}")
+        found["enabled"] = enabled
+        saved = validate_policy(policy)
+        self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
+        return next(r for r in self.custom_rules() if r["name"] == name)

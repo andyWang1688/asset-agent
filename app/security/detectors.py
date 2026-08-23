@@ -176,6 +176,8 @@ def build_rules(policy: dict) -> list[RuleSpec]:
         ckind = canonical_kind(kind)
         specs.append(RuleSpec(name, pattern, ckind, validator, _default_confidence(ckind, validator)))
     for ex in _policy_get(policy, "detection.extra_rules", []) or []:
+        if not ex.get("enabled", True):
+            continue
         validator = VALIDATORS.get(ex.get("validator")) if ex.get("validator") else None
         specs.append(
             RuleSpec(ex["name"], ex["pattern"], ex["kind"], validator, float(ex.get("confidence", 0.9)), extra=True)

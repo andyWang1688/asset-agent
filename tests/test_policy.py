@@ -31,7 +31,7 @@ def test_builtin_rule_toggle_persists_and_reports_status(tmp_path):
     before = {r["name"]: r["enabled"] for r in store.builtin_rules()}
     assert before["email"] is True
     result = store.set_builtin_rule("email", False)
-    assert result == {"name": "email", "enabled": False}
+    assert result == {"name": "email", "kind": "pii", "enabled": False}
     assert next(r for r in store.builtin_rules() if r["name"] == "email")["enabled"] is False
     reloaded = PolicyStore(store.path)
     assert next(r for r in reloaded.builtin_rules() if r["name"] == "email")["enabled"] is False
@@ -43,6 +43,33 @@ def test_builtin_rule_toggle_persists_and_reports_status(tmp_path):
 def test_builtin_rule_toggle_rejects_unknown(tmp_path):
     with pytest.raises(PolicyError, match="未知内置规则"):
         _store(tmp_path).set_builtin_rule("not_a_rule", False)
+
+
+def test_custom_rule_form_flow_persists_and_toggles(tmp_path):
+    store = _store(tmp_path)
+    created = store.add_custom_rule(
+        {"name": "employee_id", "pattern": r"EMP-\d{6}", "kind": "pii", "validator": None}
+    )
+    assert created == {
+        "name": "employee_id", "kind": "pii", "enabled": True,
+        "validator": None, "confidence": 0.9,
+    }
+    assert any(f.rule == "employee_id" for f in ScanEngine(store.load()).scan("编号 EMP-123456"))
+
+    store.set_custom_rule("employee_id", False)
+    reloaded = PolicyStore(store.path)
+    assert reloaded.custom_rules()[0]["enabled"] is False
+    assert not any(f.rule == "employee_id" for f in ScanEngine(reloaded.load()).scan("编号 EMP-123456"))
+
+
+def test_custom_rule_form_preserves_validation_guards(tmp_path):
+    store = _store(tmp_path)
+    with pytest.raises(PolicyError, match="长度"):
+        store.add_custom_rule({"name": "too_long", "pattern": "a" * 301, "kind": "pii"})
+    with pytest.raises(PolicyError, match="白名单"):
+        store.add_custom_rule(
+            {"name": "bad_validator", "pattern": r"\d+", "kind": "pii", "validator": "os.system"}
+        )
 
 
 def test_save_and_load_roundtrip(tmp_path):
