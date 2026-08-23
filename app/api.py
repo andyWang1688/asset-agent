@@ -38,6 +38,10 @@ class PolicyBody(BaseModel):
     yaml: str
 
 
+class BuiltinRuleBody(BaseModel):
+    enabled: bool
+
+
 def _ctx(request: Request):
     return request.app.state.ctx
 
@@ -171,6 +175,21 @@ def save_policy(request: Request, body: PolicyBody):
         raise HTTPException(400, "；".join(errors))
     db.log_security("policy_updated", "安全策略已更新并生效")
     return {"ok": True, "policy": policy}
+
+
+@router.get("/api/settings/policy/builtin-rules")
+def get_builtin_rules(request: Request):
+    return {"rules": _policy_store(request).builtin_rules()}
+
+
+@router.post("/api/settings/policy/builtin-rules/{rule_name}")
+def set_builtin_rule(request: Request, rule_name: str, body: BuiltinRuleBody):
+    try:
+        rule = _policy_store(request).set_builtin_rule(rule_name, body.enabled)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.log_security("policy_updated", f"内置规则 {rule_name} 已{'启用' if body.enabled else '停用'}")
+    return {"ok": True, "rule": rule}
 
 
 @router.get("/api/sources")

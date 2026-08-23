@@ -308,6 +308,10 @@ class PolicyStore:
         policy, errors = self.validate_yaml(raw_yaml)
         if errors:
             return policy, errors
+        self._write(policy, raw_yaml)
+        return policy, []
+
+    def _write(self, policy: dict, raw_yaml: str) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".yaml.tmp")
         tmp.write_text(raw_yaml, encoding="utf-8")
@@ -319,9 +323,27 @@ class PolicyStore:
             pass
         with self._lock:
             self._cache = deepcopy(policy)
-        return policy, []
 
     def dump(self) -> str:
         """当前生效策略的 YAML 文本（只读展示用，必不含秘密）。"""
         return yaml.safe_dump(self.load(), allow_unicode=True, sort_keys=False)
 
+    def builtin_rules(self) -> list[dict]:
+        """返回内置规则逐条启停状态。状态来源于当前生效策略。"""
+        disabled = set(self.load().get("detection", {}).get("builtin_rules", {}).get("disabled", []) or [])
+        return [{"name": name, "enabled": name not in disabled} for name in BUILTIN_RULE_NAMES]
+
+    def set_builtin_rule(self, name: str, enabled: bool) -> dict:
+        """切换单条内置规则，并通过策略校验后持久化到策略文件。"""
+        if name not in BUILTIN_RULE_NAMES:
+            raise PolicyError(f"未知内置规则 {name}")
+        if not isinstance(enabled, bool):
+            raise PolicyError("enabled: 必须是布尔值")
+        policy = self.load()
+        disabled = [n for n in policy["detection"]["builtin_rules"].get("disabled", []) if n != name]
+        if not enabled:
+            disabled.append(name)
+        policy["detection"]["builtin_rules"]["disabled"] = disabled
+        saved = validate_policy(policy)
+        self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
+        return {"name": name, "enabled": name not in set(saved["detection"]["builtin_rules"]["disabled"])}

@@ -32,6 +32,16 @@ def test_api_flow(tmp_path, monkeypatch):
         assert h["status"] == "ok"
         assert h["knowledge_model"] is True
 
+        # 内置规则逐条启停：立即生效且持久化到策略文件
+        rules = client.get("/api/settings/policy/builtin-rules").json()["rules"]
+        assert next(r for r in rules if r["name"] == "email")["enabled"] is True
+        toggled = client.post(
+            "/api/settings/policy/builtin-rules/email", json={"enabled": False}
+        ).json()
+        assert toggled["rule"] == {"name": "email", "enabled": False}
+        policy = client.get("/api/settings/policy").json()
+        assert "email" in policy["policy"]["detection"]["builtin_rules"]["disabled"]
+
         # 模型配置页面化：保存 + 列表不泄露 key + 测试
         saved = client.post(
             "/api/settings/models",

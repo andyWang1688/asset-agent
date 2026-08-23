@@ -3,6 +3,7 @@ import yaml
 
 import pytest
 
+from app.security.detectors import ScanEngine
 from app.security.policy import (
     DEFAULT_POLICY,
     PolicyError,
@@ -23,6 +24,25 @@ def test_default_policy_values():
     assert p["detection"]["entropy"]["min_length"] >= 8
     assert p["actions"]["defaults"]["pii"] == "redact"
     assert p["actions"]["defaults"]["credential"] == "store"
+
+
+def test_builtin_rule_toggle_persists_and_reports_status(tmp_path):
+    store = _store(tmp_path)
+    before = {r["name"]: r["enabled"] for r in store.builtin_rules()}
+    assert before["email"] is True
+    result = store.set_builtin_rule("email", False)
+    assert result == {"name": "email", "enabled": False}
+    assert next(r for r in store.builtin_rules() if r["name"] == "email")["enabled"] is False
+    reloaded = PolicyStore(store.path)
+    assert next(r for r in reloaded.builtin_rules() if r["name"] == "email")["enabled"] is False
+    assert not any(f.rule == "email" for f in ScanEngine(reloaded.load()).scan("user@example.com"))
+    assert reloaded.set_builtin_rule("email", True)["enabled"] is True
+    assert any(f.rule == "email" for f in ScanEngine(reloaded.load()).scan("user@example.com"))
+
+
+def test_builtin_rule_toggle_rejects_unknown(tmp_path):
+    with pytest.raises(PolicyError, match="未知内置规则"):
+        _store(tmp_path).set_builtin_rule("not_a_rule", False)
 
 
 def test_save_and_load_roundtrip(tmp_path):
