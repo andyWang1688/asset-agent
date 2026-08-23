@@ -113,7 +113,7 @@ scripts/cleanup_demo_data.sh --yes --vaultwarden # 同时删除 Vaultwarden 中�
 ```bash
 # 后端（使用项目 .venv，勿用全局 Python）
 uv venv --python 3.12 .venv && source .venv/bin/activate
-uv pip install -r requirements.txt
+uv sync --frozen
 python -m pytest                 # 单测/集成（Fake LLM / Fake bw）
 ALLOWED_ORIGINS=http://127.0.0.1:8000,http://127.0.0.1:5173 uvicorn app.main:app --reload   # http://127.0.0.1:8000
 
