@@ -16,6 +16,7 @@ from .credentials.vaultwarden import VaultwardenAdapter
 from .llm.provider import get_active_provider, get_security_provider
 from .query.embeddings import build_embedding_provider
 from .query.engine import FTS5QuestionAnswerEngine, VectorQuestionAnswerEngine
+from .query.hybrid import HybridQuestionAnswerEngine, build_reranker
 from .security.policy import PolicyStore
 from .worker import Worker
 
@@ -51,11 +52,15 @@ async def lifespan(app: FastAPI):
 
     worker = Worker(settings, creds, get_provider, get_sec_provider)
     worker.start()
-    query_engine = (
-        VectorQuestionAnswerEngine(settings, build_embedding_provider(settings))
-        if settings.query_engine == "vector"
-        else FTS5QuestionAnswerEngine()
-    )
+    if settings.query_engine == "hybrid":
+        embedder = build_embedding_provider(settings)
+        query_engine = HybridQuestionAnswerEngine(
+            settings, embedder, reranker=build_reranker(settings, embedder)
+        )
+    elif settings.query_engine == "vector":
+        query_engine = VectorQuestionAnswerEngine(settings, build_embedding_provider(settings))
+    else:
+        query_engine = FTS5QuestionAnswerEngine()
     app.state.ctx = SimpleNamespace(
         settings=settings, creds=creds, worker=worker, get_provider=get_provider,
         get_security_provider=get_sec_provider, get_query_engine=lambda: query_engine,

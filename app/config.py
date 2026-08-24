@@ -42,8 +42,10 @@ class Settings:
         self.queue_ttl_seconds = int(os.environ.get("QUEUE_TTL_SECONDS", str(7 * 24 * 3600)))
         self.queue_retry_seconds = int(os.environ.get("QUEUE_RETRY_SECONDS", "30"))
         self.policy_file = Path(os.environ.get("POLICY_FILE", str(self.data_dir / "config" / "policy.yaml")))
-        # FTS5/向量路径并存；向量与 embedding 均默认本地，可显式切换云端 embedding。
+        # FTS5/向量/混合三条检索路径并存；向量与 embedding 均默认本地，可显式切换云端 embedding。
         self.query_engine = os.environ.get("QUERY_ENGINE", "fts5").strip().lower()
+        # 混合引擎的重排器：local（默认精排）或 off（停用，退回纯召回）。
+        self.reranker = os.environ.get("RERANKER", "local").strip().lower()
         self.embedding_provider = os.environ.get("EMBEDDING_PROVIDER", "local").strip().lower()
         self.embedding_local_backend = os.environ.get("EMBEDDING_LOCAL_BACKEND", "hash").strip().lower()
         self.embedding_model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")

@@ -1,4 +1,4 @@
-"""问答引擎接口、FTS5 实现和可选的本地向量实现。"""
+"""问答引擎接口、FTS5 实现和可选的本地向量/混合检索实现。"""
 import asyncio
 from typing import Protocol
 
@@ -17,6 +17,37 @@ QA_SYSTEM = (
 
 class QuestionAnswerEngine(Protocol):
     async def answer(self, provider, question: str) -> dict: ...
+
+
+async def render_answer(provider, question: str, hits: list[dict]) -> dict:
+    """把召回到的页面组装成上下文并生成带来源引用（[[路径|标题]]）的回答。"""
+    context = []
+    citations = []
+    for hit in hits:
+        path = str(hit.get("path") or "")
+        if not path:
+            continue
+        title = str(hit.get("title") or path.rsplit("/", 1)[-1].removesuffix(".md"))
+        content = str(hit.get("content") or "")
+        if not content:
+            row = db.get_page(path)
+            if row:
+                title = str(row["title"] or title)
+                content = str(row["content"] or "")
+        if not content:
+            continue
+        context.append(f"## 页面: [[{path}|{title}]]\n\n{content[:MAX_PAGE_CHARS]}")
+        citations.append(path)
+    if not context:
+        return {"answer": "Wiki 中未找到相关内容。", "citations": []}
+
+    prompt = (
+        f"【问答任务】\n问题：{question}\n\n<Wiki 页面>\n"
+        + "\n\n---\n\n".join(context)
+        + "\n</Wiki 页面>"
+    )
+    response = await provider.complete(QA_SYSTEM, prompt, max_tokens=1500)
+    return {"answer": response, "citations": sorted(set(citations))}
 
 
 class FTS5QuestionAnswerEngine:
@@ -88,36 +119,7 @@ class VectorQuestionAnswerEngine:
             embedding_provider=self.embedding_provider,
             min_score=self.min_score,
         )
-        if not hits:
-            return {"answer": "Wiki 中未找到相关内容。", "citations": []}
-
-        context = []
-        citations = []
-        for hit in hits:
-            path = str(hit.get("path") or "")
-            if not path:
-                continue
-            title = str(hit.get("title") or path.rsplit("/", 1)[-1].removesuffix(".md"))
-            content = str(hit.get("content") or "")
-            if not content:
-                row = db.get_page(path)
-                if row:
-                    title = str(row["title"] or title)
-                    content = str(row["content"] or "")
-            if not content:
-                continue
-            context.append(f"## 页面: [[{path}|{title}]]\n\n{content[:MAX_PAGE_CHARS]}")
-            citations.append(path)
-        if not context:
-            return {"answer": "Wiki 中未找到相关内容。", "citations": []}
-
-        prompt = (
-            f"【问答任务】\n问题：{question}\n\n<Wiki 页面>\n"
-            + "\n\n---\n\n".join(context)
-            + "\n</Wiki 页面>"
-        )
-        response = await provider.complete(QA_SYSTEM, prompt, max_tokens=1500)
-        return {"answer": response, "citations": sorted(set(citations))}
+        return await render_answer(provider, question, hits)
 
 
 # Short aliases used by integrations that call the retrieval mode "vector".

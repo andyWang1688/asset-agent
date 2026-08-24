@@ -153,7 +153,8 @@ pnpm gen:api                    # 由 FastAPI OpenAPI 重新生成 src/lib/apiTy
 | `VAULTWARDEN_URL` | Vaultwarden 地址 |
 | `BW_EMAIL` / `BW_PASSWORD` | Vaultwarden 主密码登录（或 `BW_CLIENTID` / `BW_CLIENTSECRET` API Key 登录） |
 | `HTTP_TIMEOUT` `MAX_UPLOAD_MB` `QUEUE_TTL_SECONDS` `QUEUE_RETRY_SECONDS` | 模型超时 / 上传上限 / 队列 TTL / 重试周期 |
-| `QUERY_ENGINE` | `fts5`（默认）或显式 `vector`，用于并存切换问答检索实现 |
+| `QUERY_ENGINE` | `fts5`（默认）/ `vector` / `hybrid`（BM25 + 向量混合召回），并存切换问答检索实现 |
+| `RERANKER` | 混合引擎的重排器：`local`（默认精排）或 `off`（停用，退回纯召回） |
 | `EMBEDDING_PROVIDER` | `local`（默认）或显式 `cloud`；云端 embedding 不会因填写 URL/Key 自动启用 |
 | `EMBEDDING_LOCAL_BACKEND` | `hash`（默认，本地无依赖）/ `ollama` / 离线 `sentence-transformers` |
 | `EMBEDDING_MODEL` / `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | embedding 模型、端点与密钥（仅显式 cloud 时使用远程端点） |
