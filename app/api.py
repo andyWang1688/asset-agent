@@ -10,7 +10,7 @@ from . import crypto, db
 from .credentials.base import CredentialError
 from .ingest import receiver
 from .llm import provider as llm
-from .query import model_download, retrieval, retrieval_config, service as query_service
+from .query import model_download, rebuild, retrieval, retrieval_config, service as query_service
 from .security import submissions
 from .security.policy import PolicyStore
 from .security.rules import VALIDATORS
@@ -607,12 +607,13 @@ def save_retrieval(request: Request, body: RetrievalConfigBody):
         api_key_enc,
     )
     new_signature = retrieval_config.embedding_signature(ctx.settings)
-    index_invalidated = False
+    rebuild_triggered = False
     if new_signature != old_signature and retrieval.has_index(ctx.settings):
-        # 向量不兼容的配置变更：删除派生索引（下次问答自动重建，不做手动选项）。
-        retrieval.delete(ctx.settings)
-        index_invalidated = True
-    return {"ok": True, "index_invalidated": index_invalidated, "config": _retrieval_view(request)}
+        # 向量不兼容的配置变更：后台自动重建索引（不做手动选项）。
+        # 重建先写 staging 再原子换名，期间旧索引继续服务，问答行为不变。
+        rebuild.manager.start(ctx.settings, retrieval_config.page_config())
+        rebuild_triggered = True
+    return {"ok": True, "rebuild_triggered": rebuild_triggered, "config": _retrieval_view(request)}
 
 
 @router.post("/api/settings/retrieval/test")
@@ -654,9 +655,14 @@ async def test_retrieval(request: Request, body: RetrievalConfigBody):
 
 
 @router.delete("/api/settings/retrieval")
-def reset_retrieval():
+def reset_retrieval(request: Request):
     """清除页面配置，恢复环境变量语义（环境变量继续有效）。"""
+    ctx = _ctx(request)
+    old_signature = retrieval_config.embedding_signature(ctx.settings)
     db.delete_retrieval_config()
+    if old_signature != retrieval_config.embedding_signature(ctx.settings) and retrieval.has_index(ctx.settings):
+        # 恢复环境变量语义同样可能导致向量不兼容：与保存同一重建语义。
+        rebuild.manager.start(ctx.settings, None)
     return {"ok": True}
 
 
@@ -686,6 +692,12 @@ def model_download_status(request: Request, model: str):
     """查询下载进度：状态（queued/downloading/done/failed/unknown）+ 百分比 + 字节/文件计数。"""
     ctx = _ctx(request)
     return model_download.manager.status_view(model, ctx.settings.data_dir)
+
+
+@router.get("/api/settings/retrieval/rebuild/status")
+def retrieval_rebuild_status():
+    """查询索引重建进度：状态（idle/queued/running/done/failed）+ 页面数 + 错误。"""
+    return rebuild.manager.status()
 
 
 @router.get("/api/security/events")

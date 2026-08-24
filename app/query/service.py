@@ -56,4 +56,8 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
         db.log_security("llm_output_secret", f"问答响应命中规则 {hits_found}，片段已删除")
     citations = result["citations"]
     db.insert_chat(safe_question, clean, citations, session_id)
-    return {"answer": clean, "citations": citations}
+    return {
+        "answer": clean,
+        "citations": citations,
+        "semantic_retrieval_enabled": bool(result.get("semantic_retrieval_enabled", True)),
+    }

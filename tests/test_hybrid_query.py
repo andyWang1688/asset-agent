@@ -140,6 +140,7 @@ async def test_hybrid_engine_keeps_contract_citations_and_security_gates(setting
     assert result == {
         "answer": "根据 [[projects/safe.md|安全页面]]：可以申请报销。",
         "citations": ["projects/safe.md"],
+        "semantic_retrieval_enabled": True,
     }
     sent = json.dumps(provider.calls, ensure_ascii=False)
     assert "user@example.com" not in sent
@@ -152,7 +153,7 @@ async def test_hybrid_engine_empty_index_does_not_call_knowledge_model(settings)
     provider = FakeProvider("不应调用")
     engine = hybrid.HybridQuestionAnswerEngine(settings, ConceptEmbedding(), auto_build=False)
     result = await engine.answer(provider, "任意问题")
-    assert result == {"answer": "Wiki 中未找到相关内容。", "citations": []}
+    assert result == {"answer": "Wiki 中未找到相关内容。", "citations": [], "semantic_retrieval_enabled": False}
     assert provider.calls == []
 
 
@@ -239,7 +240,11 @@ def test_hybrid_engine_selected_by_config(tmp_path, monkeypatch):
         response = client.post("/api/query", json={"question": "测试问题"})
 
     assert response.status_code == 200
-    assert response.json() == {"answer": "Wiki 中未找到相关内容。", "citations": []}
+    assert response.json() == {
+        "answer": "Wiki 中未找到相关内容。",
+        "citations": [],
+        "semantic_retrieval_enabled": False,
+    }
 
 
 def test_default_engine_is_hybrid(tmp_path, monkeypatch):
@@ -250,3 +255,52 @@ def test_default_engine_is_hybrid(tmp_path, monkeypatch):
 
     with TestClient(main.app) as client:
         assert isinstance(main.app.state.ctx.get_query_engine(), hybrid.HybridQuestionAnswerEngine)
+
+
+class BrokenEmbedding(ConceptEmbedding):
+    """模型被移除/损坏的替身：任何 embedding 调用都抛错（夹具模拟，不加载真实模型）。"""
+
+    def _get_text_embedding(self, text: str) -> list[float]:
+        raise OSError("model weights missing")
+
+    def _get_query_embedding(self, query: str) -> list[float]:
+        raise OSError("model weights missing")
+
+    async def _aget_text_embedding(self, text: str) -> list[float]:
+        raise OSError("model weights missing")
+
+    async def _aget_query_embedding(self, query: str) -> list[float]:
+        raise OSError("model weights missing")
+
+
+async def test_answer_degrades_to_keyword_when_model_broken(settings):
+    """模型损坏后提问：纯关键词召回 + 降级标志，不报错（索引已建、查询时 embedding 失败）。"""
+    _write_corpus(settings)
+    retrieval.build(settings, ConceptEmbedding())
+    engine = hybrid.HybridQuestionAnswerEngine(settings, embed_model=BrokenEmbedding(), limit=3, auto_build=False)
+    provider = FakeProvider("回答")
+
+    result = await engine.answer(provider, "订单缓存", history=None)
+
+    assert result["semantic_retrieval_enabled"] is False
+    assert "concepts/orders.md" in result["citations"]
+    assert provider.calls  # 关键词召回命中后仍进入知识库模型渲染
+
+
+async def test_service_answer_degrades_when_index_build_fails(settings, monkeypatch):
+    """模型被移除、索引无法构建：service 层同样降级为关键词召回 + 标志，不抛错。"""
+    (settings.wiki_dir / "projects" / "demo.md").write_text(
+        "# Demo\nDemo 项目介绍，包含订单服务。", encoding="utf-8"
+    )
+    from app.query import hybrid as hybrid_mod
+    from app.query import retrieval as retrieval_mod
+
+    broken = BrokenEmbedding()
+    monkeypatch.setattr(hybrid_mod, "build_embedding_provider", lambda s: broken)
+    monkeypatch.setattr(retrieval_mod, "build_embedding_provider", lambda s: broken)
+    provider = FakeProvider("根据 [[projects/demo.md|Demo]]：说明。")
+
+    result = await service.answer(settings, provider, "订单服务是什么")
+
+    assert result["semantic_retrieval_enabled"] is False
+    assert result["citations"] == ["projects/demo.md"]

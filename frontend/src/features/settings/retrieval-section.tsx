@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api, errMsg } from '@/lib/api'
-import type { RetrievalConfigBody, RetrievalConfigView } from '@/lib/types'
+import type { RebuildStatus, RetrievalConfigBody, RetrievalConfigView } from '@/lib/types'
 
 const PROVIDER_LABELS: Record<string, string> = {
   'sentence-transformers': '本地 sentence-transformers',
@@ -33,6 +33,7 @@ export function RetrievalSection() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<string>('')
+  const [rebuild, setRebuild] = useState<RebuildStatus | null>(null)
 
   const load = async () => {
     try {
@@ -100,13 +101,40 @@ export function RetrievalSection() {
     setTestResult('')
     try {
       const r = await api.saveRetrievalConfig(b)
-      toast.success(r.index_invalidated ? '已保存；索引已自动重建，正在更新检索。' : '检索配置已保存')
+      if (r.rebuild_triggered) {
+        toast.success('已保存；索引正在后台重建，重建期间旧索引继续服务。')
+        void pollRebuild()
+      } else {
+        toast.success('检索配置已保存')
+      }
       await load()
     } catch (e) {
       setTestResult(errMsg(e))
     } finally {
       setSaving(false)
     }
+  }
+
+  /** 轮询索引重建状态直到完成/失败；期间显示进行中提示。 */
+  const pollRebuild = async () => {
+    const tick = async () => {
+      try {
+        const s = await api.retrievalRebuildStatus()
+        setRebuild(s)
+        if (s.status === 'done') {
+          toast.success('索引重建完成')
+          return
+        }
+        if (s.status === 'failed') {
+          toast.error('索引重建失败：' + (s.error || '未知错误'))
+          return
+        }
+      } catch {
+        return
+      }
+      window.setTimeout(() => void tick(), 1500)
+    }
+    void tick()
   }
 
   const test = async () => {
@@ -280,7 +308,13 @@ export function RetrievalSection() {
           </Button>
           {testResult && <p className="text-caption">{testResult}</p>}
         </div>
-        <p className="text-meta text-muted">保存后立即生效：embedding 与重排模型变更会触发索引自动重建。</p>
+        {rebuild && (rebuild.status === 'queued' || rebuild.status === 'running') && (
+          <p className="text-meta text-muted">索引重建中（{rebuild.pages > 0 ? `${rebuild.pages} 页` : '进行中'}）…旧索引继续服务。</p>
+        )}
+        {rebuild && rebuild.status === 'failed' && (
+          <p className="text-meta text-danger">索引重建失败：{rebuild.error || '未知错误'}。修正模型后可重新保存触发重建。</p>
+        )}
+        <p className="text-meta text-muted">保存后立即生效：embedding 变更会触发索引自动重建，重建期间旧索引继续服务。</p>
       </div>
     </section>
   )

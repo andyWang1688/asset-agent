@@ -13,7 +13,7 @@ import asyncio
 from llama_index.core.llms import MockLLM
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
-from llama_index.core.schema import NodeWithScore, QueryBundle
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 from llama_index.retrievers.bm25 import BM25Retriever
 
@@ -147,34 +147,76 @@ class HybridQuestionAnswerEngine:
         if self.auto_build and not retrieval.has_index(self.settings):
             await asyncio.to_thread(retrieval.build, self.settings, self._embedding())
 
-    def retrieve(self, question: str) -> list[dict]:
-        index = retrieval.load_index(self.settings, self._embedding())
-        if index is None or not index.docstore.docs:
+    def _keyword_only(self, question: str) -> list[dict]:
+        """纯关键词召回兜底：embedding 不可用时直接从 Markdown 事实源做 BM25 召回。"""
+        from . import index as file_index
+
+        nodes = [
+            TextNode(
+                text=f"{page['title']}\n{page['content']}",
+                metadata={"path": page["path"], "title": page["title"]},
+            )
+            for page in file_index._pages(self.settings)
+        ]
+        if not nodes:
             return []
-        vector_retriever = index.as_retriever(similarity_top_k=self.limit)
-        bm25_retriever = NonZeroBM25Retriever.from_defaults(
-            docstore=index.docstore,
+        bm25 = NonZeroBM25Retriever.from_defaults(
+            nodes=nodes,
             similarity_top_k=self.limit,
             token_pattern=retrieval.BM25_TOKEN_PATTERN,
         )
-        fusion = QueryFusionRetriever(
-            [vector_retriever, bm25_retriever],
-            llm=MockLLM(),
-            similarity_top_k=self.limit,
-            mode=FUSION_MODES.RECIPROCAL_RANK,
-            num_queries=1,
-            use_async=False,
-        )
-        nodes = fusion.retrieve(QueryBundle(question))
-        reranker = self._resolve_reranker() if nodes else None
-        if nodes and reranker is not None:
-            nodes = reranker.postprocess_nodes(nodes, QueryBundle(question))
-        return [hit for hit in nodes_to_hits(nodes) if hit["score"] >= self.min_score]
+        return [hit for hit in nodes_to_hits(bm25.retrieve(QueryBundle(question))) if hit["score"] >= self.min_score]
+
+    def _retrieve(self, question: str) -> tuple[list[dict], bool]:
+        """混合召回，返回 (hits, degraded)。
+
+        向量支路不可用（索引缺失/损坏、模型被移除）时降级为纯关键词召回并标记
+        ``degraded=True``，不抛错、不拒绝提问。
+        """
+        try:
+            index = retrieval.load_index(self.settings, self._embedding())
+            if index is None:
+                return self._keyword_only(question), True
+            if not index.docstore.docs:
+                return [], False  # 空语料：不是降级
+        except Exception:
+            return self._keyword_only(question), True
+        try:
+            vector_retriever = index.as_retriever(similarity_top_k=self.limit)
+            bm25_retriever = NonZeroBM25Retriever.from_defaults(
+                docstore=index.docstore,
+                similarity_top_k=self.limit,
+                token_pattern=retrieval.BM25_TOKEN_PATTERN,
+            )
+            fusion = QueryFusionRetriever(
+                [vector_retriever, bm25_retriever],
+                llm=MockLLM(),
+                similarity_top_k=self.limit,
+                mode=FUSION_MODES.RECIPROCAL_RANK,
+                num_queries=1,
+                use_async=False,
+            )
+            nodes = fusion.retrieve(QueryBundle(question))
+            reranker = self._resolve_reranker() if nodes else None
+            if nodes and reranker is not None:
+                nodes = reranker.postprocess_nodes(nodes, QueryBundle(question))
+            return [hit for hit in nodes_to_hits(nodes) if hit["score"] >= self.min_score], False
+        except Exception:
+            return self._keyword_only(question), True
+
+    def retrieve(self, question: str) -> list[dict]:
+        return self._retrieve(question)[0]
 
     async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict:
-        await self._ensure_index()
-        hits = await asyncio.to_thread(self.retrieve, question)
-        return await render_answer(provider, question, hits, history=history)
+        degraded = False
+        try:
+            await self._ensure_index()
+        except Exception:
+            degraded = True  # 索引无法自动构建：仍走关键词兜底，不拒绝提问
+        hits, retrieve_degraded = await asyncio.to_thread(self._retrieve, question)
+        result = await render_answer(provider, question, hits, history=history)
+        result["semantic_retrieval_enabled"] = not (degraded or retrieve_degraded)
+        return result
 
 
 # Short aliases used by integrations that call the retrieval mode "hybrid".

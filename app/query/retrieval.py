@@ -49,14 +49,19 @@ def _documents(settings) -> list[Document]:
     return docs
 
 
-def build(settings, embed_model=None, provider=None) -> dict:
-    """从 Markdown 全量重建 LlamaIndex 向量索引并持久化到本地目录。"""
+def build(settings, embed_model=None, provider=None, staging: Path | None = None) -> dict:
+    """从 Markdown 全量重建 LlamaIndex 向量索引并持久化到本地目录。
+
+    ``staging`` 给定临时目录时索引先建到该目录（由调用方完成后原子换名），
+    正式目录在整个重建期间保持旧索引可读（重建期间旧索引继续服务）。
+    """
     embedder = embed_model or provider or build_embedding_provider(settings)
     docs = _documents(settings)
-    target = index_dir(settings)
+    target = staging or index_dir(settings)
     shutil.rmtree(target, ignore_errors=True)
     if not docs:
         # 空语料：目录即空索引，不触发 embedding。
+        target.mkdir(parents=True, exist_ok=True)
         return {"path": str(target), "pages": 0, "embedding": _embedding_name(embedder), "local": True}
     storage = StorageContext.from_defaults()
     index = VectorStoreIndex.from_documents(

@@ -67,6 +67,7 @@ export interface IngestResult {
 export interface QueryResult {
   answer: string
   citations: string[]
+  semantic_retrieval_enabled?: boolean
 }
 
 export interface ChatEntry {
@@ -180,4 +181,13 @@ export interface RetrievalTestResult {
   ok: boolean
   dimension?: number
   error?: string
+}
+
+export interface RebuildStatus {
+  status: 'idle' | 'queued' | 'running' | 'done' | 'failed'
+  pages: number
+  embedding: string
+  error: string
+  started_at: number | null
+  finished_at: number | null
 }

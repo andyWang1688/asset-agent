@@ -26,6 +26,13 @@ export function MessageList({ messages, asking }: { messages: ChatMessage[]; ask
               {m.pending ? <span>思考中…</span> : <Markdown content={m.a ?? ''} onWikiLink={openWikiDoc} />}
             </div>
           </div>
+          {!m.pending && m.semantic === false && (
+            <div className="flex justify-start">
+              <span className="rounded-sm border border-warn bg-warn-soft px-2 py-0.5 font-mono text-meta text-warn">
+                语义召回未启用：本次结果来自关键词匹配
+              </span>
+            </div>
+          )}
           {m.cites && m.cites.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-meta text-muted">引用</span>

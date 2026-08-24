@@ -149,7 +149,7 @@ def test_query_engine_is_replaceable(tmp_path, monkeypatch):
         )
 
     assert response.status_code == 200
-    assert response.json() == {"answer": "替身回答", "citations": ["fake.md"]}
+    assert response.json() == {"answer": "替身回答", "citations": ["fake.md"], "semantic_retrieval_enabled": True}
     assert engine.calls[0][1] == "测试问题"
     assert provider.calls == []
 

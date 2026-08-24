@@ -1,6 +1,7 @@
 """检索配置持久化 + API（issue #14）：页面写入优先、Key 加密不回显、测试端点、环境变量兼容。"""
 
 import json
+import time
 
 from fastapi.testclient import TestClient
 
@@ -168,7 +169,7 @@ def test_page_reranker_off_wins_over_env(settings, monkeypatch):
     assert hybrid.build_reranker(settings) is None
 
 
-def test_index_invalidated_only_on_incompatible_change(tmp_path, monkeypatch):
+def test_rebuild_triggered_only_on_incompatible_change(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as client:
         settings = main.app.state.ctx.settings
         idx = retrieval.index_dir(settings)
@@ -177,11 +178,28 @@ def test_index_invalidated_only_on_incompatible_change(tmp_path, monkeypatch):
         assert retrieval.has_index(settings)
 
         first = client.post("/api/settings/retrieval", json=_local_body(model="BAAI/bge-small-zh-v1.5"))
-        # 与 env 默认同签名：不删索引
-        assert first.json()["index_invalidated"] is False
+        # 与 env 默认同签名：不触发重建
+        assert first.json()["rebuild_triggered"] is False
+        assert retrieval.has_index(settings)
+
+        rerank_only = client.post(
+            "/api/settings/retrieval",
+            json=_local_body(model="BAAI/bge-small-zh-v1.5", reranker_enabled=False),
+        )
+        # 纯文案类变更（仅重排开关）：嵌入签名不变，不触发重建
+        assert rerank_only.json()["rebuild_triggered"] is False
         assert retrieval.has_index(settings)
 
         changed = client.post("/api/settings/retrieval", json=_local_body(model="BAAI/bge-large-zh-v1.5"))
-        # 模型变更：向量不兼容，删除派生索引（下次问答自动重建）
-        assert changed.json()["index_invalidated"] is True
-        assert not retrieval.has_index(settings)
+        # 模型变更：向量不兼容，自动触发后台重建（旧索引重建期间继续服务）
+        assert changed.json()["rebuild_triggered"] is True
+
+        deadline = time.time() + 10
+        status = None
+        while time.time() < deadline:
+            status = client.get("/api/settings/retrieval/rebuild/status").json()
+            if status["status"] in {"done", "failed"}:
+                break
+            time.sleep(0.05)
+        assert status is not None and status["status"] == "done"
+        assert status["pages"] == 0

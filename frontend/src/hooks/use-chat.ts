@@ -5,6 +5,8 @@ export interface ChatMessage {
   q: string
   a?: string
   cites?: string[]
+  /** 语义召回是否启用；false 表示本次回答降级为纯关键词召回 */
+  semantic?: boolean
   pending?: boolean
   error?: string
 }
@@ -26,7 +28,12 @@ export function useChat() {
         const r = await api.query(question, sid)
         setMessages((prev) => {
           const next = [...prev]
-          next[next.length - 1] = { q: question, a: r.answer, cites: r.citations || [] }
+          next[next.length - 1] = {
+            q: question,
+            a: r.answer,
+            cites: r.citations || [],
+            semantic: r.semantic_retrieval_enabled ?? true,
+          }
           return next
         })
         return null

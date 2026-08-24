@@ -10,6 +10,7 @@ import type {
   PolicyResp,
   Preset,
   QueryResult,
+  RebuildStatus,
   RetrievalConfigBody,
   RetrievalConfigView,
   RetrievalTestResult,
@@ -99,10 +100,11 @@ export const api = {
 
   retrievalConfig: () => request<RetrievalConfigView>('/api/settings/retrieval'),
   saveRetrievalConfig: (body: RetrievalConfigBody) =>
-    request<{ ok: boolean; index_invalidated: boolean; config: RetrievalConfigView }>('/api/settings/retrieval', {
+    request<{ ok: boolean; rebuild_triggered: boolean; config: RetrievalConfigView }>('/api/settings/retrieval', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  retrievalRebuildStatus: () => request<RebuildStatus>('/api/settings/retrieval/rebuild/status'),
   testRetrieval: (body: RetrievalConfigBody) =>
     request<RetrievalTestResult>('/api/settings/retrieval/test', {
       method: 'POST',
