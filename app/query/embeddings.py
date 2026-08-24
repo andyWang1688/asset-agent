@@ -11,6 +11,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import socket
+from pathlib import Path
 from typing import ClassVar
 from urllib.parse import urlsplit
 
@@ -26,6 +27,21 @@ DEFAULT_LOCAL_MODEL = "BAAI/bge-small-zh-v1.5"
 def _hf_cache_dir() -> str:
     """HF 模型缓存目录：复用 huggingface_hub 标准缓存（与手动预下载同目录）。"""
     return os.environ.get("HF_HOME") or str(HF_HUB_CACHE)
+
+
+def local_snapshot(settings, model: str) -> str | None:
+    """已下载到数据目录持久卷（``<DATA_DIR>/models/hf/<repo_id>``）的模型快照；不存在返回 None。
+
+    下载服务把权重落在持久卷上：容器重建后 HF 缓存为空，但该目录仍在；
+    装配本地 embedding 模型时优先用它，避免重复下载（容器重建不丢模型）。
+    """
+    try:
+        path = Path(settings.data_dir) / "models" / "hf" / str(model)
+        if (path / "config.json").is_file():
+            return str(path)
+    except Exception:
+        pass
+    return None
 
 
 class EmbeddingError(RuntimeError):
@@ -166,6 +182,10 @@ def build_embedding_provider(settings, provider: str | None = None):
 
     backend = str(_setting(settings, "embedding_local_backend", default="sentence-transformers")).strip().lower()
     if backend in {"sentence-transformers", "sentence_transformers", "st"}:
+        snapshot = local_snapshot(settings, model)
+        if snapshot:
+            # 已下载到持久卷的模型：直接加载本地快照，不再依赖 HF 缓存或网络。
+            return LazyHuggingFaceEmbedding(model_name=snapshot, model_kwargs={"local_files_only": True})
         local_only = bool(_setting(settings, "embedding_local_only", default=True))
         return LazyHuggingFaceEmbedding(
             model_name=model,

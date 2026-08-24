@@ -18,7 +18,7 @@ from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 from llama_index.retrievers.bm25 import BM25Retriever
 
 from . import retrieval
-from .embeddings import EmbeddingError, build_embedding_provider
+from .embeddings import EmbeddingError, build_embedding_provider, local_snapshot
 from .engine import render_answer
 
 DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-base"
@@ -85,6 +85,14 @@ def build_reranker(settings, mode: str | None = None, *, top_n: int = 5):
         return None
     if selected == "local":
         model = str(page_model or getattr(settings, "reranker_model", None) or DEFAULT_RERANK_MODEL)
+        snapshot = local_snapshot(settings, model)
+        if snapshot:
+            # 已下载到持久卷的重排模型：直接加载本地快照，不再联网。
+            return SentenceTransformerRerank(
+                model=snapshot,
+                top_n=int(top_n),
+                cross_encoder_kwargs={"local_files_only": True},
+            )
         local_only = bool(getattr(settings, "embedding_local_only", True))
         return SentenceTransformerRerank(
             model=model,

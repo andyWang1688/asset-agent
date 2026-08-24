@@ -11,6 +11,7 @@ from .. import crypto, db
 from ..config import Settings
 from .embeddings import EmbeddingError, _hf_cache_dir
 from .embeddings import LazyHuggingFaceEmbedding, OpenAIEmbedding, OllamaEmbedding, validate_local_endpoint
+from .embeddings import local_snapshot
 
 PROVIDER_ST = "sentence-transformers"
 PROVIDER_OLLAMA = "ollama"
@@ -121,6 +122,9 @@ def build_page_embedder(settings: Settings, page: dict | None):
             raise EmbeddingError(error)
         return OllamaEmbedding(model_name=page["model"], base_url=base_url)
     # sentence-transformers：本地权重，沿用 EMBEDDING_LOCAL_ONLY 的离线/在线语义
+    snapshot = local_snapshot(settings, page["model"])
+    if snapshot:
+        return LazyHuggingFaceEmbedding(model_name=snapshot, model_kwargs={"local_files_only": True})
     local_only = bool(getattr(settings, "embedding_local_only", True))
     return LazyHuggingFaceEmbedding(
         model_name=page["model"],
@@ -142,6 +146,9 @@ def build_test_embedder(settings: Settings, *, provider: str, model: str, base_u
             raise EmbeddingError(error)
         return OllamaEmbedding(model_name=model, base_url=url)
     # 测试允许首次下载：缺权重时联网拉到 HF 缓存（持久卷），下载失败回友好错误。
+    snapshot = local_snapshot(settings, model)
+    if snapshot:
+        return LazyHuggingFaceEmbedding(model_name=snapshot, model_kwargs={"local_files_only": True})
     return LazyHuggingFaceEmbedding(
         model_name=model,
         cache_folder=_hf_cache_dir(),

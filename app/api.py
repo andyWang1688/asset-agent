@@ -10,7 +10,7 @@ from . import crypto, db
 from .credentials.base import CredentialError
 from .ingest import receiver
 from .llm import provider as llm
-from .query import retrieval, retrieval_config, service as query_service
+from .query import model_download, retrieval, retrieval_config, service as query_service
 from .security import submissions
 from .security.policy import PolicyStore
 from .security.rules import VALIDATORS
@@ -62,6 +62,11 @@ class RetrievalConfigBody(BaseModel):
     cloud_base_url: str = ""
     cloud_api_key: str = ""
     cloud_ack: bool = False
+
+
+class ModelDownloadBody(BaseModel):
+    provider: str = retrieval_config.PROVIDER_ST
+    model: str
 
 
 def _ctx(request: Request):
@@ -653,6 +658,34 @@ def reset_retrieval():
     """清除页面配置，恢复环境变量语义（环境变量继续有效）。"""
     db.delete_retrieval_config()
     return {"ok": True}
+
+
+# ---- 模型下载服务（检索配置）：HF 模型 ID → 数据目录持久卷，后台线程 + 进度查询 ----
+
+@router.post("/api/settings/retrieval/download")
+def start_model_download(request: Request, body: ModelDownloadBody):
+    """启动模型下载（幂等）。仅 sentence-transformers 路线需要下载 HF 权重；
+    Ollama 指引 `ollama pull`，云端无需下载。返回任务快照，不等待完成。"""
+    ctx = _ctx(request)
+    if body.provider == retrieval_config.PROVIDER_OLLAMA:
+        raise HTTPException(400, "Ollama 路线无需走模型下载：请在 Ollama 中执行 `ollama pull <模型名>` 拉取。")
+    if body.provider == retrieval_config.PROVIDER_CLOUD:
+        raise HTTPException(400, "云端模型无需下载。")
+    if body.provider != retrieval_config.PROVIDER_ST:
+        raise HTTPException(400, f"后端路线必须是 {retrieval_config.PROVIDERS} 之一")
+    model = body.model.strip()
+    error = model_download.validate_model_id(model)
+    if error:
+        raise HTTPException(400, error)
+    job, started = model_download.manager.start(model, ctx.settings.data_dir)
+    return {"ok": True, "started": started, "download": job.snapshot()}
+
+
+@router.get("/api/settings/retrieval/download/status")
+def model_download_status(request: Request, model: str):
+    """查询下载进度：状态（queued/downloading/done/failed/unknown）+ 百分比 + 字节/文件计数。"""
+    ctx = _ctx(request)
+    return model_download.manager.status_view(model, ctx.settings.data_dir)
 
 
 @router.get("/api/security/events")
