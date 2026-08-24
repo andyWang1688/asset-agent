@@ -211,3 +211,27 @@ def test_hybrid_engine_selected_by_config(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"answer": "Wiki 中未找到相关内容。", "citations": []}
+
+
+def test_default_engine_is_hybrid(tmp_path, monkeypatch):
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
+    monkeypatch.delenv("QUERY_ENGINE", raising=False)
+    monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
+    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider("回答"))
+
+    with TestClient(main.app) as client:
+        assert isinstance(main.app.state.ctx.get_query_engine(), hybrid.HybridQuestionAnswerEngine)
+
+
+def test_engine_rollback_to_fts5_by_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
+    monkeypatch.setenv("QUERY_ENGINE", "fts5")
+    monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
+    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider("回答"))
+
+    with TestClient(main.app) as client:
+        from app.query.engine import FTS5QuestionAnswerEngine
+
+        assert isinstance(main.app.state.ctx.get_query_engine(), FTS5QuestionAnswerEngine)
