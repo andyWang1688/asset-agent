@@ -116,7 +116,7 @@ class HybridQuestionAnswerEngine:
         if self.auto_build and not vector.has_index(self.settings):
             await asyncio.to_thread(vector.rebuild, self.settings, self.embedding_provider)
 
-    async def answer(self, provider, question: str) -> dict:
+    async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict:
         await self._ensure_index()
         hits = await asyncio.to_thread(
             recall,
@@ -128,7 +128,7 @@ class HybridQuestionAnswerEngine:
         )
         if hits and self.reranker is not None:
             hits = await asyncio.to_thread(self.reranker, question, hits)
-        return await render_answer(provider, question, hits)
+        return await render_answer(provider, question, hits, history=history)
 
 
 # Short aliases used by integrations that call the retrieval mode "hybrid".

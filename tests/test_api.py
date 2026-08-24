@@ -131,8 +131,8 @@ def test_query_engine_is_replaceable(tmp_path, monkeypatch):
         def __init__(self):
             self.calls = []
 
-        async def answer(self, provider, question):
-            self.calls.append((provider, question))
+        async def answer(self, provider, question, history=None):
+            self.calls.append((provider, question, history))
             return {"answer": "替身回答", "citations": ["fake.md"]}
 
     monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
@@ -159,7 +159,7 @@ def test_replacement_engine_stays_behind_security_gates(tmp_path, monkeypatch):
         def __init__(self):
             self.calls = []
 
-        async def answer(self, provider, question):
+        async def answer(self, provider, question, history=None):
             self.calls.append(question)
             return {
                 "answer": "密码是 sk-proj-abcdEFGH12345678901234567890",

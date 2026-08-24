@@ -357,6 +357,17 @@ def list_chat(limit: int = 50):
     return _r("SELECT * FROM chat_log ORDER BY id DESC LIMIT ?", (limit,))
 
 
+def list_chat_history(session_id: str, limit: int) -> list:
+    """会话最近 limit 轮问答（按时间升序），供每次请求水合对话记忆。
+    chat_log 是对话历史唯一持久化事实源；本函数只读、不写入任何存储。"""
+    return _r(
+        "SELECT id, question, answer FROM ("
+        "SELECT id, question, answer FROM chat_log WHERE session_id=? "
+        "ORDER BY id DESC LIMIT ?) ORDER BY id ASC",
+        (session_id, limit),
+    )
+
+
 def ensure_session(session_id: str) -> None:
     _w("INSERT OR IGNORE INTO chat_sessions(session_id) VALUES(?)", (session_id,))
 

@@ -155,6 +155,7 @@ pnpm gen:api                    # 由 FastAPI OpenAPI 重新生成 src/lib/apiTy
 | `HTTP_TIMEOUT` `MAX_UPLOAD_MB` `QUEUE_TTL_SECONDS` `QUEUE_RETRY_SECONDS` | 模型超时 / 上传上限 / 队列 TTL / 重试周期 |
 | `QUERY_ENGINE` | `fts5`（默认）/ `vector` / `hybrid`（BM25 + 向量混合召回），并存切换问答检索实现 |
 | `RERANKER` | 混合引擎的重排器：`local`（默认精排）或 `off`（停用，退回纯召回） |
+| `CHAT_MEMORY_ROUNDS` | 每次提问从 chat_log 水合的最近问答轮数（默认 6；`0` 关闭记忆） |
 | `EMBEDDING_PROVIDER` | `local`（默认）或显式 `cloud`；云端 embedding 不会因填写 URL/Key 自动启用 |
 | `EMBEDDING_LOCAL_BACKEND` | `hash`（默认，本地无依赖）/ `ollama` / 离线 `sentence-transformers` |
 | `EMBEDDING_MODEL` / `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | embedding 模型、端点与密钥（仅显式 cloud 时使用远程端点） |

@@ -16,10 +16,21 @@ QA_SYSTEM = (
 
 
 class QuestionAnswerEngine(Protocol):
-    async def answer(self, provider, question: str) -> dict: ...
+    async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict: ...
 
 
-async def render_answer(provider, question: str, hits: list[dict]) -> dict:
+def history_block(history: list[dict] | None) -> str:
+    """把水合出的历史问答轮组装进提示词；历史只来自 chat_log，此处不持久化。"""
+    if not history:
+        return ""
+    lines = []
+    for entry in history:
+        lines.append(f"用户：{entry['question']}")
+        lines.append(f"助手：{entry['answer']}")
+    return "<对话历史>\n" + "\n".join(lines) + "\n</对话历史>"
+
+
+async def render_answer(provider, question: str, hits: list[dict], history: list[dict] | None = None) -> dict:
     """把召回到的页面组装成上下文并生成带来源引用（[[路径|标题]]）的回答。"""
     context = []
     citations = []
@@ -41,11 +52,11 @@ async def render_answer(provider, question: str, hits: list[dict]) -> dict:
     if not context:
         return {"answer": "Wiki 中未找到相关内容。", "citations": []}
 
-    prompt = (
-        f"【问答任务】\n问题：{question}\n\n<Wiki 页面>\n"
-        + "\n\n---\n\n".join(context)
-        + "\n</Wiki 页面>"
-    )
+    memory = history_block(history)
+    prompt = f"【问答任务】\n问题：{question}\n"
+    if memory:
+        prompt += "\n" + memory + "\n"
+    prompt += "\n<Wiki 页面>\n" + "\n\n---\n\n".join(context) + "\n</Wiki 页面>"
     response = await provider.complete(QA_SYSTEM, prompt, max_tokens=1500)
     return {"answer": response, "citations": sorted(set(citations))}
 
@@ -53,7 +64,7 @@ async def render_answer(provider, question: str, hits: list[dict]) -> dict:
 class FTS5QuestionAnswerEngine:
     """现有 FTS5 检索与回答生成实现。"""
 
-    async def answer(self, provider, question: str) -> dict:
+    async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict:
         hits = db.search_pages(question, limit=5)
         if not hits:
             return {"answer": "Wiki 中未找到相关内容。", "citations": []}
@@ -66,11 +77,11 @@ class FTS5QuestionAnswerEngine:
                     f"## 页面: [[{hit['path']}|{hit['title']}]]\n\n"
                     f"{row['content'][:MAX_PAGE_CHARS]}"
                 )
-        prompt = (
-            f"【问答任务】\n问题：{question}\n\n<Wiki 页面>\n"
-            + "\n\n---\n\n".join(context)
-            + "\n</Wiki 页面>"
-        )
+        prompt = f"【问答任务】\n问题：{question}\n"
+        memory = history_block(history)
+        if memory:
+            prompt += "\n" + memory + "\n"
+        prompt += "\n<Wiki 页面>\n" + "\n\n---\n\n".join(context) + "\n</Wiki 页面>"
         response = await provider.complete(QA_SYSTEM, prompt, max_tokens=1500)
         return {"answer": response, "citations": sorted({hit["path"] for hit in hits})}
 
@@ -109,7 +120,7 @@ class VectorQuestionAnswerEngine:
                 self.embedding_provider,
             )
 
-    async def answer(self, provider, question: str) -> dict:
+    async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict:
         await self._ensure_index()
         hits = await asyncio.to_thread(
             vector.search,
@@ -119,7 +130,7 @@ class VectorQuestionAnswerEngine:
             embedding_provider=self.embedding_provider,
             min_score=self.min_score,
         )
-        return await render_answer(provider, question, hits)
+        return await render_answer(provider, question, hits, history=history)
 
 
 # Short aliases used by integrations that call the retrieval mode "vector".

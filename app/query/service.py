@@ -42,7 +42,12 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
     if session_id:
         db.ensure_session(session_id)
     safe_question = await _scan_question(settings, question, security_provider=security_provider)
-    result = await (engine or FTS5QuestionAnswerEngine()).answer(provider, safe_question)
+    # 对话记忆：每次请求从 chat_log 水合最近 N 轮问答（唯一持久化事实源），
+    # 窗口裁剪只取最近 chat_memory_rounds 轮，记忆组件自身不做任何持久化。
+    history = []
+    if session_id and settings.chat_memory_rounds > 0:
+        history = db.list_chat_history(session_id, settings.chat_memory_rounds)
+    result = await (engine or FTS5QuestionAnswerEngine()).answer(provider, safe_question, history=history)
     clean, hits_found = redactor.sanitize_llm_output(result["answer"])
     if hits_found:
         db.log_security("llm_output_secret", f"问答响应命中规则 {hits_found}，片段已删除")

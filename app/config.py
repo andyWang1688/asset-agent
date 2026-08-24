@@ -46,6 +46,8 @@ class Settings:
         self.query_engine = os.environ.get("QUERY_ENGINE", "fts5").strip().lower()
         # 混合引擎的重排器：local（默认精排）或 off（停用，退回纯召回）。
         self.reranker = os.environ.get("RERANKER", "local").strip().lower()
+        # 对话记忆：每次提问从 chat_log 水合的最近轮数；<=0 关闭记忆。
+        self.chat_memory_rounds = int(os.environ.get("CHAT_MEMORY_ROUNDS", "6"))
         self.embedding_provider = os.environ.get("EMBEDDING_PROVIDER", "local").strip().lower()
         self.embedding_local_backend = os.environ.get("EMBEDDING_LOCAL_BACKEND", "hash").strip().lower()
         self.embedding_model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
