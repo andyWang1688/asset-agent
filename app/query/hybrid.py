@@ -71,11 +71,20 @@ def recall(
 
 def build_reranker(settings, mode: str | None = None, *, top_n: int = 5):
     """按配置装配 LlamaIndex 重排器；``off`` 停用（退回纯召回），``local`` 用本地 cross-encoder。"""
+    page_model = None
+    if mode is None:
+        from . import retrieval_config
+
+        page = retrieval_config.page_config()
+        if page is not None:
+            # 页面配置优先：reranker_enabled=false 即 off；否则用页面重排模型。
+            mode = "local" if page["reranker_enabled"] else "off"
+            page_model = page["reranker_model"] or None
     selected = str(mode if mode is not None else getattr(settings, "reranker", "off")).strip().lower()
     if selected in {"off", "none", "false", ""}:
         return None
     if selected == "local":
-        model = str(getattr(settings, "reranker_model", None) or DEFAULT_RERANK_MODEL)
+        model = str(page_model or getattr(settings, "reranker_model", None) or DEFAULT_RERANK_MODEL)
         local_only = bool(getattr(settings, "embedding_local_only", True))
         return SentenceTransformerRerank(
             model=model,
@@ -109,20 +118,21 @@ class HybridQuestionAnswerEngine:
         self._reranker = reranker
         # 显式构造（含测试）不重排；仅 app 装配的引擎按 settings 惰性装配重排器。
         self._use_settings_reranker = reranker_from_settings and reranker is None
-        self._reranker_resolved = reranker is not None
         self.limit = limit
         self.min_score = min_score
         self.auto_build = auto_build
 
     def _embedding(self):
         if self._embed_model is None:
-            self._embed_model = build_embedding_provider(self.settings)
+            # 页面检索配置可运行时变更：未显式注入时每次按当前配置装配
+            # （构造廉价，权重惰性加载），不缓存旧配置。
+            return build_embedding_provider(self.settings)
         return self._embed_model
 
     def _resolve_reranker(self):
-        if self._use_settings_reranker and not self._reranker_resolved:
-            self._reranker = build_reranker(self.settings, top_n=self.limit)
-            self._reranker_resolved = True
+        if self._use_settings_reranker:
+            # 同上：按当前配置实时装配，不用启动时快照。
+            return build_reranker(self.settings, top_n=self.limit)
         return self._reranker
 
     async def _ensure_index(self) -> None:

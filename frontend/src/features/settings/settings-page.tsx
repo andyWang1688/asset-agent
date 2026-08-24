@@ -24,6 +24,7 @@ import { fmtTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { DetectionRule, ModelRow, SecurityEvent } from '@/lib/types'
 import { ModelSheet } from './model-sheet'
+import { RetrievalSection } from './retrieval-section'
 
 const KIND_LABELS: Record<string, string> = {
   credential: '凭证',
@@ -291,6 +292,7 @@ export function SettingsPage() {
             </div>
           </section>
 
+          <RetrievalSection />
 
           <section>
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[17px] py-4">

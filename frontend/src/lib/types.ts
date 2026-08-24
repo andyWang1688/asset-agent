@@ -150,3 +150,34 @@ export interface TestResult {
   reply?: string
   error?: string
 }
+
+export interface RetrievalConfigView {
+  configured: boolean
+  source: 'page' | 'env'
+  provider: 'sentence-transformers' | 'ollama' | 'cloud'
+  model: string
+  reranker_enabled: boolean
+  reranker_model: string
+  cloud_base_url: string
+  cloud_api_key_set: boolean
+  recommended: {
+    embeddings: Record<string, string[]>
+    rerankers: string[]
+  }
+}
+
+export interface RetrievalConfigBody {
+  provider: 'sentence-transformers' | 'ollama' | 'cloud'
+  model: string
+  reranker_enabled: boolean
+  reranker_model: string
+  cloud_base_url: string
+  cloud_api_key: string
+  cloud_ack: boolean
+}
+
+export interface RetrievalTestResult {
+  ok: boolean
+  dimension?: number
+  error?: string
+}

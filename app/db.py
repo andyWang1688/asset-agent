@@ -82,6 +82,16 @@ CREATE TABLE IF NOT EXISTS model_configs (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 );
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS retrieval_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  reranker_enabled INTEGER NOT NULL DEFAULT 1,
+  reranker_model TEXT NOT NULL DEFAULT '',
+  cloud_base_url TEXT NOT NULL DEFAULT '',
+  cloud_api_key_enc TEXT NOT NULL DEFAULT '',
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+);
 CREATE TABLE IF NOT EXISTS pages_data (
   id INTEGER PRIMARY KEY,
   path TEXT UNIQUE,
@@ -453,4 +463,26 @@ def list_pages():
 def get_page(path: str):
     return _r1("SELECT * FROM pages_data WHERE path=?", (path,))
 
+
+# ---- 检索配置（问答子系统）：页面写入优先于环境变量 ----
+
+def get_retrieval_config():
+    return _r1("SELECT * FROM retrieval_config WHERE id=1")
+
+
+def save_retrieval_config(provider: str, model: str, reranker_enabled: int, reranker_model: str,
+                          cloud_base_url: str, cloud_api_key_enc: str) -> None:
+    _w(
+        """INSERT INTO retrieval_config(id,provider,model,reranker_enabled,reranker_model,cloud_base_url,cloud_api_key_enc,updated_at)
+           VALUES(1,?,?,?,?,?,?,datetime('now','localtime'))
+           ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, model=excluded.model,
+             reranker_enabled=excluded.reranker_enabled, reranker_model=excluded.reranker_model,
+             cloud_base_url=excluded.cloud_base_url, cloud_api_key_enc=excluded.cloud_api_key_enc,
+             updated_at=excluded.updated_at""",
+        (provider, model, reranker_enabled, reranker_model, cloud_base_url, cloud_api_key_enc),
+    )
+
+
+def delete_retrieval_config() -> None:
+    _w("DELETE FROM retrieval_config WHERE id=1")
 

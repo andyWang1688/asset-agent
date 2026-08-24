@@ -136,7 +136,14 @@ def build_embedding_provider(settings, provider: str | None = None):
 
     ``local`` is the fail-safe default.  A cloud provider is selected only by
     an explicit provider value; supplying a remote URL/key alone does nothing.
+    页面保存的检索配置优先于环境变量（未页面配置时行为与旧版完全一致）。
     """
+    if provider is None:
+        from . import retrieval_config
+
+        page = retrieval_config.page_config()
+        if page is not None:
+            return retrieval_config.build_page_embedder(settings, page)
     selected = str(
         provider
         or _setting(settings, "embedding_provider", "embedding_backend", default="local")

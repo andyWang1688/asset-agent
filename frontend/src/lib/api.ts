@@ -10,6 +10,9 @@ import type {
   PolicyResp,
   Preset,
   QueryResult,
+  RetrievalConfigBody,
+  RetrievalConfigView,
+  RetrievalTestResult,
   SecurityEvent,
   SubmissionView,
   TaskRow,
@@ -93,6 +96,19 @@ export const api = {
   activateModel: (id: number) => request<{ ok: boolean }>(`/api/settings/models/${id}/activate`, { method: 'POST' }),
   testModel: (id: number) => request<TestResult>(`/api/settings/models/${id}/test`, { method: 'POST' }),
   deleteModel: (id: number) => request<{ ok: boolean }>(`/api/settings/models/${id}`, { method: 'DELETE' }),
+
+  retrievalConfig: () => request<RetrievalConfigView>('/api/settings/retrieval'),
+  saveRetrievalConfig: (body: RetrievalConfigBody) =>
+    request<{ ok: boolean; index_invalidated: boolean; config: RetrievalConfigView }>('/api/settings/retrieval', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  testRetrieval: (body: RetrievalConfigBody) =>
+    request<RetrievalTestResult>('/api/settings/retrieval/test', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  resetRetrieval: () => request<{ ok: boolean }>('/api/settings/retrieval', { method: 'DELETE' }),
 
   policy: () => request<PolicyResp>('/api/settings/policy'),
   savePolicy: (yaml: string) => request<{ ok: boolean; policy: unknown }>('/api/settings/policy', { method: 'POST', body: JSON.stringify({ yaml }) }),

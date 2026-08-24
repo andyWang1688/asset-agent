@@ -10,7 +10,7 @@ from . import crypto, db
 from .credentials.base import CredentialError
 from .ingest import receiver
 from .llm import provider as llm
-from .query import service as query_service
+from .query import retrieval, retrieval_config, service as query_service
 from .security import submissions
 from .security.policy import PolicyStore
 from .security.rules import VALIDATORS
@@ -52,6 +52,16 @@ class CustomRuleBody(BaseModel):
 
 class CustomRuleToggleBody(BaseModel):
     enabled: bool
+
+
+class RetrievalConfigBody(BaseModel):
+    provider: str = retrieval_config.PROVIDER_ST
+    model: str
+    reranker_enabled: bool = True
+    reranker_model: str = ""
+    cloud_base_url: str = ""
+    cloud_api_key: str = ""
+    cloud_ack: bool = False
 
 
 def _ctx(request: Request):
@@ -516,6 +526,132 @@ def delete_model(cfg_id: int):
     if not db.get_model_config(cfg_id):
         raise HTTPException(404, "配置不存在")
     db.delete_model_config(cfg_id)
+    return {"ok": True}
+
+
+# ---- 检索配置（问答子系统）：单实例单配置，页面写入优先于环境变量 ----
+
+def _retrieval_view(request: Request) -> dict:
+    """返回当前生效配置的只读视图：API Key 只给 set 布尔值，不回显。"""
+    from .query.hybrid import DEFAULT_RERANK_MODEL
+
+    ctx = _ctx(request)
+    page = retrieval_config.page_config()
+    if page is not None:
+        return {
+            "configured": True,
+            "source": "page",
+            "provider": page["provider"],
+            "model": page["model"],
+            "reranker_enabled": page["reranker_enabled"],
+            "reranker_model": page["reranker_model"],
+            "cloud_base_url": page["cloud_base_url"],
+            "cloud_api_key_set": bool(page["cloud_api_key_enc"]),
+            "recommended": {
+                "embeddings": retrieval_config.RECOMMENDED_EMBEDDINGS,
+                "rerankers": retrieval_config.RECOMMENDED_RERANKERS,
+            },
+        }
+    env = retrieval_config.env_signature(ctx.settings)
+    return {
+        "configured": False,
+        "source": "env",
+        "provider": env["provider"],
+        "model": env["model"],
+        "reranker_enabled": str(getattr(ctx.settings, "reranker", "local")).strip().lower() not in {"off", "none", "false", ""},
+        "reranker_model": str(getattr(ctx.settings, "reranker_model", "") or DEFAULT_RERANK_MODEL),
+        "cloud_base_url": env.get("cloud_base_url", ""),
+        "cloud_api_key_set": bool(env.get("api_key")),
+        "recommended": {
+            "embeddings": retrieval_config.RECOMMENDED_EMBEDDINGS,
+            "rerankers": retrieval_config.RECOMMENDED_RERANKERS,
+        },
+    }
+
+@router.get("/api/settings/retrieval")
+def get_retrieval(request: Request):
+    return _retrieval_view(request)
+
+
+@router.post("/api/settings/retrieval")
+def save_retrieval(request: Request, body: RetrievalConfigBody):
+    ctx = _ctx(request)
+    if body.provider not in retrieval_config.PROVIDERS:
+        raise HTTPException(400, f"后端路线必须是 {retrieval_config.PROVIDERS} 之一")
+    model = body.model.strip()
+    if not model:
+        raise HTTPException(400, "模型名不能为空")
+    if body.provider == retrieval_config.PROVIDER_CLOUD:
+        if not body.cloud_base_url.strip():
+            raise HTTPException(400, "云端路线必须填写 API 地址")
+        if not body.cloud_ack:
+            raise HTTPException(400, "云端路线需勾选确认：知识库内容将发送到该端点")
+    # API Key：仅云端路线加密存储；留空保持不变，禁止明文落库。
+    api_key_enc = ""
+    if body.provider == retrieval_config.PROVIDER_CLOUD:
+        old = retrieval_config.page_config()
+        if body.cloud_api_key:
+            api_key_enc = crypto.seal(ctx.settings.local_key(), body.cloud_api_key.encode())
+        elif old is not None:
+            api_key_enc = old["cloud_api_key_enc"]
+
+    old_signature = retrieval_config.embedding_signature(ctx.settings)
+    db.save_retrieval_config(
+        body.provider, model, 1 if body.reranker_enabled else 0, body.reranker_model.strip(),
+        body.cloud_base_url.strip() if body.provider == retrieval_config.PROVIDER_CLOUD else "",
+        api_key_enc,
+    )
+    new_signature = retrieval_config.embedding_signature(ctx.settings)
+    index_invalidated = False
+    if new_signature != old_signature and retrieval.has_index(ctx.settings):
+        # 向量不兼容的配置变更：删除派生索引（下次问答自动重建，不做手动选项）。
+        retrieval.delete(ctx.settings)
+        index_invalidated = True
+    return {"ok": True, "index_invalidated": index_invalidated, "config": _retrieval_view(request)}
+
+
+@router.post("/api/settings/retrieval/test")
+async def test_retrieval(request: Request, body: RetrievalConfigBody):
+    """测试端点：嵌一段固定文本并返回维度；不可用时返回友好错误（不抛 HTTP 异常）。"""
+    import asyncio
+
+    from .query.embeddings import EmbeddingError
+
+    ctx = _ctx(request)
+    if body.provider not in retrieval_config.PROVIDERS:
+        return {"ok": False, "error": f"后端路线必须是 {retrieval_config.PROVIDERS} 之一"}
+    if not body.model.strip():
+        return {"ok": False, "error": "模型名不能为空"}
+    api_key = body.cloud_api_key
+    if not api_key:
+        page = retrieval_config.page_config()
+        if page is not None and page["cloud_api_key_enc"]:
+            try:
+                api_key = crypto.open_sealed(ctx.settings.local_key(), page["cloud_api_key_enc"]).decode("utf-8")
+            except Exception:
+                api_key = ""
+    try:
+        embedder = retrieval_config.build_test_embedder(
+            ctx.settings, provider=body.provider, model=body.model.strip(),
+            base_url=body.cloud_base_url, api_key=api_key,
+        )
+        vector = await asyncio.wait_for(
+            asyncio.to_thread(embedder.get_text_embedding, "资产检索连通性测试"),
+            timeout=ctx.settings.embedding_timeout,
+        )
+    except EmbeddingError as e:
+        return {"ok": False, "error": str(e)}
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "测试超时：模型加载或请求超过限制，请检查网络后重试"}
+    except Exception as e:
+        return {"ok": False, "error": retrieval_config.friendly_error(body.provider, e)}
+    return {"ok": True, "dimension": len(vector)}
+
+
+@router.delete("/api/settings/retrieval")
+def reset_retrieval():
+    """清除页面配置，恢复环境变量语义（环境变量继续有效）。"""
+    db.delete_retrieval_config()
     return {"ok": True}
 
 
