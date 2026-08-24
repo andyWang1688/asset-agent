@@ -21,7 +21,13 @@ RUN set -eu \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# pystemmer（BM25 依赖）在 ARM64 无预编译轮子，需临时 gcc 源码编译，装完即删
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && uv sync --frozen --no-dev --no-install-project \
+    && apt-get remove -y gcc libc6-dev \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/app/.venv/bin:$PATH"
 
