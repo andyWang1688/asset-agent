@@ -229,6 +229,11 @@ def rebuild_index(settings: Settings) -> None:
     from ..query import index as query_index
 
     query_index.build(settings)
+    # 向量模式与 FTS5 并存；仅在显式启用时构建 embedding，默认本地执行。
+    if getattr(settings, "query_engine", "fts5") == "vector":
+        from ..query import vector as vector_index
+
+        vector_index.build(settings)
 
 
 def append_log(settings: Settings, source_id: int, changes: list[str], conflicts: list[dict]) -> None:

@@ -13,7 +13,7 @@
               自然语言问答 ◀── RAG ── Wiki ◀── 后台 Worker 编译（云端模型只见脱敏文本）
 ```
 
-- 单用户、本机 Web + Docker；无多用户、无公网暴露、无密码原文读取、无向量库
+- 单用户、本机 Web + Docker；无多用户、无公网暴露、无密码原文读取；向量索引为本地可删除的文件级派生物
 - **安全不变量**：秘密原文不进入 LLM 请求/响应、Wiki、对话记录、日志
 - 模型在「设置」页按角色配置（DeepSeek / GLM / OpenAI / Claude / 通义 / Kimi / 任意 OpenAI 兼容端点），换模型不改代码：
   - **知识库（knowledge，必配）**：统一负责 Wiki 编译与知识问答；未配置/未激活时禁止提交编译任务、禁止发起问答（fail-closed，UI 明确提示）；每角色至多激活一个
@@ -63,7 +63,7 @@ workspace/
 │   ├── index.md / log.md
 │   └── concepts|entities|projects|sources|analyses/
 ├── schema/AGENTS.md    # Wiki 维护规则（也作为编译系统提示词）
-└── .asset-assistant/   # SQLite（派生索引，可删库从 Markdown 重建）+ config/policy.yaml（安全策略）
+└── .asset-assistant/   # SQLite + wiki-index.json + wiki-vector-index.json（均为可重建派生索引）+ config/policy.yaml
 assetagent-architecture.html  # 架构总图（本地安全知识编译架构）
 ```
 
@@ -153,6 +153,10 @@ pnpm gen:api                    # 由 FastAPI OpenAPI 重新生成 src/lib/apiTy
 | `VAULTWARDEN_URL` | Vaultwarden 地址 |
 | `BW_EMAIL` / `BW_PASSWORD` | Vaultwarden 主密码登录（或 `BW_CLIENTID` / `BW_CLIENTSECRET` API Key 登录） |
 | `HTTP_TIMEOUT` `MAX_UPLOAD_MB` `QUEUE_TTL_SECONDS` `QUEUE_RETRY_SECONDS` | 模型超时 / 上传上限 / 队列 TTL / 重试周期 |
+| `QUERY_ENGINE` | `fts5`（默认）或显式 `vector`，用于并存切换问答检索实现 |
+| `EMBEDDING_PROVIDER` | `local`（默认）或显式 `cloud`；云端 embedding 不会因填写 URL/Key 自动启用 |
+| `EMBEDDING_LOCAL_BACKEND` | `hash`（默认，本地无依赖）/ `ollama` / 离线 `sentence-transformers` |
+| `EMBEDDING_MODEL` / `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | embedding 模型、端点与密钥（仅显式 cloud 时使用远程端点） |
 
 以上均支持 `_FILE` 后缀（如 `BW_PASSWORD_FILE=/run/secrets/bw_password`，Docker Secret 方式）。
 

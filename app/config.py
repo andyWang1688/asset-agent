@@ -42,6 +42,19 @@ class Settings:
         self.queue_ttl_seconds = int(os.environ.get("QUEUE_TTL_SECONDS", str(7 * 24 * 3600)))
         self.queue_retry_seconds = int(os.environ.get("QUEUE_RETRY_SECONDS", "30"))
         self.policy_file = Path(os.environ.get("POLICY_FILE", str(self.data_dir / "config" / "policy.yaml")))
+        # FTS5/向量路径并存；向量与 embedding 均默认本地，可显式切换云端 embedding。
+        self.query_engine = os.environ.get("QUERY_ENGINE", "fts5").strip().lower()
+        self.embedding_provider = os.environ.get("EMBEDDING_PROVIDER", "local").strip().lower()
+        self.embedding_local_backend = os.environ.get("EMBEDDING_LOCAL_BACKEND", "hash").strip().lower()
+        self.embedding_model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+        self.embedding_base_url = (
+            os.environ.get("EMBEDDING_BASE_URL")
+            or os.environ.get("OLLAMA_BASE_URL")
+            or ""
+        ).rstrip("/")
+        self.embedding_api_key = file_env("EMBEDDING_API_KEY", "") or ""
+        self.embedding_dimensions = int(os.environ.get("EMBEDDING_DIMENSIONS", "384"))
+        self.embedding_timeout = float(os.environ.get("EMBEDDING_TIMEOUT", str(self.http_timeout)))
         # 待确认队列密钥：PENDING_QUEUE_KEY_FILE 指向密钥文件（hex/base64/32 字节原文），
         # 支持 PENDING_QUEUE_KEY_FILE_FILE 间接层（Docker Secret 挂载）。未配置时回退 local_key()。
         self.pending_queue_key_file = (

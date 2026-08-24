@@ -1,7 +1,10 @@
-"""问答引擎接口及当前的 FTS5 实现。"""
+"""问答引擎接口、FTS5 实现和可选的本地向量实现。"""
+import asyncio
 from typing import Protocol
 
 from .. import db
+from . import vector
+from .embeddings import EmbeddingProvider
 
 MAX_PAGE_CHARS = 3000
 
@@ -39,3 +42,84 @@ class FTS5QuestionAnswerEngine:
         )
         response = await provider.complete(QA_SYSTEM, prompt, max_tokens=1500)
         return {"answer": response, "citations": sorted({hit["path"] for hit in hits})}
+
+
+class VectorQuestionAnswerEngine:
+    """Page-level vector retrieval backed by the rebuildable Wiki index.
+
+    The engine has the same ``answer(provider, question)`` seam and response
+    shape as :class:`FTS5QuestionAnswerEngine`.  Embeddings are created from
+    sanitized Markdown only; the question has already passed the service
+    security gate before this method is called.
+    """
+
+    def __init__(
+        self,
+        settings,
+        embedding_provider: EmbeddingProvider | None = None,
+        *,
+        embedding: EmbeddingProvider | None = None,
+        embedder: EmbeddingProvider | None = None,
+        limit: int = 5,
+        min_score: float = 0.05,
+        auto_build: bool = True,
+    ) -> None:
+        self.settings = settings
+        self.embedding_provider = embedding_provider or embedding or embedder
+        self.limit = limit
+        self.min_score = min_score
+        self.auto_build = auto_build
+
+    async def _ensure_index(self) -> None:
+        if self.auto_build and not vector.has_index(self.settings):
+            await asyncio.to_thread(
+                vector.rebuild,
+                self.settings,
+                self.embedding_provider,
+            )
+
+    async def answer(self, provider, question: str) -> dict:
+        await self._ensure_index()
+        hits = await asyncio.to_thread(
+            vector.search,
+            self.settings,
+            question,
+            limit=self.limit,
+            embedding_provider=self.embedding_provider,
+            min_score=self.min_score,
+        )
+        if not hits:
+            return {"answer": "Wiki 中未找到相关内容。", "citations": []}
+
+        context = []
+        citations = []
+        for hit in hits:
+            path = str(hit.get("path") or "")
+            if not path:
+                continue
+            title = str(hit.get("title") or path.rsplit("/", 1)[-1].removesuffix(".md"))
+            content = str(hit.get("content") or "")
+            if not content:
+                row = db.get_page(path)
+                if row:
+                    title = str(row["title"] or title)
+                    content = str(row["content"] or "")
+            if not content:
+                continue
+            context.append(f"## 页面: [[{path}|{title}]]\n\n{content[:MAX_PAGE_CHARS]}")
+            citations.append(path)
+        if not context:
+            return {"answer": "Wiki 中未找到相关内容。", "citations": []}
+
+        prompt = (
+            f"【问答任务】\n问题：{question}\n\n<Wiki 页面>\n"
+            + "\n\n---\n\n".join(context)
+            + "\n</Wiki 页面>"
+        )
+        response = await provider.complete(QA_SYSTEM, prompt, max_tokens=1500)
+        return {"answer": response, "citations": sorted(set(citations))}
+
+
+# Short aliases used by integrations that call the retrieval mode "vector".
+VectorEngine = VectorQuestionAnswerEngine
+LocalVectorQuestionAnswerEngine = VectorQuestionAnswerEngine
