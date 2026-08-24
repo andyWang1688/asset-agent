@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api, errMsg } from '@/lib/api'
-import type { RebuildStatus, RetrievalConfigBody, RetrievalConfigView } from '@/lib/types'
+import type { ModelDownloadStatus, RebuildStatus, RetrievalConfigBody, RetrievalConfigView } from '@/lib/types'
 
 const PROVIDER_LABELS: Record<string, string> = {
   'sentence-transformers': '本地 sentence-transformers',
@@ -15,6 +15,21 @@ const PROVIDER_LABELS: Record<string, string> = {
 }
 
 const CUSTOM = '__custom__'
+
+/** 推荐模型的规模标注（列表展示；未命中的模型只显示 ID） */
+const SIZE_HINTS: Record<string, string> = {
+  'bge-small-zh': '小 · 约 95MB · 入门',
+  'bge-base-zh': '中 · 约 400MB · 均衡',
+  'bge-large-zh': '大 · 约 1.3GB · 最佳效果',
+  'bge-m3': '约 1.2GB · 多语言',
+  'bge-reranker-base': '入门款',
+  'bge-reranker-v2-m3': '多语言 · 更强',
+}
+
+const sizeHint = (id: string): string => {
+  const key = Object.keys(SIZE_HINTS).find((k) => id.toLowerCase().includes(k))
+  return key ? `${id}（${SIZE_HINTS[key]}）` : id
+}
 
 /** 设置页「检索配置」区：页面可读写，写入优先于环境变量；Key 加密存储、接口不回显。 */
 export function RetrievalSection() {
@@ -34,6 +49,9 @@ export function RetrievalSection() {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<string>('')
   const [rebuild, setRebuild] = useState<RebuildStatus | null>(null)
+  const [dlStatus, setDlStatus] = useState<ModelDownloadStatus | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const dlTimer = useRef<number | null>(null)
 
   const load = async () => {
     try {
@@ -76,6 +94,14 @@ export function RetrievalSection() {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const stopDlPoll = () => {
+    if (dlTimer.current !== null) {
+      window.clearTimeout(dlTimer.current)
+      dlTimer.current = null
+    }
+  }
+  useEffect(() => stopDlPoll, [])
 
   const currentModel = () => (modelIsCustom ? customModel.trim() : model)
   const currentReranker = () => (rerankerIsCustom ? customReranker.trim() : rerankerModel)
@@ -136,6 +162,68 @@ export function RetrievalSection() {
     }
     void tick()
   }
+
+  /** 页面打开时若已有后台重建，继续展示进度直到完成 */
+  useEffect(() => {
+    void api.retrievalRebuildStatus().then((s) => {
+      if (s.status === 'queued' || s.status === 'running') {
+        setRebuild(s)
+        void pollRebuild()
+      }
+    }).catch(() => {})
+  }, [])
+
+  /** 轮询单个模型下载进度；done/failed 时停止并提示 */
+  const pollDownload = (model: string) => {
+    const tick = async () => {
+      try {
+        const s = await api.modelDownloadStatus(model)
+        setDlStatus(s)
+        if (s.status === 'done' || s.status === 'failed') {
+          setDownloading(false)
+          if (s.status === 'done') toast.success('模型已下载到本地')
+          else toast.error(s.error || '模型下载失败')
+          return
+        }
+      } catch {
+        setDownloading(false)
+        return
+      }
+      dlTimer.current = window.setTimeout(() => void tick(), 1000)
+    }
+    void tick()
+  }
+
+  const startDownload = async () => {
+    const model = currentModel()
+    if (!model || downloading) return
+    setDownloading(true)
+    setTestResult('')
+    try {
+      const r = await api.startModelDownload({ provider, model })
+      setDlStatus(r.download)
+      if (r.download.status === 'done') {
+        toast.success('模型已在本地，无需重复下载')
+        setDownloading(false)
+        return
+      }
+      pollDownload(model)
+    } catch (e) {
+      setDownloading(false)
+      setTestResult(errMsg(e))
+    }
+  }
+
+  /** 模型/路线变化时刷新下载状态（本地 sentence-transformers 才有权重下载） */
+  useEffect(() => {
+    stopDlPoll()
+    setDownloading(false)
+    const model = currentModel()
+    setDlStatus(null)
+    if (provider !== 'sentence-transformers' || !model) return
+    void api.modelDownloadStatus(model).then(setDlStatus).catch(() => setDlStatus(null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, model, customModel])
 
   const test = async () => {
     const b = body()
@@ -225,7 +313,7 @@ export function RetrievalSection() {
               }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {embeddings.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  {embeddings.map((m) => <SelectItem key={m} value={m}>{sizeHint(m)}</SelectItem>)}
                   <SelectItem value={CUSTOM}>自定义模型…</SelectItem>
                 </SelectContent>
               </Select>
@@ -237,6 +325,30 @@ export function RetrievalSection() {
               }}>
                 使用推荐模型
               </Button>
+            )}
+            {provider === 'sentence-transformers' && (
+              <div className="space-y-1.5 pt-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="compact" size="sm" disabled={downloading || !currentModel()} onClick={() => void startDownload()}>
+                    {downloading ? '下载中…' : dlStatus?.downloaded ? '重新下载' : '下载模型'}
+                  </Button>
+                  {dlStatus?.downloaded && <Badge variant="accent">已下载</Badge>}
+                  {dlStatus && (dlStatus.status === 'queued' || dlStatus.status === 'downloading') && (
+                    <span className="font-mono text-meta text-muted">
+                      {dlStatus.status === 'queued' ? '排队中…' : `下载中 ${dlStatus.progress}%${dlStatus.files_total ? ` · ${dlStatus.files_done}/${dlStatus.files_total} 文件` : ''}`}
+                    </span>
+                  )}
+                </div>
+                {dlStatus && (dlStatus.status === 'queued' || dlStatus.status === 'downloading') && (
+                  <div className="h-1.5 w-full overflow-hidden rounded-pill bg-border">
+                    <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${dlStatus.progress}%` }} />
+                  </div>
+                )}
+                {dlStatus?.status === 'failed' && <p className="text-caption text-danger">{dlStatus.error}</p>}
+              </div>
+            )}
+            {provider === 'ollama' && (
+              <p className="pt-1 text-meta text-muted">Ollama 模型请在终端执行 `ollama pull 模型名` 拉取后再测试。</p>
             )}
           </div>
         </div>
@@ -291,7 +403,7 @@ export function RetrievalSection() {
               }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {rerankers.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  {rerankers.map((m) => <SelectItem key={m} value={m}>{sizeHint(m)}</SelectItem>)}
                   <SelectItem value={CUSTOM}>自定义模型…</SelectItem>
                 </SelectContent>
               </Select>

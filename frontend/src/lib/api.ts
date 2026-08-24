@@ -4,6 +4,9 @@ import type {
   DetectionRule,
   Health,
   IngestResult,
+  ModelDownloadBody,
+  ModelDownloadStart,
+  ModelDownloadStatus,
   ModelBody,
   ModelRow,
   PendingSubmission,
@@ -110,6 +113,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  startModelDownload: (body: ModelDownloadBody) =>
+    request<ModelDownloadStart>('/api/settings/retrieval/download', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  modelDownloadStatus: (model: string) =>
+    request<ModelDownloadStatus>(`/api/settings/retrieval/download/status?model=${encodeURIComponent(model)}`),
   resetRetrieval: () => request<{ ok: boolean }>('/api/settings/retrieval', { method: 'DELETE' }),
 
   policy: () => request<PolicyResp>('/api/settings/policy'),

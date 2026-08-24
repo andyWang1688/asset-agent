@@ -191,3 +191,28 @@ export interface RebuildStatus {
   started_at: number | null
   finished_at: number | null
 }
+
+export interface ModelDownloadBody {
+  provider: string
+  model: string
+}
+
+export interface ModelDownloadStatus {
+  model: string
+  status: 'unknown' | 'queued' | 'downloading' | 'done' | 'failed'
+  downloaded: boolean
+  progress: number
+  files_done: number
+  files_total: number
+  bytes_done: number
+  bytes_total: number
+  error: string
+  started_at: number | null
+  finished_at: number | null
+}
+
+export interface ModelDownloadStart {
+  ok: boolean
+  started: boolean
+  download: ModelDownloadStatus
+}
