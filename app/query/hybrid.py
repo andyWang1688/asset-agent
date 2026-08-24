@@ -91,7 +91,7 @@ def build_reranker(settings, embedding_provider: EmbeddingProvider, mode: str | 
 class HybridQuestionAnswerEngine:
     """BM25 + 向量混合召回 + 可选重排的问答引擎。
 
-    与 FTS5/向量引擎同缝同响应结构；``reranker`` 为 None 表示停用（纯召回顺序）。
+    与其它引擎实现同缝同响应结构；``reranker`` 为 None 表示停用（纯召回顺序）。
     问题已通过 service 安全闸门后才调用本方法。
     """
 

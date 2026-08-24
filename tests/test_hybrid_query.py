@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import db, main
 from app.config import Settings
-from app.query import bm25, hybrid, index as file_index, service, vector
+from app.query import bm25, hybrid, service, vector
 from app.query.embeddings import EmbeddingError, EmbeddingProvider
 from tests.fakes import FakeCredentialStore, FakeProvider
 
@@ -81,26 +81,21 @@ def test_bm25_ranks_keyword_page_first():
     assert bm25.search(pages, "不存在的词汇xyz", limit=2) == []
 
 
-def test_hybrid_recall_not_below_fts5_baseline(settings):
-    """固定语料召回对比：语义与关键词问句都命中目标页，且不低于 FTS5 基线。"""
+def test_hybrid_recall_hits_all_fixed_corpus_queries(settings):
+    """固定语料召回：语义与关键词问句都命中目标页。"""
     _write_corpus(settings)
     embedder = ConceptEmbedding()
     vector.build(settings, embedder)
-    file_index.build(settings)  # 同步 SQLite 页表，供 FTS5 基线检索
 
-    hybrid_hits = fts5_hits = 0
+    hybrid_hits = 0
     for question, target in QUERIES:
-        fts5_paths = _top_paths(db.search_pages(question, limit=5))
         hybrid_paths = _top_paths(
             hybrid.recall(settings, question, limit=5, embedding_provider=embedder)
         )
         assert target in hybrid_paths, f"混合召回未命中目标页 {target}: {question}"
-        fts5_hits += int(target in fts5_paths)
         hybrid_hits += int(target in hybrid_paths)
 
     assert hybrid_hits == len(QUERIES)
-    assert hybrid_hits >= fts5_hits  # 不低于 FTS5 基线
-    assert hybrid_hits > fts5_hits  # 语义问句只有混合召回能命中
 
 
 async def test_hybrid_engine_keeps_contract_citations_and_security_gates(settings):
@@ -200,7 +195,6 @@ def test_reranker_setting_defaults_and_env(monkeypatch, tmp_path):
 def test_hybrid_engine_selected_by_config(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
-    monkeypatch.setenv("QUERY_ENGINE", "hybrid")
     monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
     monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider("回答"))
 
@@ -216,22 +210,8 @@ def test_hybrid_engine_selected_by_config(tmp_path, monkeypatch):
 def test_default_engine_is_hybrid(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
-    monkeypatch.delenv("QUERY_ENGINE", raising=False)
     monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
     monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider("回答"))
 
     with TestClient(main.app) as client:
         assert isinstance(main.app.state.ctx.get_query_engine(), hybrid.HybridQuestionAnswerEngine)
-
-
-def test_engine_rollback_to_fts5_by_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
-    monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
-    monkeypatch.setenv("QUERY_ENGINE", "fts5")
-    monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
-    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider("回答"))
-
-    with TestClient(main.app) as client:
-        from app.query.engine import FTS5QuestionAnswerEngine
-
-        assert isinstance(main.app.state.ctx.get_query_engine(), FTS5QuestionAnswerEngine)

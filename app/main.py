@@ -15,7 +15,6 @@ from .config import Settings
 from .credentials.vaultwarden import VaultwardenAdapter
 from .llm.provider import get_active_provider, get_security_provider
 from .query.embeddings import build_embedding_provider
-from .query.engine import FTS5QuestionAnswerEngine, VectorQuestionAnswerEngine
 from .query.hybrid import HybridQuestionAnswerEngine, build_reranker
 from .security.policy import PolicyStore
 from .worker import Worker
@@ -52,15 +51,11 @@ async def lifespan(app: FastAPI):
 
     worker = Worker(settings, creds, get_provider, get_sec_provider)
     worker.start()
-    if settings.query_engine == "hybrid":
-        embedder = build_embedding_provider(settings)
-        query_engine = HybridQuestionAnswerEngine(
-            settings, embedder, reranker=build_reranker(settings, embedder)
-        )
-    elif settings.query_engine == "vector":
-        query_engine = VectorQuestionAnswerEngine(settings, build_embedding_provider(settings))
-    else:
-        query_engine = FTS5QuestionAnswerEngine()
+    # 问答已收敛为单一混合引擎（BM25+向量+重排）；索引缺失时从 Markdown 自动重建。
+    embedder = build_embedding_provider(settings)
+    query_engine = HybridQuestionAnswerEngine(
+        settings, embedder, reranker=build_reranker(settings, embedder)
+    )
     app.state.ctx = SimpleNamespace(
         settings=settings, creds=creds, worker=worker, get_provider=get_provider,
         get_security_provider=get_sec_provider, get_query_engine=lambda: query_engine,

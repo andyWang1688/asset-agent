@@ -83,8 +83,6 @@ async def test_plaintext_not_in_raw_sqlite_audit_wiki(settings):
     # 4) SQLite 全库（所有表所有列）
     conn = sqlite3.connect(str(settings.data_dir / "app.db"))
     for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"):
-        if name.endswith("_fts"):
-            continue
         try:
             rows = conn.execute(f"SELECT * FROM {name}").fetchall()
         except sqlite3.Error:

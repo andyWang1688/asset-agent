@@ -1,4 +1,4 @@
-"""Wiki 编译服务：脱敏资料 → LLM 维护计划（JSON）→ Markdown 页面 + FTS5 索引。
+"""Wiki 编译服务：脱敏资料 → LLM 维护计划（JSON）→ Markdown 页面 + 派生索引。
 路径白名单校验，LLM 输出再次扫描秘密，index/log 由系统确定性维护。"""
 import json
 import re
@@ -229,11 +229,10 @@ def rebuild_index(settings: Settings) -> None:
     from ..query import index as query_index
 
     query_index.build(settings)
-    # 向量模式与 FTS5 并存；仅在显式启用时构建 embedding，默认本地执行。
-    if getattr(settings, "query_engine", "fts5") == "vector":
-        from ..query import vector as vector_index
+    # 单一混合引擎的向量支路：文件级索引与向量索引都从 Markdown 全量重建（embedding 默认本地）。
+    from ..query import vector as vector_index
 
-        vector_index.build(settings)
+    vector_index.build(settings)
 
 
 def append_log(settings: Settings, source_id: int, changes: list[str], conflicts: list[dict]) -> None:

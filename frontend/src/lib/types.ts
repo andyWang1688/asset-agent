@@ -20,7 +20,6 @@ export interface Health {
   knowledge_model: boolean
   security_model: boolean
   pending_secrets: number
-  fts: string | null
 }
 
 export interface Finding {

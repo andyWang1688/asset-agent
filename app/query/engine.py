@@ -1,10 +1,7 @@
-"""问答引擎接口、FTS5 实现和可选的本地向量/混合检索实现。"""
-import asyncio
+"""问答引擎接口与通用的回答渲染实现。"""
 from typing import Protocol
 
 from .. import db
-from . import vector
-from .embeddings import EmbeddingProvider
 
 MAX_PAGE_CHARS = 3000
 
@@ -59,80 +56,3 @@ async def render_answer(provider, question: str, hits: list[dict], history: list
     prompt += "\n<Wiki 页面>\n" + "\n\n---\n\n".join(context) + "\n</Wiki 页面>"
     response = await provider.complete(QA_SYSTEM, prompt, max_tokens=1500)
     return {"answer": response, "citations": sorted(set(citations))}
-
-
-class FTS5QuestionAnswerEngine:
-    """现有 FTS5 检索与回答生成实现。"""
-
-    async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict:
-        hits = db.search_pages(question, limit=5)
-        if not hits:
-            return {"answer": "Wiki 中未找到相关内容。", "citations": []}
-
-        context = []
-        for hit in hits:
-            row = db.get_page(hit["path"])
-            if row:
-                context.append(
-                    f"## 页面: [[{hit['path']}|{hit['title']}]]\n\n"
-                    f"{row['content'][:MAX_PAGE_CHARS]}"
-                )
-        prompt = f"【问答任务】\n问题：{question}\n"
-        memory = history_block(history)
-        if memory:
-            prompt += "\n" + memory + "\n"
-        prompt += "\n<Wiki 页面>\n" + "\n\n---\n\n".join(context) + "\n</Wiki 页面>"
-        response = await provider.complete(QA_SYSTEM, prompt, max_tokens=1500)
-        return {"answer": response, "citations": sorted({hit["path"] for hit in hits})}
-
-
-class VectorQuestionAnswerEngine:
-    """Page-level vector retrieval backed by the rebuildable Wiki index.
-
-    The engine has the same ``answer(provider, question)`` seam and response
-    shape as :class:`FTS5QuestionAnswerEngine`.  Embeddings are created from
-    sanitized Markdown only; the question has already passed the service
-    security gate before this method is called.
-    """
-
-    def __init__(
-        self,
-        settings,
-        embedding_provider: EmbeddingProvider | None = None,
-        *,
-        embedding: EmbeddingProvider | None = None,
-        embedder: EmbeddingProvider | None = None,
-        limit: int = 5,
-        min_score: float = 0.05,
-        auto_build: bool = True,
-    ) -> None:
-        self.settings = settings
-        self.embedding_provider = embedding_provider or embedding or embedder
-        self.limit = limit
-        self.min_score = min_score
-        self.auto_build = auto_build
-
-    async def _ensure_index(self) -> None:
-        if self.auto_build and not vector.has_index(self.settings):
-            await asyncio.to_thread(
-                vector.rebuild,
-                self.settings,
-                self.embedding_provider,
-            )
-
-    async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict:
-        await self._ensure_index()
-        hits = await asyncio.to_thread(
-            vector.search,
-            self.settings,
-            question,
-            limit=self.limit,
-            embedding_provider=self.embedding_provider,
-            min_score=self.min_score,
-        )
-        return await render_answer(provider, question, hits, history=history)
-
-
-# Short aliases used by integrations that call the retrieval mode "vector".
-VectorEngine = VectorQuestionAnswerEngine
-LocalVectorQuestionAnswerEngine = VectorQuestionAnswerEngine

@@ -42,9 +42,7 @@ class Settings:
         self.queue_ttl_seconds = int(os.environ.get("QUEUE_TTL_SECONDS", str(7 * 24 * 3600)))
         self.queue_retry_seconds = int(os.environ.get("QUEUE_RETRY_SECONDS", "30"))
         self.policy_file = Path(os.environ.get("POLICY_FILE", str(self.data_dir / "config" / "policy.yaml")))
-        # FTS5/向量/混合三条检索路径并存；默认混合引擎（BM25+向量+重排），
-        # 对等验证不达标时可一键回退 QUERY_ENGINE=fts5；向量与 embedding 均默认本地。
-        self.query_engine = os.environ.get("QUERY_ENGINE", "hybrid").strip().lower()
+        # 问答检索引擎已收敛为单一混合引擎（BM25+向量+重排）；embedding 默认本地。
         # 混合引擎的重排器：local（默认精排）或 off（停用，退回纯召回）。
         self.reranker = os.environ.get("RERANKER", "local").strip().lower()
         # 对话记忆：每次提问从 chat_log 水合的最近轮数；<=0 关闭记忆。

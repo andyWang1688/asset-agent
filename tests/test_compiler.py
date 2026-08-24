@@ -32,7 +32,7 @@ async def test_compile_creates_pages_index_log(settings):
     assert "Demo 项目" in index
     log = (settings.wiki_dir / "log.md").read_text(encoding="utf-8")
     assert "#1" in log
-    assert any(r["path"] == "projects/demo-project.md" for r in db.search_pages("Demo 项目"))
+    assert any(r["path"] == "projects/demo-project.md" for r in db.list_pages())
 
 
 async def test_compile_update_no_duplicate(settings):

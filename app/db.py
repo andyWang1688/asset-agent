@@ -1,6 +1,5 @@
-"""SQLite 数据层：来源、任务、待处理凭证、对话记录、安全事件、模型配置、Wiki 页面 + FTS5。
+"""SQLite 数据层：来源、任务、待处理凭证、对话记录、安全事件、模型配置、Wiki 页面。
 单连接 + 全局锁：所有读写串行化（单用户 MVP 足够，避免跨线程并发损坏）。"""
-import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -92,23 +91,6 @@ CREATE TABLE IF NOT EXISTS pages_data (
 );
 """
 
-FTS_SCHEMA = """
-CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
-  title, content, content='pages_data', content_rowid='id', tokenize='trigram'
-);
-CREATE TRIGGER IF NOT EXISTS pages_ai AFTER INSERT ON pages_data BEGIN
-  INSERT INTO pages_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
-END;
-CREATE TRIGGER IF NOT EXISTS pages_ad AFTER DELETE ON pages_data BEGIN
-  INSERT INTO pages_fts(pages_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
-END;
-CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages_data BEGIN
-  INSERT INTO pages_fts(pages_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
-  INSERT INTO pages_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
-END;
-"""
-
-
 def _c() -> sqlite3.Connection:
     if _conn is None:
         raise RuntimeError("db 未初始化")
@@ -146,20 +128,6 @@ def init(path: Path) -> None:
         _conn.row_factory = sqlite3.Row
         _conn.executescript("PRAGMA journal_mode=WAL;" + SCHEMA)
         _migrate()
-        try:
-            _conn.executescript(FTS_SCHEMA)
-            fts_ok = True
-        except sqlite3.Error:
-            fts_ok = False
-        if fts_ok:
-            try:
-                _conn.execute("INSERT INTO pages_fts(pages_fts) VALUES('rebuild')")
-            except sqlite3.Error:
-                # FTS 索引不可用（如外部进程损坏 WAL）：服务降级继续，搜索走 LIKE 回退，
-                # SQLite 为派生索引，可删除后从 Markdown 重建
-                fts_ok = False
-        _conn.execute("INSERT OR IGNORE INTO kv(key,value) VALUES('fts_enabled','1')")
-        _conn.execute("UPDATE kv SET value=? WHERE key='fts_enabled'", ("1" if fts_ok else "0",))
         _conn.commit()
 
 
@@ -172,6 +140,14 @@ def _migrate() -> None:
         _c().execute("ALTER TABLE sources ADD COLUMN confirmed INTEGER DEFAULT 1")
     if "allowed_spans" not in cols:
         _c().execute("ALTER TABLE sources ADD COLUMN allowed_spans TEXT DEFAULT '[]'")
+    # FTS5 查询路径已退役：清理旧库遗留的虚拟表、触发器与开关位（派生索引，可随时从 Markdown 重建）。
+    _c().executescript(
+        "DROP TRIGGER IF EXISTS pages_ai;"
+        "DROP TRIGGER IF EXISTS pages_ad;"
+        "DROP TRIGGER IF EXISTS pages_au;"
+        "DROP TABLE IF EXISTS pages_fts;"
+    )
+    _c().execute("DELETE FROM kv WHERE key='fts_enabled'")
     mcols = {r["name"] for r in _c().execute("PRAGMA table_info(model_configs)")}
     if "role" not in mcols:
         _c().execute("ALTER TABLE model_configs ADD COLUMN role TEXT DEFAULT 'knowledge'")
@@ -478,27 +454,3 @@ def get_page(path: str):
     return _r1("SELECT * FROM pages_data WHERE path=?", (path,))
 
 
-def search_pages(query: str, limit: int = 5):
-    tokens = [t for t in re.split(r"\s+", query.strip()) if t]
-    like = "%" + "%".join(tokens) + "%"
-    compact = re.sub(r"\s+", "", query.strip())
-    if kv_get("fts_enabled") == "1" and len(compact) >= 3:
-        # trigram 分词：把查询切成 3 字元组做 OR，中文问句也能命中
-        trigrams = {compact[i : i + 3] for i in range(len(compact) - 2)}
-        match = " OR ".join(f'"{t}"' for t in sorted(trigrams))
-        try:
-            rows = _r(
-                """SELECT p.path, p.title, snippet(pages_fts, 1, '…', '…', '…', 12) AS snip
-                   FROM pages_fts JOIN pages_data p ON p.id = pages_fts.rowid
-                   WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?""",
-                (match, limit),
-            )
-            if rows:
-                return [dict(r) for r in rows]
-        except sqlite3.OperationalError:
-            pass
-    return [dict(r) for r in _r(
-        "SELECT path,title,substr(content,1,200) AS snip FROM pages_data "
-        "WHERE title LIKE ? OR content LIKE ? LIMIT ?",
-        (like, like, limit),
-    )]

@@ -5,8 +5,14 @@ from tests.fakes import FakeProvider
 import pytest
 
 
+def _write_page(settings, path, title, content):
+    page = settings.wiki_dir / path
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(f"# {title}\n{content}\n", encoding="utf-8")
+
+
 async def test_answer_with_citations_and_sanitize(settings):
-    db.upsert_page("projects/demo.md", "Demo", "Demo 项目介绍，包含订单服务。")
+    _write_page(settings, "projects/demo.md", "Demo", "Demo 项目介绍，包含订单服务。")
     provider = FakeProvider("根据 [[projects/demo.md|Demo]]：密码是 sk-proj-abcdEFGH12345678901234567890")
     r = await service.answer(settings, provider, "Demo 项目是什么")
     assert "[[projects/demo.md|Demo]]" in r["answer"]
@@ -35,7 +41,7 @@ async def test_answer_blocks_credentials_in_question(settings):
 
 async def test_answer_redacts_pii_in_question(settings):
     """PII 仅脱敏：身份证/银行卡进入云端与历史记录前被脱敏。"""
-    db.upsert_page("projects/demo.md", "Demo", "Demo 项目介绍。")
+    _write_page(settings, "projects/demo.md", "Demo", "Demo 项目介绍。")
     provider = FakeProvider("根据 [[projects/demo.md|Demo]]：说明。")
     r = await service.answer(settings, provider, "Demo 项目 身份证 11010519491231002X 是什么格式")
     sent = str(provider.calls)
@@ -47,7 +53,7 @@ async def test_answer_redacts_pii_in_question(settings):
 
 
 async def test_answer_redacts_email_and_mobile_in_question(settings):
-    db.upsert_page("projects/demo.md", "Demo", "Demo 项目介绍。")
+    _write_page(settings, "projects/demo.md", "Demo", "Demo 项目介绍。")
     provider = FakeProvider("根据 [[projects/demo.md|Demo]]：说明。")
     await service.answer(settings, provider, "Demo 联系 user@example.com 或 13812345678")
     sent = str(provider.calls)

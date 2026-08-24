@@ -1,4 +1,4 @@
-"""基于 Wiki 的问答：FTS5 定位页面 → 读取 Wiki → LLM 生成带来源回答 → 响应再扫描 → 脱敏记录。
+"""基于 Wiki 的问答：混合检索定位页面 → 读取 Wiki → LLM 生成带来源回答 → 响应再扫描 → 脱敏记录。
 问题中的凭证信息会被拦截（不发送）；PII/疑似项脱敏后再发送与入库：秘密原文不得进入云端模型。
 security 增强模型（可选）接入问题扫描；失败时回退本地检测结果。"""
 from .. import db
@@ -8,7 +8,9 @@ from ..security import redactor
 from ..security.detectors import ScanEngine
 from ..security.policy import PolicyStore
 from ..security.rules import KIND_CREDENTIAL
-from .engine import FTS5QuestionAnswerEngine, QuestionAnswerEngine
+from .embeddings import build_embedding_provider
+from .engine import QuestionAnswerEngine
+from .hybrid import HybridQuestionAnswerEngine
 
 
 async def _scan_question(settings: Settings, question: str, security_provider=None):
@@ -47,7 +49,9 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
     history = []
     if session_id and settings.chat_memory_rounds > 0:
         history = db.list_chat_history(session_id, settings.chat_memory_rounds)
-    result = await (engine or FTS5QuestionAnswerEngine()).answer(provider, safe_question, history=history)
+    # 未显式传入引擎时装配默认的单一混合引擎（BM25+向量+重排）。
+    engine = engine or HybridQuestionAnswerEngine(settings, build_embedding_provider(settings))
+    result = await engine.answer(provider, safe_question, history=history)
     clean, hits_found = redactor.sanitize_llm_output(result["answer"])
     if hits_found:
         db.log_security("llm_output_secret", f"问答响应命中规则 {hits_found}，片段已删除")

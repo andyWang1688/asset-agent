@@ -74,7 +74,6 @@ def health(request: Request):
         "knowledge_model": ctx.get_provider() is not None,
         "security_model": ctx.get_security_provider() is not None,
         "pending_secrets": db.list_pending("pending").__len__(),
-        "fts": db.kv_get("fts_enabled"),
     }
 
 

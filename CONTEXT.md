@@ -43,7 +43,7 @@ _Avoid_：审批
 
 **编译（Compile）**：Worker 把脱敏 Source 经 LLM 转为 Wiki 页面创建/更新的过程。
 
-**Index（索引）**：Wiki 页面的 SQLite FTS5 派生索引，可删除并从 Markdown 重建。
+**Index（索引）**：Wiki 页面的派生索引（文件级 JSON + 本地向量），可删除并从 Markdown 重建。
 _Avoid_：database（它不是事实源）
 
 ## 问答

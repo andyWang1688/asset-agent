@@ -2,7 +2,6 @@ import json
 
 import httpx
 
-from app import db
 from app.config import Settings
 from app.query import vector
 from app.query.embeddings import (
@@ -12,8 +11,6 @@ from app.query.embeddings import (
     OllamaEmbeddingProvider,
     build_embedding_provider,
 )
-from app.query.engine import VectorQuestionAnswerEngine
-from app.query import service
 from tests.fakes import FakeProvider
 
 
@@ -105,39 +102,3 @@ def test_cloud_embedding_sends_only_after_explicit_selection(settings, monkeypat
     provider = CloudEmbeddingProvider("https://embedding.example/v1", "key", "model")
     assert provider.embed_query("脱敏内容") == [1.0, 0.0]
     assert calls == [{"model": "model", "input": ["脱敏内容"]}]
-
-
-async def test_vector_engine_keeps_contract_citations_and_security_gates(settings):
-    secret = "password=Sup3rSecret!"
-    (settings.wiki_dir / "projects" / "safe.md").write_text(
-        f"# 安全页面\n{secret}\n差旅费用可以申请报销。", encoding="utf-8"
-    )
-    embedder = KeywordEmbedding()
-    vector.build(settings, embedder)
-    raw_index = vector.vector_index_path(settings).read_text(encoding="utf-8")
-    assert secret not in raw_index
-    assert "Sup3rSecret!" not in raw_index
-    assert secret not in json.dumps(embedder.inputs, ensure_ascii=False)
-
-    provider = FakeProvider("根据 [[projects/safe.md|安全页面]]：可以申请报销。")
-    engine = VectorQuestionAnswerEngine(settings, embedder, min_score=0)
-    result = await service.answer(
-        settings, provider, "差旅怎么报销，联系 user@example.com", engine=engine
-    )
-    assert result == {
-        "answer": "根据 [[projects/safe.md|安全页面]]：可以申请报销。",
-        "citations": ["projects/safe.md"],
-    }
-    sent = json.dumps(provider.calls, ensure_ascii=False)
-    assert "user@example.com" not in sent
-    assert "[REDACTED:email]" in sent
-    assert secret not in sent
-    assert secret not in json.dumps([dict(row) for row in db.list_chat()], ensure_ascii=False)
-
-
-async def test_vector_engine_empty_index_does_not_call_knowledge_model(settings):
-    provider = FakeProvider("不应调用")
-    engine = VectorQuestionAnswerEngine(settings, KeywordEmbedding(), auto_build=False)
-    result = await engine.answer(provider, "任意问题")
-    assert result == {"answer": "Wiki 中未找到相关内容。", "citations": []}
-    assert provider.calls == []

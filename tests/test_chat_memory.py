@@ -5,8 +5,14 @@ from app.query import service
 from tests.fakes import FakeProvider
 
 
+def _write_page(settings, path, title, content):
+    page = settings.wiki_dir / path
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(f"# {title}\n{content}\n", encoding="utf-8")
+
+
 async def test_followup_uses_prior_context(settings):
-    db.upsert_page("projects/demo.md", "Demo", "车险怎么报销？需要什么材料：发票与行程单。")
+    _write_page(settings, "projects/demo.md", "Demo", "车险怎么报销？需要什么材料：发票与行程单。")
     provider = FakeProvider("报销材料：发票、行程单。")
     await service.answer(settings, provider, "车险怎么报销", session_id="s1")
     await service.answer(settings, provider, "那需要什么材料", session_id="s1")
@@ -18,7 +24,7 @@ async def test_followup_uses_prior_context(settings):
 
 
 async def test_history_read_from_chat_log_no_second_persistence(settings):
-    db.upsert_page("projects/demo.md", "Demo", "第三问的答案见 Demo 项目介绍。")
+    _write_page(settings, "projects/demo.md", "Demo", "第三问的答案见 Demo 项目介绍。")
     db.insert_chat("第一问", "第一答", [], "s2")
     db.insert_chat("第二问", "第二答", [], "s2")
     before = len(db.list_chat())
@@ -34,7 +40,7 @@ async def test_history_read_from_chat_log_no_second_persistence(settings):
 
 
 async def test_memory_rounds_configurable(settings, monkeypatch):
-    db.upsert_page("projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
+    _write_page(settings, "projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
     for i in range(3):
         db.insert_chat(f"问{i}", f"答{i}", [], "s3")
     monkeypatch.setenv("CHAT_MEMORY_ROUNDS", "1")
@@ -50,7 +56,7 @@ async def test_memory_rounds_default(settings, monkeypatch):
     monkeypatch.delenv("CHAT_MEMORY_ROUNDS", raising=False)
     s = Settings()
     assert s.chat_memory_rounds == 6
-    db.upsert_page("projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
+    _write_page(settings, "projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
     for i in range(6):
         db.insert_chat(f"问{i}", f"答{i}", [], "s4")
     provider = FakeProvider("回答")
@@ -59,7 +65,7 @@ async def test_memory_rounds_default(settings, monkeypatch):
 
 
 async def test_memory_disabled_at_zero_rounds(settings, monkeypatch):
-    db.upsert_page("projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
+    _write_page(settings, "projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
     db.insert_chat("旧问", "旧答", [], "s5")
     monkeypatch.setenv("CHAT_MEMORY_ROUNDS", "0")
     provider = FakeProvider("回答")
@@ -68,7 +74,7 @@ async def test_memory_disabled_at_zero_rounds(settings, monkeypatch):
 
 
 async def test_session_delete_removes_memory(settings):
-    db.upsert_page("projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
+    _write_page(settings, "projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
     db.insert_chat("旧问", "旧答", [], "s6")
     db.delete_session("s6")
     provider = FakeProvider("回答")
@@ -77,7 +83,7 @@ async def test_session_delete_removes_memory(settings):
 
 
 async def test_no_session_no_history(settings):
-    db.upsert_page("projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
+    _write_page(settings, "projects/demo.md", "Demo", "新问题的答案见 Demo 项目介绍。")
     db.insert_chat("旧问", "旧答", [], None)
     provider = FakeProvider("回答")
     await service.answer(settings, provider, "新问题")

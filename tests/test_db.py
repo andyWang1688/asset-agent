@@ -5,13 +5,9 @@ import pytest
 from app import db
 
 
-def test_page_upsert_and_search(workspace):
+def test_page_upsert_and_update(workspace):
     db.upsert_page("projects/demo.md", "Demo 项目", "这是 Demo 项目的介绍，包含订单服务信息。")
-    rows = db.search_pages("Demo 项目", limit=5)
-    assert any(r["path"] == "projects/demo.md" for r in rows)
-    # 短查询走 LIKE 回退
-    rows2 = db.search_pages("项目", limit=5)
-    assert any(r["path"] == "projects/demo.md" for r in rows2)
+    assert any(r["path"] == "projects/demo.md" for r in db.list_pages())
     # 更新覆盖
     db.upsert_page("projects/demo.md", "Demo 项目", "更新后的内容")
     row = db.get_page("projects/demo.md")
