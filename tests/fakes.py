@@ -1,3 +1,7 @@
+from llama_index.core.bridge.pydantic import ConfigDict
+from llama_index.core.embeddings import BaseEmbedding
+from typing import ClassVar
+
 from app.credentials.base import CredentialError, SecretMetadata, SecretRef
 from app.llm.provider import LLMProvider
 
@@ -43,3 +47,37 @@ class FakeCredentialStore:
 
     def configured(self):
         return True
+
+
+class KeywordEmbedding(BaseEmbedding):
+    """确定性本地 embedding 测试替身（LlamaIndex BaseEmbedding 子类，不加载任何模型）。"""
+
+    model_name: str = "fixture-keywords"
+    is_local: ClassVar[bool] = True
+    model_config = ConfigDict(extra="allow")
+
+    def __init__(self, **kwargs):
+        super().__init__(model_name="fixture-keywords", **kwargs)
+        self.inputs: list[str] = []
+
+    def _vec(self, text: str) -> list[float]:
+        value = str(text)
+        return [
+            1.0 if "报销" in value or "差旅" in value else 0.0,
+            1.0 if "订单" in value else 0.0,
+            1.0 if "缓存" in value else 0.0,
+            0.1,
+        ]
+
+    def _get_text_embedding(self, text: str) -> list[float]:
+        self.inputs.append(text)
+        return self._vec(text)
+
+    def _get_query_embedding(self, query: str) -> list[float]:
+        return self._vec(query)
+
+    async def _aget_text_embedding(self, text: str) -> list[float]:
+        return self._get_text_embedding(text)
+
+    async def _aget_query_embedding(self, query: str) -> list[float]:
+        return self._get_query_embedding(query)

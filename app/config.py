@@ -42,21 +42,24 @@ class Settings:
         self.queue_ttl_seconds = int(os.environ.get("QUEUE_TTL_SECONDS", str(7 * 24 * 3600)))
         self.queue_retry_seconds = int(os.environ.get("QUEUE_RETRY_SECONDS", "30"))
         self.policy_file = Path(os.environ.get("POLICY_FILE", str(self.data_dir / "config" / "policy.yaml")))
-        # 问答检索引擎已收敛为单一混合引擎（BM25+向量+重排）；embedding 默认本地。
-        # 混合引擎的重排器：local（默认精排）或 off（停用，退回纯召回）。
+        # 问答检索已收敛为单一 LlamaIndex 混合引擎（BM25+向量+重排）；embedding 默认本地。
+        # 混合引擎的重排器：local（默认本地 cross-encoder 精排）或 off（停用，退回纯召回）。
         self.reranker = os.environ.get("RERANKER", "local").strip().lower()
+        self.reranker_model = os.environ.get("RERANKER_MODEL", "BAAI/bge-reranker-base")
         # 对话记忆：每次提问从 chat_log 水合的最近轮数；<=0 关闭记忆。
         self.chat_memory_rounds = int(os.environ.get("CHAT_MEMORY_ROUNDS", "6"))
         self.embedding_provider = os.environ.get("EMBEDDING_PROVIDER", "local").strip().lower()
-        self.embedding_local_backend = os.environ.get("EMBEDDING_LOCAL_BACKEND", "hash").strip().lower()
+        # 本地后端默认 sentence-transformers（BGE 本地模型）；Ollama 为可选本地后端。
+        self.embedding_local_backend = os.environ.get("EMBEDDING_LOCAL_BACKEND", "sentence-transformers").strip().lower()
         self.embedding_model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+        # 默认仅用本地缓存的模型（建索引内容不出本机、不触发模型下载）；设 0 允许首次自动下载。
+        self.embedding_local_only = os.environ.get("EMBEDDING_LOCAL_ONLY", "1").strip().lower() not in {"0", "false", "no", "off"}
         self.embedding_base_url = (
             os.environ.get("EMBEDDING_BASE_URL")
             or os.environ.get("OLLAMA_BASE_URL")
             or ""
         ).rstrip("/")
         self.embedding_api_key = file_env("EMBEDDING_API_KEY", "") or ""
-        self.embedding_dimensions = int(os.environ.get("EMBEDDING_DIMENSIONS", "384"))
         self.embedding_timeout = float(os.environ.get("EMBEDDING_TIMEOUT", str(self.http_timeout)))
         # 待确认队列密钥：PENDING_QUEUE_KEY_FILE 指向密钥文件（hex/base64/32 字节原文），
         # 支持 PENDING_QUEUE_KEY_FILE_FILE 间接层（Docker Secret 挂载）。未配置时回退 local_key()。

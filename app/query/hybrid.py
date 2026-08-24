@@ -1,37 +1,58 @@
-"""BM25 + 向量混合召回与重排，提供第三个可整体替换的问答引擎实现。
+"""LlamaIndex 混合问答引擎：BM25+向量 RRF 融合召回 + 可选重排。
 
-关键词支路走 BM25，语义支路走向量，两条支路 RRF 融合为纯召回顺序；
-重排器可配置、可停用（``RERANKER=off`` 退回纯召回）。索引仍是可删除重建的派生文件。
+关键词支路走 llama-index-retrievers-bm25（BM25Retriever），语义支路走向量索引
+（VectorStoreIndex），两条支路由 QueryFusionRetriever 以 RRF 融合；重排器为
+SentenceTransformerRerank（本地 cross-encoder，可配置、可停用 ``RERANKER=off``）。
+索引仍是可删除重建的派生目录。API 契约、多轮记忆水合、安全闸门在 service 层，不在此处。
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 
-from . import bm25, vector
-from .embeddings import EmbeddingError, EmbeddingProvider
+from llama_index.core.llms import MockLLM
+from llama_index.core.retrievers import QueryFusionRetriever
+from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
+from llama_index.core.schema import NodeWithScore, QueryBundle
+from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
+from llama_index.retrievers.bm25 import BM25Retriever
+
+from . import retrieval
+from .embeddings import EmbeddingError, build_embedding_provider
 from .engine import render_answer
 
-RRF_K = 60
+DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-base"
 
 
-def fuse(bm25_hits: list[dict], vector_hits: list[dict], k: int = RRF_K) -> list[dict]:
-    """Reciprocal rank fusion：两支路的位次越靠前，融合分越高。"""
-    merged: dict[str, dict] = {}
-    for rank, hit in enumerate(bm25_hits):
-        path = str(hit.get("path") or "")
+class NonZeroBM25Retriever(BM25Retriever):
+    """BM25Retriever 扩展：丢弃零分页。
+
+    bm25s 返回的零分页会把无匹配页塞进 RRF 融合（拿到位次分），
+    与切换前“关键词支路只返回命中页”的基线行为不符；这里恢复该行为。
+    """
+
+    def _retrieve(self, query_bundle):
+        return [node for node in super()._retrieve(query_bundle) if (node.score or 0.0) > 0]
+
+
+def nodes_to_hits(nodes: list[NodeWithScore]) -> list[dict]:
+    """把 LlamaIndex 召回节点转成引擎契约结构（path/title/content/score）。"""
+    hits = []
+    for node in nodes:
+        meta = node.node.metadata or {}
+        path = str(meta.get("path") or "")
         if not path:
             continue
-        entry = merged.setdefault(path, dict(hit))
-        entry["rrf"] = entry.get("rrf", 0.0) + 1.0 / (k + rank + 1)
-    for rank, hit in enumerate(vector_hits):
-        path = str(hit.get("path") or "")
-        if not path:
-            continue
-        entry = merged.setdefault(path, dict(hit))
-        entry["rrf"] = entry.get("rrf", 0.0) + 1.0 / (k + rank + 1)
-    return sorted(merged.values(), key=lambda item: (-item["rrf"], item["path"]))
+        title = str(meta.get("title") or path.rsplit("/", 1)[-1].removesuffix(".md"))
+        hits.append(
+            {
+                "path": path,
+                "title": title,
+                "content": str(node.node.get_content()),
+                "score": float(node.score or 0.0),
+            }
+        )
+    return hits
 
 
 def recall(
@@ -39,95 +60,102 @@ def recall(
     question: str,
     *,
     limit: int = 5,
-    embedding_provider: EmbeddingProvider | None = None,
-    min_score: float = 0.05,
+    embed_model=None,
+    min_score: float = 0.0,
 ) -> list[dict]:
     """混合召回：BM25 与向量两支路 RRF 融合，返回按融合分排序的候选页。"""
-    pages = vector.load(settings).get("pages") or []
-    if not pages:
-        return []
-    bm25_hits = bm25.search(pages, question, limit=limit)
-    vector_hits = vector.search(
-        settings,
-        question,
-        limit=limit,
-        embedding_provider=embedding_provider,
-        min_score=min_score,
-    )
-    return fuse(bm25_hits, vector_hits)[:limit]
+    return HybridQuestionAnswerEngine(
+        settings, embed_model=embed_model, limit=limit, min_score=min_score
+    ).retrieve(question)
 
 
-class LocalReranker:
-    """本地精排器：候选页上按「融合分 × 权重 + 向量相似度 × (1-权重)」重排序。"""
-
-    def __init__(self, embedding_provider: EmbeddingProvider, *, weight: float = 0.5) -> None:
-        self.embedding_provider = embedding_provider
-        self.weight = float(weight)
-
-    def __call__(self, question: str, candidates: list[dict]) -> list[dict]:
-        query_vector = vector._as_vector(self.embedding_provider.embed_query(question))
-        reranked = [
-            (
-                self.weight * float(candidate.get("rrf") or 0.0)
-                + (1.0 - self.weight) * vector._dot(query_vector, candidate.get("vector") or []),
-                candidate,
-            )
-            for candidate in candidates
-        ]
-        reranked.sort(key=lambda item: (-item[0], item[1].get("path", "")))
-        return [candidate for _, candidate in reranked]
-
-
-def build_reranker(settings, embedding_provider: EmbeddingProvider, mode: str | None = None) -> Callable | None:
-    """按配置装配重排器；``off`` 停用（退回纯召回），``local`` 使用本地精排。"""
+def build_reranker(settings, mode: str | None = None, *, top_n: int = 5):
+    """按配置装配 LlamaIndex 重排器；``off`` 停用（退回纯召回），``local`` 用本地 cross-encoder。"""
     selected = str(mode if mode is not None else getattr(settings, "reranker", "off")).strip().lower()
     if selected in {"off", "none", "false", ""}:
         return None
     if selected == "local":
-        return LocalReranker(embedding_provider)
+        model = str(getattr(settings, "reranker_model", None) or DEFAULT_RERANK_MODEL)
+        local_only = bool(getattr(settings, "embedding_local_only", True))
+        return SentenceTransformerRerank(
+            model=model,
+            top_n=int(top_n),
+            cross_encoder_kwargs={"local_files_only": local_only},
+        )
     raise EmbeddingError(f"未知 reranker: {selected}")
 
 
 class HybridQuestionAnswerEngine:
-    """BM25 + 向量混合召回 + 可选重排的问答引擎。
+    """BM25+向量混合召回 + 可选重排的问答引擎（LlamaIndex 组件装配）。
 
-    与其它引擎实现同缝同响应结构；``reranker`` 为 None 表示停用（纯召回顺序）。
-    问题已通过 service 安全闸门后才调用本方法。
+    与其它引擎实现同缝同响应结构；``reranker`` 未显式传入时按 settings 装配，
+    ``off`` 表示停用（纯召回顺序）。embedding 与重排模型都在首次使用才加载，
+    启动零开销；问题已通过 service 安全闸门后才调用本方法。
     """
 
     def __init__(
         self,
         settings,
-        embedding_provider: EmbeddingProvider | None = None,
+        embed_model=None,
+        reranker=None,
         *,
-        reranker: Callable | None = None,
         limit: int = 5,
-        min_score: float = 0.05,
+        min_score: float = 0.0,
         auto_build: bool = True,
+        reranker_from_settings: bool = False,
     ) -> None:
         self.settings = settings
-        self.embedding_provider = embedding_provider
-        self.reranker = reranker
+        self._embed_model = embed_model
+        self._reranker = reranker
+        # 显式构造（含测试）不重排；仅 app 装配的引擎按 settings 惰性装配重排器。
+        self._use_settings_reranker = reranker_from_settings and reranker is None
+        self._reranker_resolved = reranker is not None
         self.limit = limit
         self.min_score = min_score
         self.auto_build = auto_build
 
+    def _embedding(self):
+        if self._embed_model is None:
+            self._embed_model = build_embedding_provider(self.settings)
+        return self._embed_model
+
+    def _resolve_reranker(self):
+        if self._use_settings_reranker and not self._reranker_resolved:
+            self._reranker = build_reranker(self.settings, top_n=self.limit)
+            self._reranker_resolved = True
+        return self._reranker
+
     async def _ensure_index(self) -> None:
-        if self.auto_build and not vector.has_index(self.settings):
-            await asyncio.to_thread(vector.rebuild, self.settings, self.embedding_provider)
+        if self.auto_build and not retrieval.has_index(self.settings):
+            await asyncio.to_thread(retrieval.build, self.settings, self._embedding())
+
+    def retrieve(self, question: str) -> list[dict]:
+        index = retrieval.load_index(self.settings, self._embedding())
+        if index is None or not index.docstore.docs:
+            return []
+        vector_retriever = index.as_retriever(similarity_top_k=self.limit)
+        bm25_retriever = NonZeroBM25Retriever.from_defaults(
+            docstore=index.docstore,
+            similarity_top_k=self.limit,
+            token_pattern=retrieval.BM25_TOKEN_PATTERN,
+        )
+        fusion = QueryFusionRetriever(
+            [vector_retriever, bm25_retriever],
+            llm=MockLLM(),
+            similarity_top_k=self.limit,
+            mode=FUSION_MODES.RECIPROCAL_RANK,
+            num_queries=1,
+            use_async=False,
+        )
+        nodes = fusion.retrieve(QueryBundle(question))
+        reranker = self._resolve_reranker() if nodes else None
+        if nodes and reranker is not None:
+            nodes = reranker.postprocess_nodes(nodes, QueryBundle(question))
+        return [hit for hit in nodes_to_hits(nodes) if hit["score"] >= self.min_score]
 
     async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict:
         await self._ensure_index()
-        hits = await asyncio.to_thread(
-            recall,
-            self.settings,
-            question,
-            limit=self.limit,
-            embedding_provider=self.embedding_provider,
-            min_score=self.min_score,
-        )
-        if hits and self.reranker is not None:
-            hits = await asyncio.to_thread(self.reranker, question, hits)
+        hits = await asyncio.to_thread(self.retrieve, question)
         return await render_answer(provider, question, hits, history=history)
 
 

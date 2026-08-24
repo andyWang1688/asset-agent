@@ -73,26 +73,6 @@ def load(settings) -> dict:
         return {"version": 1, "pages": []}
 
 
-def search(settings, query: str, limit: int = 5) -> list[dict]:
-    """对文件级索引做轻量检索；索引缺失时返回空，调用方可先 rebuild。"""
-    normalized = " ".join(query.lower().split())
-    if not normalized:
-        return []
-    scored = []
-    for page in load(settings).get("pages", []):
-        haystack = (page.get("title", "") + "\n" + page.get("content", "")).lower()
-        score = haystack.count(normalized) * 10
-        terms = [part for part in normalized.split() if part]
-        score += sum(haystack.count(term) for term in terms)
-        # 中文口语问句通常没有空格；二字片段比整句更适合文件级初筛。
-        if len(terms) == 1 and len(normalized) > 2:
-            score += sum(haystack.count(normalized[i : i + 2]) for i in range(len(normalized) - 1))
-        if score:
-            scored.append((score, page))
-    scored.sort(key=lambda item: (-item[0], item[1].get("path", "")))
-    return [page for _, page in scored[:limit]]
-
-
 # 便于调用方按“索引构建器”语义命名。
 build_index = build
 rebuild_index = rebuild

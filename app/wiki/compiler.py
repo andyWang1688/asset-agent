@@ -229,10 +229,10 @@ def rebuild_index(settings: Settings) -> None:
     from ..query import index as query_index
 
     query_index.build(settings)
-    # 单一混合引擎的向量支路：文件级索引与向量索引都从 Markdown 全量重建（embedding 默认本地）。
-    from ..query import vector as vector_index
+    # 混合引擎的向量索引（LlamaIndex）：从 Markdown 全量重建（embedding 默认本地，内容不出本机）。
+    from ..query import retrieval as retrieval_index
 
-    vector_index.build(settings)
+    retrieval_index.build(settings)
 
 
 def append_log(settings: Settings, source_id: int, changes: list[str], conflicts: list[dict]) -> None:

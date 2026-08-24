@@ -8,7 +8,6 @@ from ..security import redactor
 from ..security.detectors import ScanEngine
 from ..security.policy import PolicyStore
 from ..security.rules import KIND_CREDENTIAL
-from .embeddings import build_embedding_provider
 from .engine import QuestionAnswerEngine
 from .hybrid import HybridQuestionAnswerEngine
 
@@ -49,8 +48,8 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
     history = []
     if session_id and settings.chat_memory_rounds > 0:
         history = db.list_chat_history(session_id, settings.chat_memory_rounds)
-    # 未显式传入引擎时装配默认的单一混合引擎（BM25+向量+重排）。
-    engine = engine or HybridQuestionAnswerEngine(settings, build_embedding_provider(settings))
+    # 未显式传入引擎时装配默认的单一混合引擎（LlamaIndex：BM25+向量+重排）。
+    engine = engine or HybridQuestionAnswerEngine(settings)
     result = await engine.answer(provider, safe_question, history=history)
     clean, hits_found = redactor.sanitize_llm_output(result["answer"])
     if hits_found:

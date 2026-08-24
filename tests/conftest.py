@@ -27,3 +27,22 @@ def settings(workspace):
     s = Settings()
     s.ensure_dirs()
     return s
+
+
+class _NoopReranker:
+    """重排测试替身：保持召回顺序不变，不加载任何模型。"""
+
+    def postprocess_nodes(self, nodes, query_bundle=None):
+        return nodes
+
+
+@pytest.fixture(autouse=True)
+def _default_local_embedding(monkeypatch):
+    """测试默认不加载真实模型：装配路径（引擎/索引构建）的 embedding 工厂换成确定性替身，
+    重排器换成无模型替身。"""
+    from app.query import hybrid, retrieval
+    from tests.fakes import KeywordEmbedding
+
+    monkeypatch.setattr(hybrid, "build_embedding_provider", lambda settings: KeywordEmbedding())
+    monkeypatch.setattr(retrieval, "build_embedding_provider", lambda settings: KeywordEmbedding())
+    monkeypatch.setattr(hybrid, "SentenceTransformerRerank", lambda **kwargs: _NoopReranker())

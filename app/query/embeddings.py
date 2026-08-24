@@ -1,154 +1,92 @@
-"""Embedding providers used by the vector query path.
+"""Embedding seam for index building and querying, built on LlamaIndex components.
 
-The default provider is deliberately local and dependency free.  Optional
-sentence-transformers and Ollama adapters are available for installations
-that want a BGE model, while a cloud OpenAI-compatible adapter is only
-selected when it is explicitly configured.
+The default provider is local-only (BGE via sentence-transformers); Ollama is an
+alternative local backend.  A cloud OpenAI-compatible provider is only selected
+when explicitly configured — merely filling a URL or key never changes the
+default, so Wiki text stays on the machine during index building.
 """
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
-import math
-import re
+import os
 import socket
-from collections.abc import Sequence
+from typing import ClassVar
 from urllib.parse import urlsplit
 
-import httpx
+from huggingface_hub.constants import HF_HUB_CACHE
+from llama_index.core.base.embeddings.base import BaseEmbedding
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.embeddings.ollama import OllamaEmbedding
+from llama_index.embeddings.openai import OpenAIEmbedding
+
+DEFAULT_LOCAL_MODEL = "BAAI/bge-small-zh-v1.5"
+
+
+def _hf_cache_dir() -> str:
+    """HF 模型缓存目录：复用 huggingface_hub 标准缓存（与手动预下载同目录）。"""
+    return os.environ.get("HF_HOME") or str(HF_HUB_CACHE)
 
 
 class EmbeddingError(RuntimeError):
     """Raised when an embedding backend cannot produce valid vectors."""
 
 
-class EmbeddingProvider:
-    """Small synchronous embedding seam shared by index building and search."""
+class LazyHuggingFaceEmbedding(HuggingFaceEmbedding):
+    """Local BGE embedding (sentence-transformers) that loads lazily.
 
-    name = "embedding"
-    model = ""
-    is_local = True
-
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:  # pragma: no cover - protocol-like base
-        raise NotImplementedError
-
-    def embed_text(self, text: str) -> list[float]:
-        """Embed one text without exposing backend-specific batch details."""
-        return self.embed([text])[0]
-
-    def encode(self, texts: Sequence[str]) -> list[list[float]]:
-        return self.embed(texts)
-
-    def embed_query(self, text: str) -> list[float]:
-        return self.embed([text])[0]
-
-    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        return self.embed(texts)
-
-
-def _normalise(vector: Sequence[float]) -> list[float]:
-    values = [float(v) for v in vector]
-    norm = math.sqrt(sum(v * v for v in values))
-    if not values or not math.isfinite(norm) or norm == 0:
-        raise EmbeddingError("embedding 返回空向量或零向量")
-    return [v / norm for v in values]
-
-
-class HashEmbeddingProvider(EmbeddingProvider):
-    """Deterministic local text embedding.
-
-    This is a compact feature-hashing model intended as the always-available
-    local fallback.  It requires no model download or network access and is
-    effective for both Chinese character phrases and ordinary identifiers.
-    Deployments with a BGE model can select the sentence-transformers or
-    Ollama adapters through ``EMBEDDING_LOCAL_BACKEND``.
+    Construction is cheap: the SentenceTransformer model is only loaded on the
+    first embed call, keeping app startup and model-free code paths fast.
+    ``local_files_only`` is enforced by default so index building can never
+    trigger network access.
     """
 
-    name = "local"
-    is_local = True
+    is_local: ClassVar[bool] = True
 
-    def __init__(self, dimensions: int = 384, model: str = "BAAI/bge-small-zh-v1.5") -> None:
-        if int(dimensions) < 16:
-            raise ValueError("embedding dimensions 必须至少为 16")
-        self.dimensions = int(dimensions)
-        self.model = model
+    def __init__(self, **kwargs):
+        # 只初始化 pydantic 字段（不加载模型），保证 resolve_embed_model 等
+        # 框架路径在模型装载前也能正常读写 callback_manager 等字段。
+        BaseEmbedding.__init__(
+            self,
+            model_name=str(kwargs.get("model_name") or DEFAULT_LOCAL_MODEL),
+            embed_batch_size=kwargs.get("embed_batch_size", 10),
+            callback_manager=kwargs.get("callback_manager"),
+            num_workers=kwargs.get("num_workers"),
+            embeddings_cache=kwargs.get("embeddings_cache"),
+            rate_limiter=kwargs.get("rate_limiter"),
+        )
+        object.__setattr__(self, "_lazy_init_kwargs", dict(kwargs))
+        object.__setattr__(self, "_lazy_loaded", False)
 
-    @staticmethod
-    def _features(text: str) -> list[tuple[str, float]]:
-        value = " ".join(str(text).lower().split())
-        if not value:
-            return []
-        features: list[tuple[str, float]] = [
-            (token, 1.0) for token in re.findall(r"[\w]+", value, re.UNICODE)
-        ]
-        compact = re.sub(r"\s+", "", value)
-        # Character n-grams make paraphrased Chinese questions useful without
-        # relying on whitespace tokenisation.
-        for n, weight in ((1, 0.35), (2, 1.0), (3, 0.85), (4, 0.55)):
-            features.extend((compact[i : i + n], weight) for i in range(max(0, len(compact) - n + 1)))
-        return features
+    def _ensure_loaded(self) -> None:
+        if self._lazy_loaded:
+            return
+        HuggingFaceEmbedding.__init__(self, **self._lazy_init_kwargs)
+        object.__setattr__(self, "_lazy_loaded", True)
 
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        result: list[list[float]] = []
-        for text in texts:
-            vector = [0.0] * self.dimensions
-            for feature, weight in self._features(text):
-                digest = hashlib.blake2b(feature.encode("utf-8"), digest_size=16).digest()
-                index = int.from_bytes(digest[:8], "big") % self.dimensions
-                # Positive hashing keeps shared character n-grams additive,
-                # which is more useful for short Chinese paraphrases than
-                # signed collisions in this tiny fallback.
-                vector[index] += weight
-            # Empty text still gets a valid vector; callers normally filter it
-            # before embedding, but this keeps the provider total and stable.
-            if not any(vector):
-                vector[0] = 1.0
-            result.append(_normalise(vector))
-        return result
+    def get_text_embedding(self, text: str) -> list[float]:
+        self._ensure_loaded()
+        return super().get_text_embedding(text)
 
+    def get_query_embedding(self, query: str) -> list[float]:
+        self._ensure_loaded()
+        return super().get_query_embedding(query)
 
-class SentenceTransformerEmbeddingProvider(EmbeddingProvider):
-    """Optional local sentence-transformers adapter (typically a BGE model).
+    async def aget_text_embedding(self, text: str) -> list[float]:
+        self._ensure_loaded()
+        return await super().aget_text_embedding(text)
 
-    ``local_files_only=True`` is intentional: selecting this backend never
-    causes Wiki text or model downloads to leave the machine.
-    """
+    async def aget_query_embedding(self, query: str) -> list[float]:
+        self._ensure_loaded()
+        return await super().aget_query_embedding(query)
 
-    name = "sentence-transformers"
-    is_local = True
+    def get_text_embedding_batch(self, texts: list[str], show_progress: bool = False, **kwargs) -> list[list[float]]:
+        self._ensure_loaded()
+        return super().get_text_embedding_batch(texts, show_progress=show_progress, **kwargs)
 
-    def __init__(self, model: str, dimensions: int | None = None) -> None:
-        # Hugging Face honours this flag across sentence-transformers releases;
-        # it prevents an unavailable model from being fetched implicitly.
-        import os
-
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise EmbeddingError("未安装 sentence-transformers") from exc
-        try:
-            self._model = SentenceTransformer(model, local_files_only=True)
-        except TypeError:  # older versions do not expose local_files_only
-            try:
-                self._model = SentenceTransformer(model)
-            except Exception as exc:  # pragma: no cover - optional dependency
-                raise EmbeddingError("本地 sentence-transformers 模型不可用") from exc
-        except Exception as exc:  # pragma: no cover - optional dependency
-            raise EmbeddingError("本地 sentence-transformers 模型不可用") from exc
-        self.model = model
-        self.dimensions = dimensions
-
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        try:
-            values = self._model.encode(
-                list(texts), normalize_embeddings=True, convert_to_numpy=False, show_progress_bar=False
-            )
-            vectors = [[float(v) for v in row] for row in values]
-        except Exception as exc:  # pragma: no cover - optional dependency
-            raise EmbeddingError("sentence-transformers embedding 失败") from exc
-        return [_normalise(row) for row in vectors]
+    async def aget_text_embedding_batch(self, texts: list[str], show_progress: bool = False, **kwargs) -> list[list[float]]:
+        self._ensure_loaded()
+        return await super().aget_text_embedding_batch(texts, show_progress=show_progress, **kwargs)
 
 
 def _local_host(host: str) -> bool:
@@ -185,99 +123,6 @@ def validate_local_endpoint(base_url: str) -> str | None:
     return None
 
 
-class OllamaEmbeddingProvider(EmbeddingProvider):
-    """Ollama's local ``/api/embed`` endpoint."""
-
-    name = "ollama"
-    is_local = True
-
-    def __init__(self, base_url: str, model: str, timeout: float = 60) -> None:
-        error = validate_local_endpoint(base_url)
-        if error:
-            raise EmbeddingError(error)
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.timeout = timeout
-
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        values = list(texts)
-        if not values:
-            return []
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.post(
-                    self.base_url + "/api/embed",
-                    json={"model": self.model, "input": values},
-                )
-                body = response.json() if response.status_code < 400 else {}
-                vectors = body.get("embeddings")
-                if response.status_code == 404 and len(values) == 1:
-                    # Older Ollama versions expose the singular endpoint.
-                    response = client.post(
-                        self.base_url + "/api/embeddings",
-                        json={"model": self.model, "prompt": values[0]},
-                    )
-                    response.raise_for_status()
-                    vectors = [response.json().get("embedding")]
-                else:
-                    response.raise_for_status()
-        except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
-            raise EmbeddingError("Ollama embedding 请求失败") from exc
-        if not isinstance(vectors, list) or len(vectors) != len(values):
-            raise EmbeddingError("Ollama embedding 返回数量不匹配")
-        return [_normalise(row) for row in vectors]
-
-
-# Common spelling used by callers and documentation.
-OllamaEmbedding = OllamaEmbeddingProvider
-
-
-class CloudEmbeddingProvider(EmbeddingProvider):
-    """OpenAI-compatible remote embedding adapter.
-
-    The factory never selects this class implicitly; callers must opt into a
-    cloud provider explicitly with ``EMBEDDING_PROVIDER=cloud`` (or ``openai``).
-    """
-
-    name = "cloud"
-    is_local = False
-
-    def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 180) -> None:
-        if not base_url:
-            raise EmbeddingError("云端 embedding 必须填写 API 地址")
-        if not model:
-            raise EmbeddingError("云端 embedding 必须填写模型名")
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
-        self.model = model
-        self.timeout = timeout
-
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        values = list(texts)
-        if not values:
-            return []
-        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.post(
-                    self.base_url + "/embeddings",
-                    json={"model": self.model, "input": values},
-                    headers=headers,
-                )
-                response.raise_for_status()
-                body = response.json()
-                rows = sorted(body["data"], key=lambda row: row.get("index", 0))
-                vectors = [row["embedding"] for row in rows]
-        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise EmbeddingError("云端 embedding 请求失败") from exc
-        if len(vectors) != len(values):
-            raise EmbeddingError("云端 embedding 返回数量不匹配")
-        return [_normalise(row) for row in vectors]
-
-
-OpenAIEmbeddingProvider = CloudEmbeddingProvider
-
-
 def _setting(settings, *names: str, default=None):
     for name in names:
         value = getattr(settings, name, None)
@@ -286,45 +131,44 @@ def _setting(settings, *names: str, default=None):
     return default
 
 
-def build_embedding_provider(settings, provider: str | None = None) -> EmbeddingProvider:
-    """Build an embedding provider from settings.
+def build_embedding_provider(settings, provider: str | None = None):
+    """Build a LlamaIndex embedding model from settings.
 
     ``local`` is the fail-safe default.  A cloud provider is selected only by
-    an explicit provider value; merely supplying a cloud URL or key does not
-    change the default.
+    an explicit provider value; supplying a remote URL/key alone does nothing.
     """
     selected = str(
         provider
         or _setting(settings, "embedding_provider", "embedding_backend", default="local")
     ).strip().lower()
-    model = str(_setting(settings, "embedding_model", default="BAAI/bge-small-zh-v1.5"))
-    dimensions = int(_setting(settings, "embedding_dimensions", default=384))
+    model = str(_setting(settings, "embedding_model", default=DEFAULT_LOCAL_MODEL))
 
-    if selected == "cloud":
-        return CloudEmbeddingProvider(
-            str(_setting(settings, "embedding_base_url", default="")),
-            str(_setting(settings, "embedding_api_key", default="") or ""),
-            model,
-            float(_setting(settings, "embedding_timeout", default=180)),
+    if selected in {"cloud", "openai"}:
+        base_url = str(_setting(settings, "embedding_base_url", default=""))
+        if not base_url:
+            raise EmbeddingError("云端 embedding 必须填写 API 地址")
+        # model_name 直通（OpenAI 兼容端点可用任意模型名，不走 OpenAI 内置枚举）。
+        return OpenAIEmbedding(
+            model_name=model,
+            api_base=base_url,
+            api_key=str(_setting(settings, "embedding_api_key", default="") or ""),
+            embed_batch_size=32,
         )
     if selected != "local":
         raise EmbeddingError(f"未知 embedding provider: {selected}")
 
-    backend = str(_setting(settings, "embedding_local_backend", default="hash")).strip().lower()
+    backend = str(_setting(settings, "embedding_local_backend", default="sentence-transformers")).strip().lower()
     if backend in {"sentence-transformers", "sentence_transformers", "st"}:
-        return SentenceTransformerEmbeddingProvider(model, dimensions)
-    if backend == "ollama":
-        return OllamaEmbeddingProvider(
-            str(_setting(settings, "embedding_base_url", default="") or "http://127.0.0.1:11434"),
-            model,
-            float(_setting(settings, "embedding_timeout", default=60)),
+        local_only = bool(_setting(settings, "embedding_local_only", default=True))
+        return LazyHuggingFaceEmbedding(
+            model_name=model,
+            cache_folder=_hf_cache_dir(),
+            model_kwargs={"local_files_only": local_only},
         )
-    if backend == "hash":
-        return HashEmbeddingProvider(dimensions, model)
+    if backend == "ollama":
+        base_url = str(_setting(settings, "embedding_base_url", default="") or "http://127.0.0.1:11434")
+        error = validate_local_endpoint(base_url)
+        if error:
+            raise EmbeddingError(error)
+        return OllamaEmbedding(model_name=model, base_url=base_url)
     raise EmbeddingError(f"未知本地 embedding backend: {backend}")
-
-
-# Friendly aliases for callers/tests that use the backend names directly.
-LocalEmbeddingProvider = HashEmbeddingProvider
-LocalEmbedding = HashEmbeddingProvider
-build_provider = build_embedding_provider
