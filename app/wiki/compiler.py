@@ -225,6 +225,10 @@ def rebuild_index(settings: Settings) -> None:
         lines.extend(groups.get(d) or ["- （暂无）"])
         lines.append("")
     (settings.wiki_dir / "index.md").write_text("\n".join(lines), encoding="utf-8")
+    # 文件级查询索引是 Markdown 的派生物，与 Wiki 导航索引一起全量更新。
+    from ..query import index as query_index
+
+    query_index.build(settings)
 
 
 def append_log(settings: Settings, source_id: int, changes: list[str], conflicts: list[dict]) -> None:

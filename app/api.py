@@ -398,10 +398,6 @@ def wiki_page(request: Request, path: str):
 @router.post("/api/wiki/rebuild")
 def wiki_rebuild(request: Request):
     ctx = _ctx(request)
-    for row in db.list_pages():
-        p = ctx.settings.wiki_dir / row["path"]
-        if p.exists():
-            db.upsert_page(row["path"], row["title"], p.read_text(encoding="utf-8"))
     compiler.rebuild_index(ctx.settings)
     return {"ok": True}
 
