@@ -17,6 +17,7 @@ dependencies = [
     "pyyaml>=6.0",
     "regex>=2024.5",
     "reportlab>=4.2",
+    "torch>=2.13",
     "uvicorn[standard]>=0.30",
 ]
 
@@ -28,3 +29,13 @@ dev = [
 
 [tool.uv]
 package = false
+
+# Linux 容器用 PyTorch 官方 CPU 轮子：剔除 CUDA 全家桶（本机/容器无 NVIDIA GPU，
+# PyPI 默认 torch 在 Linux 上拖入 ~3.5GB nvidia/triton 死重）。macOS 不受影响。
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }
