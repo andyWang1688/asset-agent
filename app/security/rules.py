@@ -1,6 +1,7 @@
 """本地敏感信息识别规则与统一 Finding。
 
-新增规则：在 RULES 列表追加 (规则名, 正则, 类型, [校验函数]) 即可。
+新增规则：在 RULES 列表追加 (规则名, 正则, 类型, [校验函数])，
+并在 RULE_METADATA 补该规则的中文描述与示例命中。
 类型（kind）既可以是规范类别（credential / pii），也可以是历史细分名
 （api_key / token / password / id_card …），会自动归一化到统一类别：
 credential、pii、unknown_suspect；无命中即 plain（不产生 Finding）。
@@ -92,6 +93,75 @@ RULES: list[tuple] = [
 ]
 
 BUILTIN_RULE_NAMES = [r[0] for r in RULES]
+
+# 内置规则的中文描述与示例命中（示例均为合成数据，随规则表一起维护；
+# 完整性与“示例确实能被规则命中”由 tests/test_policy.py 守护）。
+RULE_METADATA: dict[str, dict] = {
+    "aws_access_key": {
+        "description": "AWS 访问密钥 ID：AKIA 开头的 20 位大写字母/数字串。",
+        "examples": ["AKIADEMO00000000DEMO"],
+    },
+    "google_api_key": {
+        "description": "Google API 密钥：AIza 开头的 39 位字符串。",
+        "examples": ["AIzaSyA12345678901234567890123456789012"],
+    },
+    "github_token": {
+        "description": "GitHub 访问令牌：ghp_/gho_/ghu_/ghs_/github_pat_ 前缀的令牌。",
+        "examples": ["ghp_ABCDEFghijkl123456789"],
+    },
+    "openai_key": {
+        "description": "OpenAI API 密钥：sk-（或 sk-proj-）开头的密钥。",
+        "examples": ["sk-abcdefghij1234567890"],
+    },
+    "anthropic_key": {
+        "description": "Anthropic API 密钥：sk-ant- 开头的密钥。",
+        "examples": ["sk-ant-abcdefghij1234567890"],
+    },
+    "slack_token": {
+        "description": "Slack 令牌：xoxb/xoxp/xoxa/xoxr/xoxs- 开头的令牌。",
+        "examples": ["xoxb-1234567890-abcdef"],
+    },
+    "stripe_key": {
+        "description": "Stripe 密钥：sk_live_/sk_test_/pk_live_/pk_test_ 开头的密钥。",
+        "examples": ["sk_test_DEMO00000000000000"],
+    },
+    "jwt_token": {
+        "description": "JWT 令牌：eyJ 开头、三段式、用点号连接的令牌。",
+        "examples": ["eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMSJ9.abcDEF12_-x"],
+    },
+    "private_key_block": {
+        "description": "PEM 格式私钥块：-----BEGIN ... PRIVATE KEY----- 包裹的内容。",
+        "examples": ["-----BEGIN RSA PRIVATE KEY-----\nMIIEvdGVzdGtleW1hdGVyaWFs\n-----END RSA PRIVATE KEY-----"],
+    },
+    "db_connection_string": {
+        "description": "数据库/中间件连接串：postgres、mysql、mongodb、redis 等协议头且内嵌账号密码。",
+        "examples": ["postgres://app_user:pass1234@10.0.0.8:5432/orders"],
+    },
+    "email": {
+        "description": "电子邮箱地址（PII）。",
+        "examples": ["user@example.com"],
+    },
+    "mobile_phone_cn": {
+        "description": "中国大陆手机号：1[3-9] 开头的 11 位数字（PII）。",
+        "examples": ["13800138000"],
+    },
+    "id_card": {
+        "description": "中国大陆身份证号：18 位，末位为校验码（校验位不合法的不会命中）。",
+        "examples": ["11010519491231002X"],
+    },
+    "bank_card": {
+        "description": "银行卡号：16-19 位数字，需通过 Luhn 校验（不满足的不会命中）。",
+        "examples": ["4242424242424242"],
+    },
+    "recovery_code": {
+        "description": "恢复码/备份码：多组用空格或短横线分隔的大写字母数字段。",
+        "examples": ["K7QX-9PLM-2WRT-8NVB-4JHD"],
+    },
+    "key_value_secret": {
+        "description": "键值式秘密：password=、token: 等关键词后紧跟的值。",
+        "examples": ["password=Hunter2Secret99"],
+    },
+}
 
 # 历史细分类型 → 统一类别
 _LEGACY_KIND_MAP = {

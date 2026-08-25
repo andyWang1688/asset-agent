@@ -43,6 +43,11 @@ class BuiltinRuleBody(BaseModel):
     enabled: bool
 
 
+class BuiltinOverrideBody(BaseModel):
+    pattern: str | None = None
+    kind: str | None = None
+
+
 class CustomRuleBody(BaseModel):
     name: str
     pattern: str
@@ -215,6 +220,32 @@ def set_builtin_rule(request: Request, rule_name: str, body: BuiltinRuleBody):
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     db.log_security("policy_updated", f"内置规则 {rule_name} 已{'启用' if body.enabled else '停用'}")
+    return {"ok": True, "rule": rule}
+
+
+@router.get("/api/settings/policy/rules")
+def get_policy_rules(request: Request):
+    """统一规则列表：内置（含覆盖）+ 自定义，含名称/类别/描述/示例/正则/来源/启停。"""
+    return {"rules": _policy_store(request).rules_detail(), "validators": sorted(VALIDATORS)}
+
+
+@router.put("/api/settings/policy/builtin-rules/{rule_name}/override")
+def set_builtin_override(request: Request, rule_name: str, body: BuiltinOverrideBody):
+    try:
+        rule = _policy_store(request).set_builtin_override(rule_name, body.pattern, body.kind)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.log_security("policy_updated", f"内置规则 {rule_name} 已覆盖（正则/类别）")
+    return {"ok": True, "rule": rule}
+
+
+@router.delete("/api/settings/policy/builtin-rules/{rule_name}/override")
+def restore_builtin_rule(request: Request, rule_name: str):
+    try:
+        rule = _policy_store(request).restore_builtin_rule(rule_name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.log_security("policy_updated", f"内置规则 {rule_name} 已恢复默认")
     return {"ok": True, "rule": rule}
 
 

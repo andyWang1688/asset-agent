@@ -53,7 +53,9 @@ DEFAULT_POLICY: dict = {
             "max_findings": 50,
             "context_min_length": 12,
         },
-        "builtin_rules": {"disabled": []},
+        # overrides：内置规则覆盖层（改正则/类别）。底层=停用原规则+覆盖层生效；
+        # 恢复默认=删覆盖+恢复启用。形如 {"规则名": {"pattern": ..., "kind": ..., "enabled": true}}
+        "builtin_rules": {"disabled": [], "overrides": {}},
         "extra_rules": [],
         # 自定义正则的运行时护栏：输入长度上限 / 单规则执行超时（秒）/ 最大规则数
         "extra_max_input_chars": 200_000,
@@ -120,6 +122,28 @@ def _run_regex_with_timeout(pattern: "regex.Pattern", text: str, timeout: float)
     return list(pattern.finditer(text, timeout=timeout))
 
 
+# 用户自定义/覆盖正则的运行时探针：用于在保存前暴露灾难性回溯
+_PROBE_TEXT = ("sample line\n" * 200) + "key=value, 1234567890\n" + "a" * 5000 + "b"
+
+
+def _check_pattern(pattern_s: str, path: str) -> None:
+    """既有护栏：长度上限 / 可编译 / 不匹配空串 / 探针执行不超时。非法时抛 PolicyError。"""
+    if not isinstance(pattern_s, str) or not pattern_s:
+        raise PolicyError(f"{path}.pattern: 不能为空")
+    if len(pattern_s) > MAX_PATTERN_CHARS:
+        raise PolicyError(f"{path}.pattern: 长度不得超过 {MAX_PATTERN_CHARS}")
+    try:
+        compiled = regex.compile(pattern_s)
+    except regex.error as e:
+        raise PolicyError(f"{path}.pattern: 非法正则: {e}") from e
+    if compiled.match(""):
+        raise PolicyError(f"{path}.pattern: 不允许匹配空串")
+    try:
+        _run_regex_with_timeout(compiled, _PROBE_TEXT, timeout=1.0)
+    except TimeoutError:
+        raise PolicyError(f"{path}.pattern: 正则执行超时（疑似灾难性回溯）")
+    except Exception as e:
+        raise PolicyError(f"{path}.pattern: 正则执行异常: {type(e).__name__}") from e
 def validate_policy(data: object) -> dict:
     """校验并归一化策略；非法时抛 PolicyError（消息含字段路径）。"""
     errors: list[str] = []
@@ -176,12 +200,34 @@ def validate_policy(data: object) -> dict:
         if name not in BUILTIN_RULE_NAMES:
             raise PolicyError(f"detection.builtin_rules.disabled: 未知内置规则 {name}")
 
+    overrides = detection["builtin_rules"].get("overrides")
+    if not isinstance(overrides, dict):
+        raise PolicyError("detection.builtin_rules.overrides: 必须是映射")
+    for name, ov in overrides.items():
+        p = f"detection.builtin_rules.overrides.{name}"
+        if name not in BUILTIN_RULE_NAMES:
+            raise PolicyError(f"{p}: 未知内置规则 {name}")
+        if not isinstance(ov, dict):
+            raise PolicyError(f"{p}: 必须是映射")
+        if name in disabled:
+            raise PolicyError(f"{p}: 已覆盖的规则不能同时出现在 disabled 列表")
+        enabled = ov.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise PolicyError(f"{p}.enabled: 必须是布尔值")
+        ov["enabled"] = enabled
+        if ov.get("pattern") is None and ov.get("kind") is None:
+            raise PolicyError(f"{p}: 至少覆盖 pattern 或 kind 之一")
+        if ov.get("pattern") is not None:
+            _check_pattern(ov.get("pattern"), p)
+        kind = ov.get("kind")
+        if kind is not None and kind not in KINDS:
+            raise PolicyError(f"{p}.kind: 必须是 {KINDS} 之一")
+
     extra = detection.get("extra_rules")
     if not isinstance(extra, list):
         raise PolicyError("detection.extra_rules: 必须是列表")
     if len(extra) > MAX_EXTRA_RULES:
         raise PolicyError(f"detection.extra_rules: 最多 {MAX_EXTRA_RULES} 条")
-    probe_text = ("sample line\n" * 200) + "key=value, 1234567890\n" + "a" * 5000 + "b"
     for i, rule in enumerate(extra):
         p = f"detection.extra_rules[{i}]"
         if not isinstance(rule, dict):
@@ -189,11 +235,7 @@ def validate_policy(data: object) -> dict:
         name = rule.get("name")
         if not isinstance(name, str) or not _EXTRA_NAME_RE.match(name):
             raise PolicyError(f"{p}.name: 必须是 1..40 位小写字母/数字/下划线")
-        pattern_s = rule.get("pattern")
-        if not isinstance(pattern_s, str) or not pattern_s:
-            raise PolicyError(f"{p}.pattern: 不能为空")
-        if len(pattern_s) > MAX_PATTERN_CHARS:
-            raise PolicyError(f"{p}.pattern: 长度不得超过 {MAX_PATTERN_CHARS}")
+        _check_pattern(rule.get("pattern"), p)
         if rule.get("kind") not in KINDS:
             raise PolicyError(f"{p}.kind: 必须是 {KINDS} 之一")
         conf = rule.get("confidence", 0.9)
@@ -206,18 +248,6 @@ def validate_policy(data: object) -> dict:
         if not isinstance(enabled, bool):
             raise PolicyError(f"{p}.enabled: 必须是布尔值")
         rule["enabled"] = enabled
-        try:
-            compiled = regex.compile(pattern_s)
-        except regex.error as e:
-            raise PolicyError(f"{p}.pattern: 非法正则: {e}") from e
-        if compiled.match(""):
-            raise PolicyError(f"{p}.pattern: 不允许匹配空串")
-        try:
-            _run_regex_with_timeout(compiled, probe_text, timeout=1.0)
-        except TimeoutError:
-            raise PolicyError(f"{p}.pattern: 正则执行超时（疑似灾难性回溯）")
-        except Exception as e:
-            raise PolicyError(f"{p}.pattern: 正则执行异常: {type(e).__name__}") from e
 
     defaults = merged["actions"].get("defaults")
     if not isinstance(defaults, dict):
@@ -333,27 +363,134 @@ class PolicyStore:
         return yaml.safe_dump(self.load(), allow_unicode=True, sort_keys=False)
 
     def builtin_rules(self) -> list[dict]:
-        """返回内置规则逐条启停状态。状态来源于当前生效策略。"""
-        disabled = set(self.load().get("detection", {}).get("builtin_rules", {}).get("disabled", []) or [])
+        """返回内置规则逐条启停状态。状态来源于当前生效策略；被覆盖的规则取覆盖层的类别/启停。"""
+        policy = self.load()
+        br = policy.get("detection", {}).get("builtin_rules", {})
+        disabled = set(br.get("disabled", []) or [])
+        overrides = br.get("overrides", {}) or {}
         from .rules import RULES, canonical_kind
 
-        kinds = {row[0]: canonical_kind(row[2]) for row in RULES}
-        return [{"name": name, "kind": kinds[name], "enabled": name not in disabled} for name in BUILTIN_RULE_NAMES]
+        raw_kinds = {row[0]: row[2] for row in RULES}
+        out = []
+        for name in BUILTIN_RULE_NAMES:
+            ov = overrides.get(name)
+            if ov is not None:
+                kind = canonical_kind(ov.get("kind") or raw_kinds[name])
+                enabled = ov.get("enabled", True)
+            else:
+                kind = canonical_kind(raw_kinds[name])
+                enabled = name not in disabled
+            out.append({"name": name, "kind": kind, "enabled": enabled})
+        return out
 
     def set_builtin_rule(self, name: str, enabled: bool) -> dict:
-        """切换单条内置规则，并通过策略校验后持久化到策略文件。"""
+        """切换单条内置规则，并通过策略校验后持久化到策略文件。被覆盖的规则切换覆盖层启停。"""
         if name not in BUILTIN_RULE_NAMES:
             raise PolicyError(f"未知内置规则 {name}")
         if not isinstance(enabled, bool):
             raise PolicyError("enabled: 必须是布尔值")
         policy = self.load()
-        disabled = [n for n in policy["detection"]["builtin_rules"].get("disabled", []) if n != name]
-        if not enabled:
-            disabled.append(name)
-        policy["detection"]["builtin_rules"]["disabled"] = disabled
+        br = policy["detection"]["builtin_rules"]
+        overrides = dict(br.get("overrides") or {})
+        if name in overrides:
+            ov = dict(overrides[name])
+            ov["enabled"] = enabled
+            overrides[name] = ov
+            br["overrides"] = overrides
+        else:
+            disabled = [n for n in br.get("disabled", []) if n != name]
+            if not enabled:
+                disabled.append(name)
+            br["disabled"] = disabled
         saved = validate_policy(policy)
         self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
         return next(rule for rule in self.builtin_rules() if rule["name"] == name)
+
+    def set_builtin_override(self, name: str, pattern: str | None = None, kind: str | None = None) -> dict:
+        """覆盖内置规则的正则模式/类别（底层=停用原规则+覆盖层生效），校验后持久化。
+        覆盖层接管该规则的启停：从 disabled 列表移除原规则。"""
+        if name not in BUILTIN_RULE_NAMES:
+            raise PolicyError(f"未知内置规则 {name}")
+        if pattern is None and kind is None:
+            raise PolicyError("至少提供 pattern 或 kind 之一")
+        if kind is not None and kind not in KINDS:
+            raise PolicyError(f"kind: 必须是 {KINDS} 之一")
+        policy = self.load()
+        br = policy["detection"]["builtin_rules"]
+        overrides = dict(br.get("overrides") or {})
+        current = dict(overrides.get(name) or {})
+        if pattern is not None:
+            current["pattern"] = pattern
+        if kind is not None:
+            current["kind"] = kind
+        current["enabled"] = True
+        overrides[name] = current
+        br["overrides"] = overrides
+        br["disabled"] = [n for n in br.get("disabled", []) if n != name]
+        saved = validate_policy(policy)
+        self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
+        return next(r for r in self.rules_detail() if r["name"] == name)
+
+    def restore_builtin_rule(self, name: str) -> dict:
+        """恢复内置规则默认：删除覆盖层并重新启用原规则。"""
+        if name not in BUILTIN_RULE_NAMES:
+            raise PolicyError(f"未知内置规则 {name}")
+        policy = self.load()
+        br = policy["detection"]["builtin_rules"]
+        overrides = dict(br.get("overrides") or {})
+        if name not in overrides:
+            raise PolicyError(f"内置规则 {name} 未被覆盖")
+        del overrides[name]
+        br["overrides"] = overrides
+        br["disabled"] = [n for n in br.get("disabled", []) if n != name]
+        saved = validate_policy(policy)
+        self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
+        return next(r for r in self.rules_detail() if r["name"] == name)
+
+    def rules_detail(self) -> list[dict]:
+        """统一规则列表（内置含覆盖 + 自定义）：名称/类别/描述/示例/正则/来源/启停。
+        来源：builtin（内置）/ override（内置被覆盖）/ custom（自定义）。"""
+        from .rules import RULES, RULE_METADATA, canonical_kind
+
+        policy = self.load()
+        detection = policy.get("detection", {})
+        br = detection.get("builtin_rules", {})
+        disabled = set(br.get("disabled", []) or [])
+        overrides = br.get("overrides", {}) or {}
+        out: list[dict] = []
+        for name, pattern, kind, *_ in RULES:
+            meta = RULE_METADATA.get(name, {})
+            ov = overrides.get(name)
+            if ov is not None:
+                eff_pattern = ov.get("pattern") or pattern
+                eff_kind = canonical_kind(ov.get("kind") or kind)
+                source = "override"
+                enabled = ov.get("enabled", True)
+            else:
+                eff_pattern = pattern
+                eff_kind = canonical_kind(kind)
+                source = "builtin"
+                enabled = name not in disabled
+            out.append({
+                "name": name,
+                "kind": eff_kind,
+                "description": meta.get("description", ""),
+                "examples": list(meta.get("examples", [])),
+                "pattern": eff_pattern,
+                "source": source,
+                "enabled": enabled,
+            })
+        for rule in detection.get("extra_rules", []) or []:
+            out.append({
+                "name": rule["name"],
+                "kind": rule["kind"],
+                "description": "",
+                "examples": [],
+                "pattern": rule["pattern"],
+                "source": "custom",
+                "enabled": rule.get("enabled", True),
+            })
+        return out
 
     def custom_rules(self) -> list[dict]:
         """返回当前策略中的自定义规则（不返回正则源码，避免 UI 泄露配置内容）。"""

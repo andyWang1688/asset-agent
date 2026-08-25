@@ -169,11 +169,20 @@ class RuleSpec:
 def build_rules(policy: dict) -> list[RuleSpec]:
     specs: list[RuleSpec] = []
     disabled = set(_policy_get(policy, "detection.builtin_rules.disabled", []) or [])
+    overrides = _policy_get(policy, "detection.builtin_rules.overrides", {}) or {}
     for name, pattern, kind, *rest in RULES:
-        if name in disabled:
-            continue
         validator = rest[0] if rest else None
-        ckind = canonical_kind(kind)
+        ov = overrides.get(name)
+        if ov is not None:
+            # 覆盖层生效：停用原规则，用覆盖的 pattern/kind（校验在策略层完成）
+            if not ov.get("enabled", True):
+                continue
+            pattern = ov.get("pattern") or pattern
+            ckind = canonical_kind(ov.get("kind") or kind)
+        else:
+            if name in disabled:
+                continue
+            ckind = canonical_kind(kind)
         specs.append(RuleSpec(name, pattern, ckind, validator, _default_confidence(ckind, validator)))
     for ex in _policy_get(policy, "detection.extra_rules", []) or []:
         if not ex.get("enabled", True):

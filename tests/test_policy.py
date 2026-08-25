@@ -217,3 +217,129 @@ def test_policy_rejects_bare_high_entropy_token(tmp_path):
     _, errors = store.save(y)
     assert errors and "不得包含" in errors[0]
     assert not store.path.exists()
+
+
+# ---- 内置规则覆盖层（#18）----
+
+def _scan(policy: dict, text: str):
+    return ScanEngine(policy).scan(text)
+
+
+def test_builtin_override_changes_detection_immediately(tmp_path):
+    store = _store(tmp_path)
+    text = "联系 13800138000 谢谢"
+    # 覆盖前：手机号命中内置 mobile_phone_cn（pii）
+    before = _scan(store.load(), text)
+    assert any(f.rule == "mobile_phone_cn" and f.kind == "pii" for f in before)
+
+    # 覆盖正则：只匹配 139 开头；原规则停用
+    store.set_builtin_override("mobile_phone_cn", pattern=r"(?<!\d)139\d{8}(?!\d)")
+    policy = store.load()
+    assert policy["detection"]["builtin_rules"]["overrides"]["mobile_phone_cn"]["pattern"]
+    after = _scan(policy, text)
+    assert not any(f.rule == "mobile_phone_cn" for f in after)  # 138 不再命中
+    assert any(f.rule == "mobile_phone_cn" for f in _scan(policy, "联系 13900139000"))
+
+    # 覆盖即时生效（新 store 读同一文件）
+    reloaded = PolicyStore(store.path)
+    assert not any(f.rule == "mobile_phone_cn" for f in _scan(reloaded.load(), text))
+
+
+def test_builtin_override_kind_only(tmp_path):
+    store = _store(tmp_path)
+    store.set_builtin_override("mobile_phone_cn", kind="credential")
+    f = _scan(store.load(), "联系 13800138000")
+    hit = next(x for x in f if x.rule == "mobile_phone_cn")
+    assert hit.kind == "credential"
+    assert hit.suggested_action == "store"  # credential 默认 store
+
+
+def test_builtin_override_restore_returns_to_default(tmp_path):
+    store = _store(tmp_path)
+    store.set_builtin_override("mobile_phone_cn", pattern=r"(?<!\d)139\d{8}(?!\d)")
+    assert not any(f.rule == "mobile_phone_cn" for f in _scan(store.load(), "13800138000"))
+    store.restore_builtin_rule("mobile_phone_cn")
+    policy = store.load()
+    assert policy["detection"]["builtin_rules"]["overrides"] == {}
+    assert any(f.rule == "mobile_phone_cn" for f in _scan(policy, "13800138000"))
+
+
+def test_builtin_override_restore_rejects_unknown_and_unoverridden(tmp_path):
+    store = _store(tmp_path)
+    with pytest.raises(PolicyError, match="未知内置规则"):
+        store.restore_builtin_rule("nope")
+    with pytest.raises(PolicyError, match="未被覆盖"):
+        store.restore_builtin_rule("email")
+
+
+def test_builtin_override_requires_pattern_or_kind(tmp_path):
+    store = _store(tmp_path)
+    with pytest.raises(PolicyError, match="至少"):
+        store.set_builtin_override("email")
+
+
+def test_builtin_override_guardrails(tmp_path):
+    store = _store(tmp_path)
+    with pytest.raises(PolicyError, match="未知内置规则"):
+        store.set_builtin_override("nope", pattern=r"\d+")
+    with pytest.raises(PolicyError, match="长度"):
+        store.set_builtin_override("email", pattern="a" * 301)
+    with pytest.raises(PolicyError, match="非法正则"):
+        store.set_builtin_override("email", pattern="([a-z")
+    with pytest.raises(PolicyError, match="空串"):
+        store.set_builtin_override("email", pattern="a*")
+    with pytest.raises(PolicyError, match="类别|必须是"):
+        store.set_builtin_override("email", kind="not_a_kind")
+    # 灾难性回溯：经 YAML 保存路径同样被拦截
+    y = (
+        "detection:\n  builtin_rules:\n    overrides:\n      email:\n"
+        "        pattern: '(a+)+$'\n"
+    )
+    _, errors = store.save(y)
+    assert errors
+    # 非法覆盖不落盘、不影响现有策略
+    assert PolicyStore(store.path).load()["detection"]["builtin_rules"]["overrides"] == {}
+
+
+def test_builtin_override_yaml_conflict_with_disabled_rejected(tmp_path):
+    store = _store(tmp_path)
+    y = (
+        "detection:\n  builtin_rules:\n    disabled: [email]\n    overrides:\n"
+        "      email:\n        pattern: 'x@y\\.com'\n"
+    )
+    _, errors = store.save(y)
+    assert errors and "disabled" in errors[0]
+
+
+def test_rules_detail_sources_and_fields(tmp_path):
+    store = _store(tmp_path)
+    store.add_custom_rule({"name": "emp_id", "pattern": r"EMP-\d{6}", "kind": "pii"})
+    store.set_builtin_override("mobile_phone_cn", pattern=r"(?<!\d)139\d{8}(?!\d)")
+    detail = {r["name"]: r for r in store.rules_detail()}
+    # 字段齐全
+    for r in detail.values():
+        for key in ("name", "kind", "description", "examples", "pattern", "source", "enabled"):
+            assert key in r
+    assert detail["email"]["source"] == "builtin"
+    assert detail["mobile_phone_cn"]["source"] == "override"
+    assert detail["emp_id"]["source"] == "custom"
+    # 内置规则带中文描述与示例
+    assert detail["email"]["description"]
+    assert detail["email"]["examples"]
+    # 覆盖后返回覆盖正则
+    assert detail["mobile_phone_cn"]["pattern"] == r"(?<!\d)139\d{8}(?!\d)"
+
+
+def test_builtin_metadata_covers_all_rules():
+    from app.security.rules import BUILTIN_RULE_NAMES, RULE_METADATA
+    assert set(RULE_METADATA) == set(BUILTIN_RULE_NAMES)
+    for name, meta in RULE_METADATA.items():
+        assert meta["description"] and meta["examples"], name
+
+
+def test_unoverridden_builtin_rules_behavior_unchanged(tmp_path):
+    store = _store(tmp_path)
+    text = "邮箱 user@example.com 手机 13800138000"
+    default_findings = {(f.rule, f.kind) for f in _scan(default_policy(), text)}
+    store_findings = {(f.rule, f.kind) for f in _scan(store.load(), text)}
+    assert default_findings == store_findings

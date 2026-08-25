@@ -181,3 +181,80 @@ def test_replacement_engine_stays_behind_security_gates(tmp_path, monkeypatch):
     assert len(engine.calls) == 1
     assert "user@example.com" not in engine.calls[0]
     assert "sk-proj" not in sanitized.json()["answer"]
+
+
+def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):
+    """#18：统一规则列表 + 内置规则覆盖/恢复 API。"""
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
+    monkeypatch.setenv("VAULTWARDEN_URL", "http://127.0.0.1:8081")
+    creds = FakeCredentialStore()
+    monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: creds)
+    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider(PLAN))
+    monkeypatch.setattr(api_module.llm, "build_provider", lambda settings, row, role=None: FakeProvider("OK"))
+
+    with TestClient(main.app) as client:
+        # 统一规则列表：内置规则带描述/示例/来源
+        rules = client.get("/api/settings/policy/rules").json()["rules"]
+        by_name = {r["name"]: r for r in rules}
+        assert by_name["email"]["source"] == "builtin"
+        assert by_name["email"]["description"] and by_name["email"]["examples"]
+        assert "pattern" in by_name["email"]
+
+        # 覆盖前：138 手机号命中内置规则，进入确认闸门
+        before = client.post("/api/ingest", data={"text": "联系 13800138000 谢谢"}).json()
+        assert before["pending_confirmation"] is True and before["summary"]["pii"] == 1
+
+        # 覆盖内置规则：返回来源=override，策略文件持久化
+        ov = client.put(
+            "/api/settings/policy/builtin-rules/mobile_phone_cn/override",
+            json={"pattern": r"(?<!\d)139\d{8}(?!\d)"},
+        ).json()
+        assert ov["ok"] is True and ov["rule"]["source"] == "override"
+        policy = client.get("/api/settings/policy").json()["policy"]
+        assert policy["detection"]["builtin_rules"]["overrides"]["mobile_phone_cn"]["pattern"]
+        # 覆盖即时生效（同一 policy_store 供 ingest 使用）：138 放行、139 命中
+        after = client.post("/api/ingest", data={"text": "联系 13800138001 谢谢"}).json()
+        assert "pending_confirmation" not in after
+        hit139 = client.post("/api/ingest", data={"text": "联系 13900139000 谢谢"}).json()
+        assert hit139["pending_confirmation"] is True and hit139["summary"]["pii"] == 1
+        # 审计记录不含覆盖正则原文（既有不变量：策略与审计不含秘密/配置内容）
+        from app import db
+
+        events = db.list_security(20)
+        assert events and any(e["kind"] == "policy_updated" for e in events)
+        for e in events:
+            assert r"(?<!\d)139\d{8}(?!\d)" not in e["detail"]
+
+        # 非法覆盖被拦截且友好报错，不落盘
+        bad = client.put(
+            "/api/settings/policy/builtin-rules/mobile_phone_cn/override",
+            json={"pattern": "a" * 301},
+        )
+        assert bad.status_code == 400 and "长度" in bad.json()["detail"]
+        bad_kind = client.put(
+            "/api/settings/policy/builtin-rules/mobile_phone_cn/override",
+            json={"kind": "nope"},
+        )
+        assert bad_kind.status_code == 400
+        bad_name = client.put(
+            "/api/settings/policy/builtin-rules/nope/override", json={"kind": "pii"}
+        )
+        assert bad_name.status_code == 400 and "未知内置规则" in bad_name.json()["detail"]
+        empty = client.put("/api/settings/policy/builtin-rules/email/override", json={})
+        assert empty.status_code == 400 and "至少" in empty.json()["detail"]
+
+        # 恢复默认：来源回到 builtin，覆盖清除
+        restored = client.delete(
+            "/api/settings/policy/builtin-rules/mobile_phone_cn/override"
+        ).json()
+        assert restored["ok"] is True and restored["rule"]["source"] == "builtin"
+        policy = client.get("/api/settings/policy").json()["policy"]
+        assert policy["detection"]["builtin_rules"]["overrides"] == {}
+        # 恢复默认后 138 重新命中
+        back = client.post("/api/ingest", data={"text": "联系 13800138002 谢谢"}).json()
+        assert back["pending_confirmation"] is True
+
+        # 恢复未覆盖规则 → 400
+        again = client.delete("/api/settings/policy/builtin-rules/email/override")
+        assert again.status_code == 400 and "未被覆盖" in again.json()["detail"]
