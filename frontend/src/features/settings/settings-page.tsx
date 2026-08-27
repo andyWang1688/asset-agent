@@ -1,5 +1,5 @@
-import { useEffect, useState, type ComponentType } from 'react'
-import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
+import { useCallback, useEffect, useState, type ComponentType } from 'react'
+import { Bot, ChevronLeft, ChevronRight, RefreshCw, Search, ShieldCheck, Siren } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -210,13 +210,15 @@ function RuleRow({
 }
 
 export function SettingsPage() {
-  const { refreshHealth, settingsRoute: activeModule } = useApp()
+  const { refreshHealth, settingsRoute: activeModule, tab } = useApp()
   const models = useModels()
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetRole, setSheetRole] = useState('knowledge')
   const [editing, setEditing] = useState<ModelRow | null>(null)
   const [deleting, setDeleting] = useState<ModelRow | null>(null)
   const [events, setEvents] = useState<SecurityEvent[]>([])
+  const [eventsLoading, setEventsLoading] = useState(false)
+  const [eventPage, setEventPage] = useState(1)
   const [rules, setRules] = useState<DetectionRule[]>([])
   const [validators, setValidators] = useState<string[]>([])
   const [ruleForm, setRuleForm] = useState({ name: '', pattern: '', kind: 'pii', validator: '' })
@@ -228,11 +230,24 @@ export function SettingsPage() {
   const [policySaving, setPolicySaving] = useState(false)
   const [policyError, setPolicyError] = useState('')
 
-  const loadEvents = () => {
-    void api.securityEvents().then(setEvents).catch(() => setEvents([]))
-  }
+  const loadEvents = useCallback(async () => {
+    setEventsLoading(true)
+    try {
+      setEvents(await api.securityEvents())
+    } catch {
+      setEvents([])
+    } finally {
+      setEventsLoading(false)
+    }
+  }, [])
   useEffect(() => {
-    loadEvents()
+    if (tab !== 'settings' || activeModule !== 'events') return
+    setEventPage(1)
+    void loadEvents()
+    const timer = window.setInterval(() => void loadEvents(), 5000)
+    return () => window.clearInterval(timer)
+  }, [activeModule, loadEvents, tab])
+  useEffect(() => {
     void api.policyRules().then((result) => {
       setRules(result.rules)
       setValidators(result.validators)
@@ -458,27 +473,60 @@ export function SettingsPage() {
           </section>}
 
 
-          {activeModule === 'events' && <section>
-            <div className="flex justify-end border-b border-border px-[17px] py-3">
-              <Button variant="compact" size="sm" onClick={loadEvents}>
-                刷新
-              </Button>
-            </div>
-            {events.length === 0 ? (
-              <div className="flex items-baseline gap-2.5 px-[17px] py-3 text-caption text-muted">
-                <span className="flex-1">暂无安全事件</span>
-                <Badge variant="muted">0</Badge>
+          {activeModule === 'events' && (() => {
+            const pageSize = 20
+            const pageCount = Math.max(1, Math.ceil(events.length / pageSize))
+            const currentPage = Math.min(eventPage, pageCount)
+            const pageEvents = events.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+            return <section>
+              <div className="flex items-center justify-between border-b border-border px-[17px] py-3">
+                <span className="text-meta text-muted">共 {events.length} 条</span>
+                <Button
+                  variant="compact"
+                  size="icon"
+                  onClick={() => void loadEvents()}
+                  disabled={eventsLoading}
+                  aria-label="刷新安全事件"
+                  title="刷新"
+                >
+                  <RefreshCw className={cn('h-4 w-4', eventsLoading && 'animate-spin')} />
+                </Button>
               </div>
-            ) : (
-              events.slice(0, 20).map((r) => (
-                <div key={r.id} className="flex items-baseline gap-2.5 border-t border-border px-[17px] py-3 text-caption first:border-t-0">
-                  <Badge variant="muted">{r.kind}</Badge>
-                  <span className={cn('min-w-0 flex-1 break-words text-fg')}>{r.detail}</span>
-                  <time className="ml-auto whitespace-nowrap font-mono text-meta text-muted">{fmtTime(r.created_at)}</time>
+              {eventsLoading && events.length === 0 ? (
+                <div className="px-[17px] py-8 text-center text-caption text-muted">正在加载安全事件…</div>
+              ) : events.length === 0 ? (
+                <div className="px-[17px] py-8 text-center text-caption text-muted">暂无安全事件</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-caption">
+                    <thead className="bg-bg text-meta text-muted">
+                      <tr>
+                        <th scope="col" className="w-[170px] px-[17px] py-2.5 font-medium">时间</th>
+                        <th scope="col" className="w-[150px] px-3 py-2.5 font-medium">类型</th>
+                        <th scope="col" className="px-3 py-2.5 font-medium">详情</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pageEvents.map((event) => (
+                        <tr key={event.id} className="border-t border-border align-top">
+                          <td className="whitespace-nowrap px-[17px] py-3 font-mono text-meta text-muted"><time dateTime={event.created_at}>{fmtTime(event.created_at)}</time></td>
+                          <td className="px-3 py-3"><Badge variant="muted">{event.kind}</Badge></td>
+                          <td className="break-words px-3 py-3 text-fg">{event.detail}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))
-            )}
-          </section>}
+              )}
+              {events.length > 0 && <div className="flex items-center justify-between border-t border-border px-[17px] py-3">
+                <span className="text-meta text-muted">第 {currentPage} / {pageCount} 页</span>
+                <div className="flex items-center gap-1.5">
+                  <Button variant="compact" size="icon" onClick={() => setEventPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1} aria-label="上一页"><ChevronLeft /></Button>
+                  <Button variant="compact" size="icon" onClick={() => setEventPage((page) => Math.min(pageCount, page + 1))} disabled={currentPage === pageCount} aria-label="下一页"><ChevronRight /></Button>
+                </div>
+              </div>}
+            </section>
+          })()}
       </div>
 
       <ModelSheet
