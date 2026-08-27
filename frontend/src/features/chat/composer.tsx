@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 
 export type ChatMode = 'collect' | 'ask'
 
-export const MODE_META: Record<ChatMode, { label: string; placeholder: string }> = {
+const MODE_META: Record<ChatMode, { label: string; placeholder: string }> = {
   collect: { label: '添加资料', placeholder: '粘贴想要整理的资产资料，或描述需要收集的内容…' },
   ask: { label: '添加附件', placeholder: '问问你的资产知识库…' },
 }

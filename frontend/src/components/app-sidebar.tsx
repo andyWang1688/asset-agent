@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useTasks } from '@/hooks/use-tasks'
-import { useApp, type SettingsRoute, type Tab } from '@/store/app-context'
+import { useApp, type SettingsRoute, type Tab } from '@/store/app-state'
 
 const APP_VERSION = 'v1.0.0'
 

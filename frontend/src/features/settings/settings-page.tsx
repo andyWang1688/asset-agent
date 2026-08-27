@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { useApp } from '@/store/app-context'
+import { useApp } from '@/store/app-state'
 import { useModels } from '@/hooks/use-models'
 import { api, errMsg } from '@/lib/api'
 import { fmtTime } from '@/lib/format'

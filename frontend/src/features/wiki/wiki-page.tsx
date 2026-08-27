@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { useApp } from '@/store/app-context'
+import { useApp } from '@/store/app-state'
 import { useWiki } from '@/hooks/use-wiki'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { Markdown } from '@/lib/markdown'

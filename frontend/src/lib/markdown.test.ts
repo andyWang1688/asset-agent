@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { safeUrl, safeImgUrl, preprocessWikiLinks } from './markdown'
+import { safeUrl, safeImgUrl, preprocessWikiLinks } from './markdown-safety'
 
 describe('safeUrl', () => {
   it('允许 http/https 与协议相对', () => {

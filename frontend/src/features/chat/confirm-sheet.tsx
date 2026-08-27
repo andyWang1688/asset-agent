@@ -80,8 +80,8 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
     }
   }, [view])
 
-  const findings = view?.findings || []
-  const counts = view?.summary || {}
+  const findings = useMemo(() => view?.findings || [], [view])
+  const counts = useMemo(() => view?.summary || {}, [view])
   const total = findings.length
 
   const submit = useCallback(async (useSelections: boolean) => {

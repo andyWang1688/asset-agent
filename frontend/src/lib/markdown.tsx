@@ -1,32 +1,7 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
-
-/**
- * 链接 URL 白名单：仅 http(s)、协议相对与相对路径/锚点。
- * javascript:、data:、vbscript: 等其余协议一律替换为 #。
- * 链接允许 http(s) 是因为跳转由用户主动点击触发，不产生自动请求。
- */
-export function safeUrl(u: string): string {
-  const s = String(u ?? '').trim()
-  if (/^(https?:)?\/\//i.test(s)) return s
-  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return '#'
-  return s
-}
-
-/** 图片 URL 白名单：仅允许相对本地路径；任何协议一律阻止（渲染时会产生自动请求）。 */
-export function safeImgUrl(u: string): string | null {
-  const s = String(u ?? '').trim()
-  if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(s)) return null
-  return s
-}
-
-/** [[path|标题]] / [[path]] → 内部 wiki: 链接，交给 react-markdown 的 a 渲染器处理 */
-export function preprocessWikiLinks(md: string): string {
-  return String(md ?? '')
-    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '[$2](wiki:$1)')
-    .replace(/\[\[([^\]]+)\]\]/g, '[$1](wiki:$1)')
-}
+import { preprocessWikiLinks, safeImgUrl, safeUrl } from '@/lib/markdown-safety'
 
 interface MarkdownProps {
   content: string

@@ -1,4 +1,5 @@
-import { AppProvider, useApp } from '@/store/app-context'
+import { AppProvider } from '@/store/app-context'
+import { useApp } from '@/store/app-state'
 import { AppShell } from '@/components/app-shell'
 import { ChatPage } from '@/features/chat/chat-page'
 import { WikiPage } from '@/features/wiki/wiki-page'

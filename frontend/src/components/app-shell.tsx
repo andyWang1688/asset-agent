@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { useApp, type Tab } from '@/store/app-context'
+import { useApp, type Tab } from '@/store/app-state'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppSidebar, MobileBottomNav } from '@/components/app-sidebar'
 import { HistoryPanel } from '@/components/history-panel'

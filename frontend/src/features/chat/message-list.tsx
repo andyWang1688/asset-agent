@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Markdown } from '@/lib/markdown'
-import { useApp } from '@/store/app-context'
+import { useApp } from '@/store/app-state'
 import type { ChatMessage } from '@/hooks/use-chat'
 import { cn } from '@/lib/utils'
 

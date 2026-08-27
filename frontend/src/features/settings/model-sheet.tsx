@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@radix-ui/react-label'
@@ -12,7 +11,7 @@ import {
 } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
-import { api, errMsg } from '@/lib/api'
+import { errMsg } from '@/lib/api'
 import type { ModelBody, ModelRow, Preset } from '@/lib/types'
 
 const ROLE_HINTS: Record<string, string> = {
@@ -164,31 +163,4 @@ export function ModelSheet({ open, role, model, presets, onSave, onClose }: Mode
       </SheetContent>
     </Sheet>
   )
-}
-
-export function usePolicyLazy() {
-  const [yaml, setYaml] = useState('')
-  const [loaded, setLoaded] = useState(false)
-  const [saving, setSaving] = useState(false)
-
-  const load = async () => {
-    try {
-      const r = await api.policy()
-      setYaml(r.yaml || '')
-      setLoaded(true)
-      return null
-    } catch (e) {
-      return errMsg(e)
-    }
-  }
-  const save = async () => {
-    setSaving(true)
-    try {
-      await api.savePolicy(yaml)
-      toast.success('策略已校验并保存生效。')
-    } finally {
-      setSaving(false)
-    }
-  }
-  return { yaml, setYaml, loaded, load, save, saving }
 }
