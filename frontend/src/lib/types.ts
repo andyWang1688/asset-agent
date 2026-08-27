@@ -147,6 +147,10 @@ export interface DetectionRule {
   kind: string
   enabled: boolean
   validator?: string | null
+  description?: string
+  examples?: string[]
+  pattern?: string
+  source?: 'builtin' | 'override' | 'custom'
 }
 
 export interface CustomRuleBody {

@@ -126,12 +126,20 @@ export const api = {
 
   policy: () => request<PolicyResp>('/api/settings/policy'),
   savePolicy: (yaml: string) => request<{ ok: boolean; policy: unknown }>('/api/settings/policy', { method: 'POST', body: JSON.stringify({ yaml }) }),
+  policyRules: () => request<{ rules: DetectionRule[]; validators: string[] }>('/api/settings/policy/rules'),
   builtinRules: () => request<{ rules: DetectionRule[] }>('/api/settings/policy/builtin-rules'),
   setBuiltinRule: (name: string, enabled: boolean) =>
     request<{ ok: boolean; rule: DetectionRule }>(`/api/settings/policy/builtin-rules/${encodeURIComponent(name)}`, {
       method: 'POST',
       body: JSON.stringify({ enabled }),
     }),
+  setBuiltinOverride: (name: string, body: { pattern?: string; kind?: string }) =>
+    request<{ ok: boolean; rule: DetectionRule }>(`/api/settings/policy/builtin-rules/${encodeURIComponent(name)}/override`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  restoreBuiltinOverride: (name: string) =>
+    request<{ ok: boolean; rule: DetectionRule }>(`/api/settings/policy/builtin-rules/${encodeURIComponent(name)}/override`, { method: 'DELETE' }),
   customRules: () => request<{ rules: DetectionRule[]; validators: string[] }>('/api/settings/policy/custom-rules'),
   addCustomRule: (body: CustomRuleBody) =>
     request<{ ok: boolean; rule: DetectionRule }>('/api/settings/policy/custom-rules', { method: 'POST', body: JSON.stringify(body) }),
