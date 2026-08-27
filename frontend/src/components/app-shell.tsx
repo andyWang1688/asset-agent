@@ -64,9 +64,9 @@ export function AppShell({
 
   if (isMobile) {
     return (
-      <div className="flex min-h-svh flex-col">
+      <div className="flex h-svh min-h-0 flex-col overflow-hidden">
         <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
-        <main className={cn('page', tab === 'settings' && 'page-settings')}>{children}</main>
+        <main className={cn('page min-h-0 flex-1 overflow-y-auto overflow-x-hidden', tab === 'settings' && 'page-settings')}>{children}</main>
         <MobileBottomNav onNavigate={onNavigate} />
         <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
       </div>
@@ -76,14 +76,14 @@ export function AppShell({
   return (
     <div
       className={cn(
-        'grid min-h-svh grid-cols-[218px_minmax(0,1fr)] transition-[margin-right] duration-500 ease-out',
+        'grid h-svh min-h-0 grid-cols-[218px_minmax(0,1fr)] overflow-hidden transition-[margin-right] duration-500 ease-out',
         histOpen && 'mr-[218px]',
       )}
     >
       <AppSidebar onNavigate={onNavigate} />
-      <div className="min-w-0">
+      <div className="flex min-w-0 min-h-0 flex-col">
         <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
-        <main className={cn('page', tab === 'settings' && 'page-settings')}>{children}</main>
+        <main className={cn('page min-h-0 flex-1 overflow-y-auto overflow-x-hidden', tab === 'settings' && 'page-settings')}>{children}</main>
       </div>
       <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
     </div>

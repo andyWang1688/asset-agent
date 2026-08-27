@@ -130,7 +130,7 @@ function SettingsNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
 export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
   const { attention } = useTasks()
   return (
-    <aside className="sticky top-0 flex h-svh flex-col border-r border-border bg-surface px-3 pt-[18px]">
+    <aside className="sticky top-0 flex h-svh flex-col overflow-y-auto border-r border-border bg-surface px-3 pt-[18px]">
       <div className="flex items-center gap-2.5 px-2.5 pb-7 pt-1 text-body font-bold">
         <span className="grid h-[26px] w-[26px] place-items-center rounded-sm bg-fg font-mono text-meta font-bold text-surface">
           AA
