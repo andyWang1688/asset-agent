@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState, type ComponentType } from 'react'
-import { Bot, ChevronLeft, ChevronRight, RefreshCw, Search, ShieldCheck, Siren } from 'lucide-react'
+import { Bot, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, ShieldCheck, Siren } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import {
@@ -134,35 +133,67 @@ function RuleRow({ rule, onToggle, onOverride, onRestore }: {
     } catch (e) { setError(friendlyRuleError(errMsg(e))) }
     finally { setSaving(false) }
   }
-  return <div className="border-b border-border px-3 py-3 last:border-b-0">
-    <div className="flex items-start gap-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2"><strong className="text-caption font-medium">{rule.name}</strong><Badge variant={rule.source === 'custom' ? 'muted' : rule.source === 'override' ? 'warn' : 'accent'}>{SOURCE_LABELS[rule.source || 'builtin']}</Badge><Badge variant="muted">{KIND_LABELS[rule.kind] ?? rule.kind}</Badge></div>
-        <p className="mt-1 text-caption text-muted">{rule.description || '自定义匹配规则'}</p>
-        {!!rule.examples?.length && <p className="mt-1 text-meta text-muted">示例命中：{rule.examples.join('、')}</p>}
-        <Collapsible open={advanced} onOpenChange={setAdvanced}><CollapsibleTrigger asChild><button type="button" className="mt-1 text-meta text-primary hover:underline">{advanced ? '收起高级' : '展开高级（正则）'}</button></CollapsibleTrigger><CollapsibleContent><code className="mt-1 block break-all rounded bg-bg px-2 py-1 font-mono text-meta text-muted">{rule.pattern || '未提供'}</code></CollapsibleContent></Collapsible>
+  return <>
+    <tr className="border-t border-border align-top text-caption first:border-t-0">
+      <th scope="row" className="min-w-[170px] px-3 py-3 text-left font-medium">{rule.name}</th>
+      <td className="whitespace-nowrap px-3 py-3"><Badge variant="muted">{KIND_LABELS[rule.kind] ?? rule.kind}</Badge></td>
+      <td className="whitespace-nowrap px-3 py-3"><Badge variant={rule.source === 'custom' ? 'muted' : rule.source === 'override' ? 'warn' : 'accent'}>{SOURCE_LABELS[rule.source || 'builtin']}</Badge></td>
+      <td className="min-w-[300px] max-w-[560px] px-3 py-3 text-muted">
+        <p className="break-words">{rule.description || '自定义匹配规则'}</p>
+        {!!rule.examples?.length && <p className="mt-1 text-meta">示例命中：{rule.examples.join('、')}</p>}
+      </td>
+      <td className="whitespace-nowrap px-3 py-3">
+        <div className="flex items-center gap-2"><span className="text-meta text-muted">{rule.enabled ? '已启用' : '已停用'}</span><Switch checked={rule.enabled} onCheckedChange={onToggle} aria-label={`切换 ${rule.name}`} /></div>
+      </td>
+      <td className="whitespace-nowrap px-3 py-3">
+        <div className="flex items-center gap-1">
+          {rule.source !== 'custom' && <Button variant="compact" size="icon" onClick={() => setEditing(!editing)} aria-label={`覆盖修改 ${rule.name}`} title="覆盖修改"><Pencil className="h-3.5 w-3.5" /></Button>}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="compact" size="icon" aria-label={`规则操作 ${rule.name}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[170px]">
+              <DropdownMenuItem onSelect={() => setAdvanced((value) => !value)}>{advanced ? '收起正则' : '展开正则'}</DropdownMenuItem>
+              {rule.source !== 'custom' && <DropdownMenuItem onSelect={() => setEditing(true)}><Pencil />覆盖修改</DropdownMenuItem>}
+              {rule.source === 'override' && <DropdownMenuItem onSelect={() => void onRestore()}><RotateCcw />恢复默认</DropdownMenuItem>}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </td>
+    </tr>
+    {advanced && <tr className="border-t border-border bg-bg"><td colSpan={6} className="px-3 py-2"><code className="block break-all font-mono text-meta text-muted">正则：{rule.pattern || '未提供'}</code></td></tr>}
+    {editing && rule.source !== 'custom' && <tr className="border-t border-border bg-bg"><td colSpan={6} className="px-3 py-3">
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_170px_auto_auto]">
+        <Input aria-label={`${rule.name} 正则`} value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="覆盖正则模式" />
+        <Select value={kind} onValueChange={setKind}><SelectTrigger aria-label={`${rule.name} 类别`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select>
+        <Button variant="primary" size="sm" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存覆盖'}</Button>
+        <Button variant="compact" size="sm" onClick={() => setEditing(false)}>取消</Button>
       </div>
-      <div className="flex shrink-0 items-center gap-2 pt-1"><span className="text-meta text-muted">{rule.enabled ? '已启用' : '已停用'}</span><Switch checked={rule.enabled} onCheckedChange={onToggle} aria-label={`切换 ${rule.name}`} /></div>
-    </div>
-    {rule.source !== 'custom' && <div className="mt-2 flex flex-wrap items-center gap-2">{editing ? <div className="grid w-full gap-2 sm:grid-cols-[minmax(0,1fr)_170px_auto_auto]"><Input aria-label={`${rule.name} 正则`} value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="覆盖正则模式" /><Select value={kind} onValueChange={setKind}><SelectTrigger aria-label={`${rule.name} 类别`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select><Button variant="primary" size="sm" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存覆盖'}</Button><Button variant="compact" size="sm" onClick={() => setEditing(false)}>取消</Button></div> : <><Button variant="compact" size="sm" onClick={() => setEditing(true)}>覆盖修改</Button>{rule.source === 'override' && <Button variant="compact" size="sm" onClick={() => void onRestore()}>恢复默认</Button>}</>}</div>}
-    {error && <p className="mt-2 text-caption text-danger">{error}</p>}
-  </div>
+      {error && <p className="mt-2 text-caption text-danger">{error}</p>}
+    </td></tr>}
+  </>
 }
 
 function RegexRulesSection() {
   const [rules, setRules] = useState<DetectionRule[]>([])
   const [validators, setValidators] = useState<string[]>([])
   const [query, setQuery] = useState('')
+  const [kindFilter, setKindFilter] = useState('all')
   const [page, setPage] = useState(1)
   const [form, setForm] = useState({ name: '', pattern: '', kind: 'pii', validator: '' })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
   const load = useCallback(async () => {
     try { const result = await api.policyRules(); setRules(result.rules); setValidators(result.validators) }
     catch { setError('规则加载失败') }
   }, [])
   useEffect(() => { void load() }, [load])
-  const filtered = rules.filter((rule) => `${rule.name} ${rule.description || ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const filtered = rules.filter((rule) => {
+    const needle = query.trim().toLowerCase()
+    const matchesQuery = !needle || `${rule.name} ${rule.description || ''} ${(rule.examples || []).join(' ')} ${rule.pattern || ''}`.toLowerCase().includes(needle)
+    return matchesQuery && (kindFilter === 'all' || rule.kind === kindFilter)
+  })
   const pageCount = Math.max(1, Math.ceil(filtered.length / 20))
   const currentPage = Math.min(page, pageCount)
   const pageRules = filtered.slice((currentPage - 1) * 20, currentPage * 20)
@@ -193,8 +224,29 @@ function RegexRulesSection() {
     finally { setSaving(false) }
   }
   return <section>
-    <div className="border-b border-border px-[17px] py-4"><div className="mb-2.5 flex flex-wrap items-center justify-between gap-2"><h3 className="text-panel font-semibold">统一规则清单</h3><span className="text-meta text-muted">共 {filtered.length} 条</span></div><Input aria-label="搜索规则" placeholder="搜索名称或描述" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1) }} />{rules.length > 50 && <p className="mt-2 rounded-md bg-warn-soft px-3 py-2 text-caption text-warn">规则较多可能影响扫描性能，建议定期清理不再使用的规则</p>}<div className="mt-3 divide-y divide-border rounded-md border border-border">{pageRules.map((rule) => <RuleRow key={rule.name} rule={rule} onToggle={() => void toggle(rule)} onOverride={(body) => override(rule, body)} onRestore={() => restore(rule)} />)}{pageRules.length === 0 && <p className="px-3 py-6 text-center text-caption text-muted">暂无匹配规则</p>}</div><div className="mt-3 flex items-center justify-between"><span className="text-meta text-muted">第 {currentPage} / {pageCount} 页</span><div className="flex items-center gap-1.5"><Button variant="compact" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage === 1}>上一页</Button><Button variant="compact" size="sm" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={currentPage === pageCount}>下一页</Button></div></div></div>
-    <div className="px-[17px] py-4"><div className="mb-2.5 flex items-center justify-between"><h3 className="text-panel font-semibold">新增自定义规则</h3><span className="text-meta text-muted">不限条数 · 模式最多 300 字符</span></div><div className="grid gap-2 sm:grid-cols-2"><Input placeholder="规则名称，如 employee_id" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><Input placeholder="正则匹配模式" value={form.pattern} onChange={(e) => setForm({ ...form, pattern: e.target.value })} /><Select value={form.kind} onValueChange={(kind) => setForm({ ...form, kind })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select><Select value={form.validator || 'none'} onValueChange={(validator) => setForm({ ...form, validator: validator === 'none' ? '' : validator })}><SelectTrigger><SelectValue placeholder="校验函数（可选）" /></SelectTrigger><SelectContent><SelectItem value="none">不使用校验函数</SelectItem>{validators.map((validator) => <SelectItem key={validator} value={validator}>{VALIDATOR_LABELS[validator] ?? validator}</SelectItem>)}</SelectContent></Select></div><div className="mt-2.5 flex items-center gap-2.5"><Button variant="primary" size="sm" disabled={saving} onClick={() => void add()}>{saving ? '新增中…' : '新增规则'}</Button>{error && <p className="text-caption text-danger">{error}</p>}</div></div>
+    <div className="border-b border-border px-[17px] py-4">
+      <div className="mb-1"><h3 className="text-panel font-semibold">正则规则</h3><p className="mt-1 text-caption text-muted">匹配上以下任一规则的内容即视为敏感信息；可新增自定义规则，或覆盖/停用内置规则。</p></div>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" /><Input className="pl-8" aria-label="搜索规则" placeholder="搜索规则名称、描述或示例" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1) }} /></div>
+        <Select value={kindFilter} onValueChange={(value) => { setKindFilter(value); setPage(1) }}><SelectTrigger className="w-[170px]" aria-label="按类型筛选"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部类型</SelectItem>{Object.entries(KIND_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
+        <Button variant="primary" size="sm" className="ml-auto" onClick={() => setShowAddForm((value) => !value)}>{showAddForm ? '收起新增' : '新增规则'}</Button>
+      </div>
+      {rules.length > 50 && <p className="mt-3 rounded-md bg-warn-soft px-3 py-2 text-caption text-warn">规则较多可能影响扫描性能，建议定期清理不再使用的规则</p>}
+    </div>
+    <div className="overflow-x-auto">
+      <table className="min-w-[940px] w-full border-collapse text-left">
+        <thead className="bg-bg text-meta text-muted"><tr><th scope="col" className="px-3 py-2.5 font-medium">名称</th><th scope="col" className="px-3 py-2.5 font-medium">类型</th><th scope="col" className="px-3 py-2.5 font-medium">来源</th><th scope="col" className="px-3 py-2.5 font-medium">说明 / 示例命中</th><th scope="col" className="px-3 py-2.5 font-medium">状态</th><th scope="col" className="px-3 py-2.5 font-medium">操作</th></tr></thead>
+        <tbody>
+          {pageRules.map((rule) => <RuleRow key={rule.name} rule={rule} onToggle={() => void toggle(rule)} onOverride={(body) => override(rule, body)} onRestore={() => restore(rule)} />)}
+          {pageRules.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-caption text-muted">暂无匹配规则</td></tr>}
+        </tbody>
+      </table>
+    </div>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-[17px] py-3">
+      <span className="text-meta text-muted">共 {filtered.length} 条 · 每页 20 条</span>
+      <div className="flex items-center gap-1.5"><span className="mr-1 font-mono text-meta text-muted">第 {currentPage} / {pageCount} 页</span><Button variant="compact" size="icon" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage === 1} aria-label="上一页"><ChevronLeft className="h-4 w-4" /></Button><Button variant="compact" size="icon" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={currentPage === pageCount} aria-label="下一页"><ChevronRight className="h-4 w-4" /></Button></div>
+    </div>
+    {showAddForm && <div className="border-t border-border px-[17px] py-4"><div className="mb-2.5 flex flex-wrap items-center justify-between gap-2"><h3 className="text-panel font-semibold">新增自定义规则</h3><span className="text-meta text-muted">不限条数 · 模式最多 300 字符</span></div><div className="grid gap-2 sm:grid-cols-2"><Input placeholder="规则名称，如 employee_id" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><Input placeholder="正则匹配模式" value={form.pattern} onChange={(e) => setForm({ ...form, pattern: e.target.value })} /><Select value={form.kind} onValueChange={(kind) => setForm({ ...form, kind })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select><Select value={form.validator || 'none'} onValueChange={(validator) => setForm({ ...form, validator: validator === 'none' ? '' : validator })}><SelectTrigger><SelectValue placeholder="校验函数（可选）" /></SelectTrigger><SelectContent><SelectItem value="none">不使用校验函数</SelectItem>{validators.map((validator) => <SelectItem key={validator} value={validator}>{VALIDATOR_LABELS[validator] ?? validator}</SelectItem>)}</SelectContent></Select></div><div className="mt-2.5 flex items-center gap-2.5"><Button variant="primary" size="sm" disabled={saving} onClick={() => void add()}>{saving ? '新增中…' : '新增规则'}</Button>{error && <p className="text-caption text-danger">{error}</p>}</div></div>}
   </section>
 }
 
@@ -281,7 +333,7 @@ function SecurityPolicySkeleton({
     {securityModels.length === 0 ? <ModelCard m={null} emptyDesc="未配置时，继续使用本地检测。" emptyChip="本地检测生效" {...securityModelActions} /> : securityModels.map((model) => <ModelCard key={model.id} m={model} emptyDesc="" {...securityModelActions} />)}
   </section>
   return <section>
-    <div className="border-b border-border px-[17px] py-4"><h3 className="text-panel font-semibold">处理方式</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{([['default', '默认模式', '扫描后按既定规则自动处理，无需人工步骤。'], ['confirm', '确认模式', '每份资料入库前先过确认页，逐份看一眼。']] as const).map(([value, label, description]) => <label key={value} className={cn('flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors', mode === value ? 'border-fg/45 bg-soft' : 'border-border')}><input type="radio" name="security-mode" value={value} checked={mode === value} disabled={loading} onChange={() => onModeChange(value)} className="mt-1 accent-[var(--color-fg)]" /><span><strong className="block text-caption font-semibold">{label}</strong><span className="mt-0.5 block text-meta text-muted">{description}</span></span></label>)}</div><div className="mt-2.5 rounded-md bg-bg px-3 py-2 text-caption text-muted"><strong className="font-semibold text-fg">永远生效</strong>：秘密原文永不发给模型；对话发凭证一律拦截；回答永远复扫。</div></div>
+    <div className="border-b border-border px-[17px] py-4"><h3 className="text-panel font-semibold">处理方式</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{([['default', '默认模式', '扫描后按既定规则自动处理，无需人工步骤。'], ['confirm', '确认模式', '每份资料入库前先过确认页，逐份看一眼。']] as const).map(([value, label, description]) => <label key={value} className={cn('flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors', mode === value ? 'border-fg/45 bg-soft' : 'border-border')}><input type="radio" name="security-mode" value={value} checked={mode === value} disabled={loading} onChange={() => onModeChange(value)} className="mt-1 accent-[var(--color-fg)]" /><span><strong className="block text-caption font-semibold">{label}</strong><span className="mt-0.5 block text-meta text-muted">{description}</span></span></label>)}</div></div>
     <div><div className="border-b border-border px-[17px] pt-3"><h3 className="mb-2.5 text-panel font-semibold">配置细则</h3><nav className="flex flex-wrap gap-1" aria-label="安全策略配置细则">{SECURITY_TABS.map(({ id, label }) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => onTabChange(id)} className={cn('rounded-t-md border-b-2 px-3 py-2 text-caption transition-colors', tab === id ? 'border-fg font-semibold text-fg' : 'border-transparent text-muted hover:text-fg')}>{label}</button>)}</nav></div>{tabContent}</div>
   </section>
 }
