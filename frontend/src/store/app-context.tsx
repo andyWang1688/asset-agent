@@ -4,6 +4,8 @@ import type { Health } from '@/lib/types'
 
 export type Tab = 'chat' | 'wiki' | 'tasks' | 'settings'
 
+const isSettingsRoute = () => window.location.pathname.startsWith('/settings') || window.location.hash.startsWith('#/settings')
+
 interface AppState {
   tab: Tab
   setTab: (t: Tab) => void
@@ -17,7 +19,7 @@ interface AppState {
 const AppContext = createContext<AppState | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [tab, setTab] = useState<Tab>('chat')
+  const [tab, setTabState] = useState<Tab>(() => isSettingsRoute() ? 'settings' : 'chat')
   const [wikiPath, setWikiPath] = useState<string | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
 
@@ -33,14 +35,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void refreshHealth()
   }, [refreshHealth])
 
+  const setTab = useCallback((next: Tab) => {
+    setTabState(next)
+    if (next === 'settings' && !isSettingsRoute()) window.history.pushState(null, '', '/settings/models')
+    if (next !== 'settings' && isSettingsRoute()) window.history.pushState(null, '', '/')
+  }, [])
+
+  useEffect(() => {
+    const onRouteChange = () => setTabState(isSettingsRoute() ? 'settings' : 'chat')
+    window.addEventListener('popstate', onRouteChange)
+    window.addEventListener('hashchange', onRouteChange)
+    return () => {
+      window.removeEventListener('popstate', onRouteChange)
+      window.removeEventListener('hashchange', onRouteChange)
+    }
+  }, [])
+
   const openWikiDoc = useCallback((path: string) => {
     setWikiPath(path)
     setTab('wiki')
-  }, [])
+  }, [setTab])
 
   const value = useMemo(
     () => ({ tab, setTab, openWikiDoc, wikiPath, health, refreshHealth }),
-    [tab, openWikiDoc, wikiPath, health, refreshHealth],
+    [tab, setTab, openWikiDoc, wikiPath, health, refreshHealth],
   )
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

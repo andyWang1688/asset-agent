@@ -18,6 +18,7 @@ import type {
   RetrievalConfigView,
   RetrievalTestResult,
   SecurityEvent,
+  SettingsStatus,
   SubmissionView,
   TaskRow,
   TestResult,
@@ -62,6 +63,7 @@ async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
 /** 全部后端调用集中于此；不在组件内散落原始 fetch；不记录密钥与原文 */
 export const api = {
   health: () => request<Health>('/api/health'),
+  settingsStatus: () => request<SettingsStatus>('/api/settings/status'),
 
   ingest: (fd: FormData) => request<IngestResult>('/api/ingest', { method: 'POST', body: fd }),
 

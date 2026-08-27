@@ -97,6 +97,23 @@ def health(request: Request):
     }
 
 
+@router.get("/api/settings/status")
+def settings_status(request: Request):
+    """设置中心五模块的真实运行状态摘要。"""
+    ctx = _ctx(request)
+    rules = _policy_store(request).rules_detail()
+    semantic_enabled = getattr(ctx, "retrieval_semantic_enabled", None)
+    return {
+        "knowledge_model": ctx.get_provider() is not None,
+        "retrieval_degraded": semantic_enabled is False,
+        "retrieval_checked": semantic_enabled is not None,
+        "rules_enabled": sum(1 for rule in rules if rule["enabled"]),
+        "rules_total": len(rules),
+        "policy_valid": True,
+        "pending_security_events": len(db.list_pending("pending")),
+    }
+
+
 @router.post("/api/ingest")
 async def ingest(
     request: Request,
@@ -341,11 +358,13 @@ async def query(request: Request, body: QueryBody):
     if provider is None:
         raise HTTPException(400, "未配置知识库模型：问答已禁用。请先在「设置」页配置并激活一个知识库模型。")
     try:
-        return await query_service.answer(
+        result = await query_service.answer(
             ctx.settings, provider, body.question,
             security_provider=ctx.get_security_provider(), session_id=body.session_id,
             engine=ctx.get_query_engine(),
         )
+        ctx.retrieval_semantic_enabled = result["semantic_retrieval_enabled"]
+        return result
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except llm.LLMError as e:

@@ -32,7 +32,7 @@ const sizeHint = (id: string): string => {
 }
 
 /** 设置页「检索配置」区：页面可读写，写入优先于环境变量；Key 加密存储、接口不回显。 */
-export function RetrievalSection() {
+export function RetrievalSection({ onStatusChange }: { onStatusChange?: () => void }) {
   const [view, setView] = useState<RetrievalConfigView | null>(null)
   const [provider, setProvider] = useState('sentence-transformers')
   const [model, setModel] = useState('')
@@ -134,6 +134,7 @@ export function RetrievalSection() {
         toast.success('检索配置已保存')
       }
       await load()
+      onStatusChange?.()
     } catch (e) {
       setTestResult(errMsg(e))
     } finally {
@@ -246,6 +247,7 @@ export function RetrievalSection() {
       await api.resetRetrieval()
       toast.success('已恢复环境变量默认配置')
       await load()
+      onStatusChange?.()
     } catch (e) {
       toast.error('恢复失败：' + errMsg(e))
     }
@@ -257,21 +259,15 @@ export function RetrievalSection() {
 
   return (
     <section>
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[17px] py-4">
-        <div>
-          <h2 className="text-input font-semibold">检索配置</h2>
-          <p className="mt-1 text-caption text-muted">问答检索的 embedding 与重排模型；页面配置优先于环境变量。</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={view?.source === 'page' ? 'accent' : 'muted'}>
-            {view?.source === 'page' ? '页面配置生效' : '环境变量生效'}
-          </Badge>
-          {view?.configured && (
-            <Button variant="compact" size="sm" onClick={() => void reset()}>
-              恢复环境变量默认
-            </Button>
-          )}
-        </div>
+      <div className="flex items-center justify-end gap-2 border-b border-border px-[17px] py-3">
+        <Badge variant={view?.source === 'page' ? 'accent' : 'muted'}>
+          {view?.source === 'page' ? '页面配置生效' : '环境变量生效'}
+        </Badge>
+        {view?.configured && (
+          <Button variant="compact" size="sm" onClick={() => void reset()}>
+            恢复环境变量默认
+          </Button>
+        )}
       </div>
 
       <div className="space-y-3.5 px-[17px] py-4">

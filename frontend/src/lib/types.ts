@@ -22,6 +22,16 @@ export interface Health {
   pending_secrets: number
 }
 
+export interface SettingsStatus {
+  knowledge_model: boolean
+  retrieval_degraded: boolean
+  retrieval_checked: boolean
+  rules_enabled: number
+  rules_total: number
+  policy_valid: boolean
+  pending_security_events: number
+}
+
 export interface Finding {
   id: string
   kind: string

@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     app.state.ctx = SimpleNamespace(
         settings=settings, creds=creds, worker=worker, get_provider=get_provider,
         get_security_provider=get_sec_provider, get_query_engine=lambda: query_engine,
-        policy_store=policy_store
+        policy_store=policy_store, retrieval_semantic_enabled=None,
     )
     yield
     await worker.stop()

@@ -32,6 +32,14 @@ def test_api_flow(tmp_path, monkeypatch):
         assert h["status"] == "ok"
         assert h["knowledge_model"] is True
 
+        # 设置中心状态来自真实模型/规则/检索运行态；首次检索前不谎报降级
+        status = client.get("/api/settings/status").json()
+        assert status["knowledge_model"] is True
+        assert status["retrieval_degraded"] is False
+        assert status["retrieval_checked"] is False
+        assert status["rules_enabled"] == status["rules_total"]
+        assert status["pending_security_events"] == 0
+
         # 内置规则逐条启停：立即生效且持久化到策略文件
         rules = client.get("/api/settings/policy/builtin-rules").json()["rules"]
         assert next(r for r in rules if r["name"] == "email")["enabled"] is True
@@ -113,6 +121,9 @@ def test_api_flow(tmp_path, monkeypatch):
         provider.response = "根据 [[projects/p.md|p]]：订单服务说明。"
         q = client.post("/api/query", json={"question": "订单服务是什么"}).json()
         assert "projects/p.md" in q["answer"]
+        status = client.get("/api/settings/status").json()
+        assert status["retrieval_checked"] is True
+        assert status["retrieval_degraded"] is (not q["semantic_retrieval_enabled"])
         history = client.get("/api/chat/history").json()
         assert history[0]["answer"] == q["answer"]
 

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ComponentType } from 'react'
+import { Bot, Search, ScanSearch, ShieldCheck, Siren } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,9 +23,10 @@ import { useModels } from '@/hooks/use-models'
 import { api, errMsg } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { DetectionRule, ModelRow, SecurityEvent } from '@/lib/types'
+import type { DetectionRule, ModelRow, SecurityEvent, SettingsStatus } from '@/lib/types'
 import { ModelSheet } from './model-sheet'
 import { RetrievalSection } from './retrieval-section'
+import { settingsModuleFromLocation, setSettingsModuleUrl, type SettingsModule } from './settings-navigation'
 
 const KIND_LABELS: Record<string, string> = {
   credential: '凭证',
@@ -35,6 +37,34 @@ const KIND_LABELS: Record<string, string> = {
 const VALIDATOR_LABELS: Record<string, string> = {
   id_card: '身份证校验',
   luhn: 'Luhn 校验',
+}
+
+type ModuleStatus = { tone: 'ok' | 'warn' | 'err' | 'unknown'; label: string }
+
+const MODULES: { id: SettingsModule; title: string; description: string; icon: ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
+  { id: 'models', title: '模型配置', description: '管理知识库与安全增强模型', icon: Bot },
+  { id: 'retrieval', title: '检索配置', description: '配置语义召回与重排模型', icon: Search },
+  { id: 'rules', title: '检测规则', description: '启停敏感信息检测规则', icon: ScanSearch },
+  { id: 'policy', title: '安全策略', description: '编辑高级安全策略', icon: ShieldCheck },
+  { id: 'events', title: '安全事件', description: '查看检测与处理记录', icon: Siren },
+]
+
+function statusFor(module: SettingsModule, status: SettingsStatus | null): ModuleStatus {
+  if (!status) return { tone: 'unknown', label: '状态未知' }
+  if (module === 'models' && !status.knowledge_model) return { tone: 'err', label: '知识库模型未配置' }
+  if (module === 'retrieval' && status.retrieval_degraded) return { tone: 'warn', label: '检索降级' }
+  if (module === 'retrieval' && !status.retrieval_checked) return { tone: 'unknown', label: '尚无运行记录' }
+  if (module === 'rules' && status.rules_total > 0 && status.rules_enabled === 0) return { tone: 'warn', label: '规则全停用' }
+  if (module === 'policy' && !status.policy_valid) return { tone: 'err', label: '策略无效' }
+  if (module === 'events' && status.pending_security_events > 0) return { tone: 'err', label: `${status.pending_security_events} 项待处理` }
+  return { tone: 'ok', label: '正常' }
+}
+
+const STATUS_CLASSES: Record<ModuleStatus['tone'], string> = {
+  ok: 'bg-ok',
+  warn: 'bg-warn',
+  err: 'bg-danger',
+  unknown: 'bg-border-strong',
 }
 
 /** 去掉后端表单错误的字段路径前缀（detection.extra_rules[0].），保留友好信息 */
@@ -106,8 +136,10 @@ function ModelCard({
 }
 
 export function SettingsPage() {
-  const { refreshHealth } = useApp()
+  const { tab, refreshHealth } = useApp()
   const models = useModels()
+  const [activeModule, setActiveModule] = useState<SettingsModule>(() => settingsModuleFromLocation(window.location))
+  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetRole, setSheetRole] = useState('knowledge')
   const [editing, setEditing] = useState<ModelRow | null>(null)
@@ -124,6 +156,31 @@ export function SettingsPage() {
   const [policyLoaded, setPolicyLoaded] = useState(false)
   const [policySaving, setPolicySaving] = useState(false)
   const [policyError, setPolicyError] = useState('')
+
+  const loadStatus = useCallback(() => {
+    void api.settingsStatus().then(setSettingsStatus).catch(() => setSettingsStatus(null))
+  }, [])
+
+  useEffect(() => {
+    const onRouteChange = () => setActiveModule(settingsModuleFromLocation(window.location))
+    window.addEventListener('popstate', onRouteChange)
+    window.addEventListener('hashchange', onRouteChange)
+    return () => {
+      window.removeEventListener('popstate', onRouteChange)
+      window.removeEventListener('hashchange', onRouteChange)
+    }
+  }, [loadStatus])
+
+  useEffect(() => {
+    if (tab !== 'settings') return
+    setActiveModule(settingsModuleFromLocation(window.location))
+    loadStatus()
+  }, [loadStatus, tab])
+
+  const selectModule = (module: SettingsModule) => {
+    setActiveModule(module)
+    setSettingsModuleUrl(module)
+  }
 
   const loadEvents = () => {
     void api.securityEvents().then(setEvents).catch(() => setEvents([]))
@@ -155,6 +212,7 @@ export function SettingsPage() {
       const setter = builtin ? setBuiltinRules : setCustomRules
       setter((rows) => rows.map((r) => (r.name === rule.name ? result.rule : r)))
       toast.success(result.rule.enabled ? '规则已启用' : '规则已停用')
+      loadStatus()
     } catch (e) {
       toast.error(errMsg(e))
     }
@@ -171,6 +229,7 @@ export function SettingsPage() {
       setCustomRules((rows) => [...rows, result.rule])
       setRuleForm({ name: '', pattern: '', kind: 'pii', validator: '' })
       toast.success('自定义规则已新增')
+      loadStatus()
     } catch (e) {
       setRuleError(friendlyRuleError(errMsg(e)))
     } finally {
@@ -191,6 +250,7 @@ export function SettingsPage() {
       void models.activate(id).then(() => {
         toast.success('已激活')
         void refreshHealth()
+        loadStatus()
       })
     },
     onTest: async (id: number) => {
@@ -202,18 +262,61 @@ export function SettingsPage() {
     onDelete: (m: ModelRow) => setDeleting(m),
   })
 
+  const activeDefinition = MODULES.find((module) => module.id === activeModule) ?? MODULES[0]
+  const activeStatus = statusFor(activeModule, settingsStatus)
+  const ActiveIcon = activeDefinition.icon
+
   return (
     <>
-      <h1 className="page-heading">设置</h1>
-      <p className="page-sub">管理模型角色、安全策略和安全事件。知识库模型是提交资料与知识问答的前置条件。</p>
+      <h1 className="page-heading">设置中心</h1>
+      <p className="page-sub">管理模型、检索与安全能力。左侧状态来自当前运行接口，不以配置外观代替真实状态。</p>
 
-      <div className="mt-7 max-w-[860px]">
-        <div className="mb-4 overflow-hidden rounded-lg border border-border bg-surface shadow-panel [&>section+section]:border-t [&>section+section]:border-border">
-          <section>
-            <div className="border-b border-border px-[17px] py-4">
-              <h2 className="text-input font-semibold">检测规则</h2>
-              <p className="mt-1 text-caption text-muted">逐条启停内置规则，或新增受护栏约束的自定义规则；无需编辑 YAML。</p>
+      <div className="mt-7 grid items-start gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <nav aria-label="设置模块" className="grid gap-1 rounded-lg border border-border bg-surface p-2 shadow-panel lg:sticky lg:top-[78px]">
+          {MODULES.map((module) => {
+            const Icon = module.icon
+            const moduleStatus = statusFor(module.id, settingsStatus)
+            return (
+              <button
+                key={module.id}
+                type="button"
+                aria-current={activeModule === module.id ? 'page' : undefined}
+                onClick={() => selectModule(module.id)}
+                className={cn(
+                  'grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-2.5 text-left transition-colors',
+                  activeModule === module.id ? 'bg-soft text-fg' : 'text-muted hover:bg-soft hover:text-fg',
+                )}
+              >
+                <span className="grid h-8 w-8 place-items-center rounded-md border border-border bg-bg">
+                  <Icon className="h-4 w-4" strokeWidth={1.7} />
+                </span>
+                <span className="min-w-0">
+                  <strong className="block text-panel font-semibold">{module.title}</strong>
+                  <span className="block truncate text-meta">{moduleStatus.label}</span>
+                </span>
+                <span className={cn('h-2 w-2 rounded-pill', STATUS_CLASSES[moduleStatus.tone])} aria-hidden="true" />
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-panel">
+          <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-bg px-5 py-5">
+            <div className="flex items-start gap-3.5">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-fg text-surface">
+                <ActiveIcon className="h-5 w-5" strokeWidth={1.7} />
+              </span>
+              <div>
+                <h2 className="text-[18px] font-semibold leading-6">{activeDefinition.title}</h2>
+                <p className="mt-1 text-caption text-muted">{activeDefinition.description}</p>
+              </div>
             </div>
+            <Badge variant={activeStatus.tone === 'err' ? 'err' : activeStatus.tone === 'warn' ? 'warn' : activeStatus.tone === 'ok' ? 'ok' : 'muted'}>
+              {activeStatus.label}
+            </Badge>
+          </header>
+
+          {activeModule === 'rules' && <section>
             <div className="border-b border-border px-[17px] py-4">
               <h3 className="mb-2.5 text-panel font-semibold">内置规则</h3>
               <div className="divide-y divide-border rounded-md border border-border">
@@ -237,14 +340,10 @@ export function SettingsPage() {
               </div>
               <div className="mt-2.5 flex items-center gap-2.5"><Button variant="primary" size="sm" disabled={ruleSaving} onClick={() => void addRule()}>{ruleSaving ? '新增中…' : '新增规则'}</Button>{ruleError && <p className="text-caption text-danger">{ruleError}</p>}</div>
             </div>
-          </section>
+          </section>}
 
-          <section>
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[17px] py-4">
-              <div>
-                <h2 className="text-input font-semibold">模型配置</h2>
-                <p className="mt-1 text-caption text-muted">每个角色同时只能激活一个模型配置。</p>
-              </div>
+          {activeModule === 'models' && <section>
+            <div className="flex justify-end border-b border-border px-[17px] py-3">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="compact" size="sm">
@@ -290,16 +389,12 @@ export function SettingsPage() {
                 models.security.map((m) => <ModelCard key={m.id} m={m} emptyDesc="" {...groupProps('security')} />)
               )}
             </div>
-          </section>
+          </section>}
 
-          <RetrievalSection />
+          {activeModule === 'retrieval' && <RetrievalSection onStatusChange={loadStatus} />}
 
-          <section>
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[17px] py-4">
-              <div>
-                <h2 className="text-input font-semibold">高级安全策略</h2>
-                <p className="mt-1 text-caption text-muted">编辑 config/policy.yaml；默认折叠。检测规则的增删启停请用上方表单与开关。</p>
-              </div>
+          {activeModule === 'policy' && <section>
+            <div className="flex justify-end border-b border-border px-[17px] py-3">
               <Button
                 variant="compact"
                 size="sm"
@@ -340,16 +435,12 @@ export function SettingsPage() {
                 </div>
               </div>
             )}
-          </section>
+          </section>}
 
 
-          <section>
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-[17px] py-4">
-              <div>
-                <h2 className="text-input font-semibold">安全事件</h2>
-                <p className="mt-1 text-caption text-muted">最近的检测、闸门与后台处理记录。</p>
-              </div>
-              <Button variant="compact" size="sm" onClick={loadEvents}>
+          {activeModule === 'events' && <section>
+            <div className="flex justify-end border-b border-border px-[17px] py-3">
+              <Button variant="compact" size="sm" onClick={() => { loadEvents(); loadStatus() }}>
                 刷新
               </Button>
             </div>
@@ -367,7 +458,7 @@ export function SettingsPage() {
                 </div>
               ))
             )}
-          </section>
+          </section>}
         </div>
       </div>
 
@@ -380,6 +471,7 @@ export function SettingsPage() {
           await models.save(body)
           toast.success('模型配置已保存')
           void refreshHealth()
+          loadStatus()
         }}
         onClose={() => setSheetOpen(false)}
       />
@@ -403,6 +495,7 @@ export function SettingsPage() {
                   .then(() => {
                     toast.success('已删除')
                     void refreshHealth()
+                    loadStatus()
                   })
                   .catch((e) => toast.error('删除失败：' + errMsg(e)))
                   .finally(() => setDeleting(null))
