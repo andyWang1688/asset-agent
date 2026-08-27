@@ -20,7 +20,7 @@ def _store(tmp_path) -> PolicyStore:
 
 def test_default_policy_values():
     p = default_policy()
-    assert p["gate"]["confirm_before_llm"] == "on_findings"
+    assert p["gate"]["confirm_before_llm"] == "never"
     assert p["detection"]["entropy"]["min_length"] >= 8
     assert p["actions"]["defaults"]["pii"] == "redact"
     assert p["actions"]["defaults"]["credential"] == "store"
@@ -70,6 +70,76 @@ def test_custom_rule_form_preserves_validation_guards(tmp_path):
         store.add_custom_rule(
             {"name": "bad_validator", "pattern": r"\d+", "kind": "pii", "validator": "os.system"}
         )
+
+
+def test_custom_rules_have_no_count_limit():
+    policy = default_policy()
+    policy["detection"]["extra_rules"] = [
+        {"name": f"rule_{i}", "pattern": rf"VALUE-{i}-\d+", "kind": "pii"}
+        for i in range(101)
+    ]
+    assert len(validate_policy(policy)["detection"]["extra_rules"]) == 101
+
+
+def test_structured_security_settings_roundtrip_and_preserve_deployment_fields(tmp_path):
+    store = _store(tmp_path)
+    before = store.load()
+
+    updated = store.update_security_settings({
+        "mode": "confirm",
+        "keywords": {"enabled": False, "items": ["credential"]},
+        "entropy": {"enabled": False, "sensitivity": "sensitive"},
+    })
+
+    assert updated == {
+        "mode": "confirm",
+        "keywords": {"enabled": False, "items": ["credential"]},
+        "entropy": {"enabled": False, "sensitivity": "sensitive"},
+    }
+    policy = store.load()
+    assert policy["gate"]["confirm_before_llm"] == "always"
+    assert policy["detection"]["entropy"] == {
+        **before["detection"]["entropy"],
+        "enabled": False,
+        "min_shannon": 3.2,
+        "min_length": 12,
+        "context_min_length": 10,
+    }
+    assert policy["actions"] == before["actions"]
+    assert policy["detection"]["context"]["window"] == before["detection"]["context"]["window"]
+    assert policy["detection"]["context"]["boost"] == before["detection"]["context"]["boost"]
+
+
+def test_entropy_sensitivity_presets_and_custom_readback(tmp_path):
+    store = _store(tmp_path)
+    expected = {
+        "sensitive": (3.2, 12, 10),
+        "balanced": (3.5, 16, 12),
+        "conservative": (4.0, 20, 16),
+    }
+    for name, values in expected.items():
+        view = store.update_security_settings({"entropy": {"sensitivity": name}})
+        entropy = store.load()["detection"]["entropy"]
+        assert (entropy["min_shannon"], entropy["min_length"], entropy["context_min_length"]) == values
+        assert view["entropy"]["sensitivity"] == name
+
+    policy = store.load()
+    policy["detection"]["entropy"]["min_shannon"] = 3.6
+    saved = validate_policy(policy)
+    store._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
+    assert store.security_settings()["entropy"]["sensitivity"] == "custom"
+
+
+def test_structured_keywords_immediately_change_detection(tmp_path):
+    store = _store(tmp_path)
+    text = "credential: Ab3dEf4gH7"
+    store.update_security_settings({"keywords": {"enabled": True, "items": ["credential"]}})
+    assert any(f.rule == "context_suspect_value" for f in ScanEngine(store.load()).scan(text))
+
+    store.update_security_settings({"keywords": {"items": []}})
+    assert ScanEngine(store.load()).scan(text) == []
+    store.update_security_settings({"keywords": {"enabled": False, "items": ["credential"]}})
+    assert ScanEngine(store.load()).scan(text) == []
 
 
 def test_save_and_load_roundtrip(tmp_path):
@@ -167,7 +237,7 @@ def test_yaml_python_tag_rejected(tmp_path):
 
 def test_policy_must_not_contain_secrets(tmp_path):
     store = _store(tmp_path)
-    y = "gate:\n  confirm_before_llm: on_findings\n# token: sk-proj-abcdEFGH12345678901234567890\n"
+    y = "gate:\n  confirm_before_llm: always\n# token: sk-proj-abcdEFGH12345678901234567890\n"
     _, errors = store.save(y)
     assert errors and "不得包含" in errors[0]
     assert not store.path.exists()
@@ -207,13 +277,13 @@ def test_validate_policy_rejects_non_dict():
 def test_policy_contains_secrets_helper():
     hits = policy_contains_secrets("api_key: sk-proj-abcdEFGH12345678901234567890\n")
     assert "openai_key" in hits
-    assert policy_contains_secrets("gate:\n  confirm_before_llm: on_findings\n") == []
+    assert policy_contains_secrets("gate:\n  confirm_before_llm: always\n") == []
 
 
 def test_policy_rejects_bare_high_entropy_token(tmp_path):
     """策略中的裸高熵 Token（无已知前缀）由熵检测拦截。"""
     store = _store(tmp_path)
-    y = "gate:\n  confirm_before_llm: on_findings\n# 疑似 token: X9kQm2vR7pT3sL8wN4\n"
+    y = "gate:\n  confirm_before_llm: always\n# 疑似 token: X9kQm2vR7pT3sL8wN4\n"
     _, errors = store.save(y)
     assert errors and "不得包含" in errors[0]
     assert not store.path.exists()

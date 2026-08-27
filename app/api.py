@@ -2,9 +2,10 @@
 import json
 import sqlite3
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from . import crypto, db
 from .credentials.base import CredentialError
@@ -37,6 +38,28 @@ class ConfirmBody(BaseModel):
 
 class PolicyBody(BaseModel):
     yaml: str
+
+
+class SecurityKeywordsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    items: list[str] | None = None
+
+
+class SecurityEntropyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    sensitivity: Literal["sensitive", "balanced", "conservative"] | None = None
+
+
+class SecuritySettingsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["default", "confirm"] | None = None
+    keywords: SecurityKeywordsBody | None = None
+    entropy: SecurityEntropyBody | None = None
 
 
 class BuiltinRuleBody(BaseModel):
@@ -208,6 +231,22 @@ def pending_submission_cancel(request: Request, submission_id: int):
 
 
 # ---- 安全策略（设置服务读写，Wiki LLM 只读） ----
+
+@router.get("/api/settings/security")
+def get_security_settings(request: Request):
+    return _policy_store(request).security_settings()
+
+
+@router.patch("/api/settings/security")
+def update_security_settings(request: Request, body: SecuritySettingsBody):
+    try:
+        settings = _policy_store(request).update_security_settings(
+            body.model_dump(exclude_none=True, exclude_unset=True)
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.log_security("policy_updated", "安全策略页面配置已更新并生效")
+    return {"ok": True, **settings}
 
 @router.get("/api/settings/policy")
 def get_policy(request: Request):

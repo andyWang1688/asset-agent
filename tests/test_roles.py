@@ -208,9 +208,11 @@ async def test_confirm_blocked_without_knowledge_model(settings):
     from app.security.policy import PolicyStore
 
     creds = FakeCredentialStore()
+    store = PolicyStore(settings.policy_file)
+    store.update_security_settings({"mode": "confirm"})
     r = await receiver.ingest(
         settings, creds, text="password=Sup3rSecret!",
-        knowledge_provider_getter=lambda: FakeProvider("{}"),
+        policy_store=store, knowledge_provider_getter=lambda: FakeProvider("{}"),
     )
     view = submissions.view(settings, db.get_submission(r["submission_id"]))
     fid = view["findings"][0]["id"]
@@ -299,6 +301,7 @@ def test_api_confirm_blocked_without_knowledge_model(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
     monkeypatch.setattr(main, "get_active_provider", lambda settings: holder["p"])
     with TestClient(main.app) as client:
+        client.patch("/api/settings/security", json={"mode": "confirm"})
         ing = client.post("/api/ingest", data={"text": "password=Sup3rSecret!"})
         j = ing.json()
         assert j["pending_confirmation"] is True

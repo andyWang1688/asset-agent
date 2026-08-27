@@ -67,8 +67,8 @@ async def ingest(
         db.log_security("detector_failed", f"检测器失败已阻断提交: {type(e).__name__}")
         raise ValueError("检测器失败，本次提交已阻断（未保存、未发送）") from e
 
-    gate = policy.get("gate", {}).get("confirm_before_llm", "on_findings")
-    if gate == "always" or (gate == "on_findings" and findings):
+    gate = policy.get("gate", {}).get("confirm_before_llm", "never")
+    if gate == "always":
         existing_sub = db.submission_by_sha256(sha)
         if existing_sub:
             return {"pending_confirmation": True,
@@ -79,7 +79,7 @@ async def ingest(
         row = db.get_submission(sid)
         return {"pending_confirmation": True, **submissions.view(settings, row)}
 
-    # 闸门关闭（gate=never 且无 Finding，或显式 never）：按默认动作直接处理
+    # 默认模式（gate=never）：按默认动作直接处理
     try:
         result = await finalize_mod.finalize(
             settings, creds, text=text, sha=sha, kind=kind, original_name=original_name,

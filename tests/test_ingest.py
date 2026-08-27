@@ -22,9 +22,10 @@ def _store(settings):
 
 
 @pytest.fixture(autouse=True)
-def _knowledge_model_configured(workspace):
+def _knowledge_model_configured(settings):
     """确认闸门需要 knowledge 模型存在（默认查库）；编译用的 Provider 仍由各测试注入 FakeProvider。"""
     db.upsert_model_config(None, "test-knowledge", "custom", "http://127.0.0.1:9001/v1", "", "m", True, "knowledge")
+    _store(settings).update_security_settings({"mode": "confirm"})
 
 
 async def test_ingest_secret_flow_with_confirmation(settings):
@@ -78,6 +79,7 @@ async def test_ingest_pii_enters_confirmation_gate(settings):
 async def test_ingest_duplicate(settings):
     creds = FakeCredentialStore()
     provider = FakeProvider(PLAN)
+    _store(settings).update_security_settings({"mode": "default"})
     r1 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider)
     r2 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider)
     assert r2["duplicate"] is True

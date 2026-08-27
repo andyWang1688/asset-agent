@@ -32,8 +32,8 @@ POLICY_VERSION = 1
 DEFAULT_POLICY: dict = {
     "version": POLICY_VERSION,
     "gate": {
-        # on_findings：发现 Finding 时进入确认；always：始终确认；never：跳过闸门
-        "confirm_before_llm": "on_findings",
+        # always：确认模式，每份资料都确认；never：默认模式，按默认动作自动处理
+        "confirm_before_llm": "never",
     },
     "detection": {
         "context": {
@@ -77,12 +77,18 @@ KIND_ALLOWED_ACTIONS = {
     KIND_UNKNOWN: (ACTION_REDACT, ACTION_ALLOW),
 }
 
-GATE_MODES = ("on_findings", "always", "never")
+GATE_MODES = ("always", "never")
 _EXTRA_NAME_RE = re.compile(r"^[a-z0-9_]{1,40}$")
-MAX_EXTRA_RULES = 20
 MAX_PATTERN_CHARS = 300
 MAX_KEYWORDS = 60
 MAX_KEYWORD_CHARS = 40
+
+SECURITY_MODES = {"default": "never", "confirm": "always"}
+ENTROPY_PRESETS = {
+    "sensitive": {"min_shannon": 3.2, "min_length": 12, "context_min_length": 10},
+    "balanced": {"min_shannon": 3.5, "min_length": 16, "context_min_length": 12},
+    "conservative": {"min_shannon": 4.0, "min_length": 20, "context_min_length": 16},
+}
 
 
 class PolicyError(ValueError):
@@ -169,8 +175,8 @@ def validate_policy(data: object) -> dict:
     if not isinstance(boost, (int, float)) or not 0 <= boost <= 0.5:
         raise PolicyError("detection.context.boost: 必须是 0..0.5 的数字")
     keywords = ctx.get("keywords")
-    if not isinstance(keywords, list) or not keywords:
-        raise PolicyError("detection.context.keywords: 必须是非空列表")
+    if not isinstance(keywords, list):
+        raise PolicyError("detection.context.keywords: 必须是列表")
     if len(keywords) > MAX_KEYWORDS:
         raise PolicyError(f"detection.context.keywords: 最多 {MAX_KEYWORDS} 个关键词")
     for i, kw in enumerate(keywords):
@@ -226,8 +232,6 @@ def validate_policy(data: object) -> dict:
     extra = detection.get("extra_rules")
     if not isinstance(extra, list):
         raise PolicyError("detection.extra_rules: 必须是列表")
-    if len(extra) > MAX_EXTRA_RULES:
-        raise PolicyError(f"detection.extra_rules: 最多 {MAX_EXTRA_RULES} 条")
     for i, rule in enumerate(extra):
         p = f"detection.extra_rules[{i}]"
         if not isinstance(rule, dict):
@@ -361,6 +365,58 @@ class PolicyStore:
     def dump(self) -> str:
         """当前生效策略的 YAML 文本（只读展示用，必不含秘密）。"""
         return yaml.safe_dump(self.load(), allow_unicode=True, sort_keys=False)
+
+    def security_settings(self) -> dict:
+        """只返回安全策略页可编辑的结构化字段，不暴露部署级配置。"""
+        policy = self.load()
+        detection = policy["detection"]
+        entropy = detection["entropy"]
+        sensitivity = "custom"
+        for name, preset in ENTROPY_PRESETS.items():
+            if all(entropy[key] == value for key, value in preset.items()):
+                sensitivity = name
+                break
+        gate = policy["gate"]["confirm_before_llm"]
+        return {
+            "mode": next(name for name, value in SECURITY_MODES.items() if value == gate),
+            "keywords": {
+                "enabled": detection["context"]["enabled"],
+                "items": list(detection["context"]["keywords"]),
+            },
+            "entropy": {
+                "enabled": entropy["enabled"],
+                "sensitivity": sensitivity,
+            },
+        }
+
+    def update_security_settings(self, patch: dict) -> dict:
+        """更新安全策略页字段；未提供的字段及所有部署级配置保持不变。"""
+        policy = self.load()
+        if "mode" in patch:
+            mode = patch["mode"]
+            if mode not in SECURITY_MODES:
+                raise PolicyError(f"mode: 必须是 {tuple(SECURITY_MODES)} 之一")
+            policy["gate"]["confirm_before_llm"] = SECURITY_MODES[mode]
+        if "keywords" in patch:
+            keywords = patch["keywords"]
+            context = policy["detection"]["context"]
+            if "enabled" in keywords:
+                context["enabled"] = keywords["enabled"]
+            if "items" in keywords:
+                context["keywords"] = keywords["items"]
+        if "entropy" in patch:
+            entropy_patch = patch["entropy"]
+            entropy = policy["detection"]["entropy"]
+            if "enabled" in entropy_patch:
+                entropy["enabled"] = entropy_patch["enabled"]
+            if "sensitivity" in entropy_patch:
+                sensitivity = entropy_patch["sensitivity"]
+                if sensitivity not in ENTROPY_PRESETS:
+                    raise PolicyError(f"entropy.sensitivity: 必须是 {tuple(ENTROPY_PRESETS)} 之一")
+                entropy.update(ENTROPY_PRESETS[sensitivity])
+        saved = validate_policy(policy)
+        self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
+        return self.security_settings()
 
     def builtin_rules(self) -> list[dict]:
         """返回内置规则逐条启停状态。状态来源于当前生效策略；被覆盖的规则取覆盖层的类别/启停。"""

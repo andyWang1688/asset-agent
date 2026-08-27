@@ -139,8 +139,10 @@ async def test_vaultwarden_failure_no_cloud_call(settings):
 
 async def test_confirm_error_messages_hide_plaintext(settings):
     creds = FakeCredentialStore()
+    store = _store(settings)
+    store.update_security_settings({"mode": "confirm"})
     r = await receiver.ingest(
-        settings, creds, text=f"password={SECRET}", policy_store=_store(settings),
+        settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN),
     )
     with pytest.raises(submissions.SubmissionError) as ei:
@@ -150,6 +152,6 @@ async def test_confirm_error_messages_hide_plaintext(settings):
 
 async def test_policy_and_audit_contain_no_secret(settings):
     store = _store(settings)
-    policy, errors = store.save("gate:\n  confirm_before_llm: on_findings\n# password=Sup3rSecret!\n")
+    policy, errors = store.save("gate:\n  confirm_before_llm: always\n# password=Sup3rSecret!\n")
     assert errors  # 策略拒绝保存
     assert not store.path.exists()

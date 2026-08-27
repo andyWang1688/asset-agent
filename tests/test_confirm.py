@@ -28,8 +28,10 @@ def _knowledge_model_configured(workspace):
 
 
 async def _submit(settings, creds, text):
+    store = _store(settings)
+    store.update_security_settings({"mode": "confirm"})
     return await receiver.ingest(
-        settings, creds, text=text, policy_store=_store(settings),
+        settings, creds, text=text, policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN),
     )
 
@@ -294,10 +296,10 @@ async def test_rescan_after_edit_and_resubmit(settings):
     assert r2["pending_confirmation"] is True
     view = submissions.view(settings, db.get_submission(r2["submission_id"]))
     assert any(f["rule"] == "key_value_secret" for f in view["findings"])
-    # 修改后不含秘密 → 直通
+    # 确认模式下，修改后不含秘密也必须再次确认
     r3 = await _submit(settings, creds, "修改后的内容已无敏感信息")
-    assert "pending_confirmation" not in r3
-    assert r3["source_id"]
+    assert r3["pending_confirmation"] is True
+    assert r3["summary"] == {"credential": 0, "pii": 0, "unknown_suspect": 0}
 
 
 async def test_leftover_after_decisions_rejected(settings, monkeypatch):

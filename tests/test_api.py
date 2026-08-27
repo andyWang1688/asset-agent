@@ -84,6 +84,13 @@ def test_api_flow(tmp_path, monkeypatch):
         test = client.post(f"/api/settings/models/{saved['id']}/test").json()
         assert test["ok"] is True
 
+        # 结构化安全配置：仅暴露页面字段，确认模式即时生效
+        security = client.get("/api/settings/security").json()
+        assert security["mode"] == "default"
+        assert set(security) == {"mode", "keywords", "entropy"}
+        changed = client.patch("/api/settings/security", json={"mode": "confirm"}).json()
+        assert changed["ok"] is True and changed["mode"] == "confirm"
+
         # 输入（含秘密）：先进入确认闸门，未经确认不写 Vaultwarden、不建任务
         r = client.post("/api/ingest", data={"text": "password=Sup3rSecret! 订单服务"}).json()
         assert r["pending_confirmation"] is True
@@ -205,6 +212,7 @@ def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):
     monkeypatch.setattr(api_module.llm, "build_provider", lambda settings, row, role=None: FakeProvider("OK"))
 
     with TestClient(main.app) as client:
+        client.patch("/api/settings/security", json={"mode": "confirm"})
         # 统一规则列表：内置规则带描述/示例/来源
         rules = client.get("/api/settings/policy/rules").json()["rules"]
         by_name = {r["name"]: r for r in rules}
@@ -224,9 +232,9 @@ def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):
         assert ov["ok"] is True and ov["rule"]["source"] == "override"
         policy = client.get("/api/settings/policy").json()["policy"]
         assert policy["detection"]["builtin_rules"]["overrides"]["mobile_phone_cn"]["pattern"]
-        # 覆盖即时生效（同一 policy_store 供 ingest 使用）：138 放行、139 命中
+        # 覆盖即时生效（同一 policy_store 供 ingest 使用）：138 无命中、139 命中
         after = client.post("/api/ingest", data={"text": "联系 13800138001 谢谢"}).json()
-        assert "pending_confirmation" not in after
+        assert after["pending_confirmation"] is True and after["summary"]["pii"] == 0
         hit139 = client.post("/api/ingest", data={"text": "联系 13900139000 谢谢"}).json()
         assert hit139["pending_confirmation"] is True and hit139["summary"]["pii"] == 1
         # 审计记录不含覆盖正则原文（既有不变量：策略与审计不含秘密/配置内容）
