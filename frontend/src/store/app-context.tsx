@@ -2,9 +2,16 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api } from '@/lib/api'
 import type { Health } from '@/lib/types'
 
+export type SettingsRoute = 'models' | 'retrieval' | 'security' | 'events'
 export type Tab = 'chat' | 'wiki' | 'tasks' | 'settings'
 
 const isSettingsRoute = () => window.location.pathname.startsWith('/settings') || window.location.hash.startsWith('#/settings')
+const settingsRouteFromLocation = (): SettingsRoute => {
+  const candidate = window.location.pathname.match(/^\/settings\/([^/]+)/)?.[1]
+    ?? window.location.hash.match(/^#\/settings\/([^/]+)/)?.[1]
+  if (candidate === 'rules' || candidate === 'policy') return 'security'
+  return candidate === 'retrieval' || candidate === 'security' || candidate === 'events' ? candidate : 'models'
+}
 
 interface AppState {
   tab: Tab
@@ -14,6 +21,8 @@ interface AppState {
   wikiPath: string | null
   health: Health | null
   refreshHealth: () => Promise<void>
+  navigateSettings: (route: SettingsRoute) => void
+  settingsRoute: SettingsRoute
 }
 
 const AppContext = createContext<AppState | null>(null)
@@ -22,6 +31,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tab, setTabState] = useState<Tab>(() => isSettingsRoute() ? 'settings' : 'chat')
   const [wikiPath, setWikiPath] = useState<string | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
+  const [settingsRoute, setSettingsRoute] = useState<SettingsRoute>(settingsRouteFromLocation)
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -41,8 +51,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (next !== 'settings' && isSettingsRoute()) window.history.pushState(null, '', '/')
   }, [])
 
+  const navigateSettings = useCallback((route: SettingsRoute) => {
+    window.history.pushState(null, '', `/settings/${route}`)
+    setSettingsRoute(route)
+    setTabState('settings')
+  }, [])
+
   useEffect(() => {
-    const onRouteChange = () => setTabState(isSettingsRoute() ? 'settings' : 'chat')
+    const onRouteChange = () => {
+      setTabState(isSettingsRoute() ? 'settings' : 'chat')
+      setSettingsRoute(settingsRouteFromLocation())
+    }
     window.addEventListener('popstate', onRouteChange)
     window.addEventListener('hashchange', onRouteChange)
     return () => {
@@ -57,8 +76,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [setTab])
 
   const value = useMemo(
-    () => ({ tab, setTab, openWikiDoc, wikiPath, health, refreshHealth }),
-    [tab, setTab, openWikiDoc, wikiPath, health, refreshHealth],
+    () => ({ tab, setTab, openWikiDoc, wikiPath, health, refreshHealth, navigateSettings, settingsRoute }),
+    [tab, setTab, openWikiDoc, wikiPath, health, refreshHealth, navigateSettings, settingsRoute],
   )
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

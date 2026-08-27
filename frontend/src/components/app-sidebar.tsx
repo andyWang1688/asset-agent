@@ -1,7 +1,8 @@
 import type { ReactElement } from 'react'
+import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useTasks } from '@/hooks/use-tasks'
-import { useApp, type Tab } from '@/store/app-context'
+import { useApp, type SettingsRoute, type Tab } from '@/store/app-context'
 
 const APP_VERSION = 'v1.0.0'
 
@@ -38,7 +39,12 @@ const NAV_WORKSPACE: NavItemDef[] = [
   { tab: 'wiki', label: '知识库' },
   { tab: 'tasks', label: '任务' },
 ]
-const NAV_LOCAL: NavItemDef[] = [{ tab: 'settings', label: '设置' }]
+const NAV_LOCAL: { route: SettingsRoute; label: string; icon: typeof Bot }[] = [
+  { route: 'models', label: '模型配置', icon: Bot },
+  { route: 'retrieval', label: '检索配置', icon: Search },
+  { route: 'security', label: '安全策略', icon: ShieldCheck },
+  { route: 'events', label: '安全事件', icon: Siren },
+]
 
 function NavGroup({
   label,
@@ -88,6 +94,38 @@ function NavGroup({
   )
 }
 
+function SettingsNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
+  const { tab, navigateSettings, settingsRoute } = useApp()
+  const activeRoute = tab === 'settings' ? settingsRoute : null
+  return (
+    <>
+      <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">本地设置</div>
+      <nav className="mb-5 grid gap-[3px]" aria-label="本地设置">
+        {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
+          <button
+            key={route}
+            type="button"
+            aria-current={activeRoute === route ? 'page' : undefined}
+            onClick={() => {
+              navigateSettings(route)
+              onNavigate?.('settings')
+            }}
+            className={
+              'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-panel transition-all duration-150 active:scale-[0.97] ' +
+              (activeRoute === route
+                ? 'bg-soft font-semibold text-fg shadow-[inset_2px_0_var(--color-fg)]'
+                : 'text-muted hover:bg-soft hover:text-fg')
+            }
+          >
+            <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
+            {label}
+          </button>
+        ))}
+      </nav>
+    </>
+  )
+}
+
 /** 设计稿侧栏：AA 品牌 + 工作区/本地设置导航 + 本地模式页脚 */
 export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
   const { attention } = useTasks()
@@ -100,7 +138,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
         资产 Agent
       </div>
       <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} onNavigate={onNavigate} />
-      <NavGroup label="本地设置" items={NAV_LOCAL} taskCount={0} onNavigate={onNavigate} />
+      <SettingsNav onNavigate={onNavigate} />
       <div className="mt-auto border-t border-border px-2.5 pb-0.5 pt-3.5 text-caption text-muted">
         <b className="mb-0.5 block font-semibold text-fg">本地模式</b>
         资料仅保存在此设备
@@ -112,29 +150,38 @@ export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
 
 /** 移动端底部导航（≤820px 显示） */
 export function MobileBottomNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
-  const { tab, setTab } = useApp()
+  const { tab, setTab, navigateSettings, settingsRoute } = useApp()
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-[70] flex border-t border-border px-2 pb-[calc(6px+env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-md"
       style={{ background: 'color-mix(in oklch, var(--color-surface) 92%, transparent)' }}
     >
-      {[...NAV_WORKSPACE, ...NAV_LOCAL].map(({ tab: t, label }) => (
-        <button
-          key={t}
-          type="button"
-          aria-label={label}
-          onClick={() => {
-            setTab(t)
-            onNavigate?.(t)
-          }}
-          className={
-            'flex flex-1 flex-col items-center gap-[3px] rounded-md px-1 py-[5px] text-[10.5px] transition-colors duration-150 ' +
-            (tab === t ? 'font-semibold text-fg' : 'text-fg opacity-55')
-          }
-        >
-          <span className="[&>svg]:h-[18px] [&>svg]:w-[18px]">{ICONS[t]}</span>
-          <span>{label}</span>
-        </button>
+      <button
+        type="button"
+        aria-label="对话"
+        onClick={() => { setTab('chat'); onNavigate?.('chat') }}
+        className={
+          'flex flex-1 flex-col items-center gap-[3px] rounded-md px-1 py-[5px] text-[10.5px] transition-colors duration-150 ' +
+          (tab === 'chat' ? 'font-semibold text-fg' : 'text-fg opacity-55')
+        }
+      >
+        <span className="[&>svg]:h-[18px] [&>svg]:w-[18px]">{ICONS.chat}</span>
+        <span>对话</span>
+      </button>
+      {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
+            <button
+              key={route}
+              type="button"
+              aria-label={label}
+              onClick={() => navigateSettings(route)}
+              className={
+                'flex flex-1 flex-col items-center gap-[3px] rounded-md px-1 py-[5px] text-[10.5px] transition-colors duration-150 ' +
+                (tab === 'settings' && settingsRoute === route ? 'font-semibold text-fg' : 'text-fg opacity-55')
+              }
+            >
+              <Icon className="h-[18px] w-[18px]" strokeWidth={1.7} />
+              <span>{label}</span>
+            </button>
       ))}
     </nav>
   )
