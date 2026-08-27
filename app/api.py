@@ -224,10 +224,10 @@ async def pending_submission_confirm(request: Request, submission_id: int, body:
 def pending_submission_cancel(request: Request, submission_id: int):
     ctx = _ctx(request)
     try:
-        restore_text = submissions.cancel(ctx.settings, submission_id)
+        submissions.cancel(ctx.settings, submission_id)
     except submissions.SubmissionError as e:
         raise HTTPException(400, str(e)) from e
-    return {"cancelled": True, "restore_text": restore_text}
+    return {"cancelled": True}
 
 
 # ---- 安全策略（设置服务读写，Wiki LLM 只读） ----

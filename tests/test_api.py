@@ -277,3 +277,20 @@ def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):
         # 恢复未覆盖规则 → 400
         again = client.delete("/api/settings/policy/builtin-rules/email/override")
         assert again.status_code == 400 and "未被覆盖" in again.json()["detail"]
+
+
+def test_reject_submission_api_never_returns_plaintext(tmp_path, monkeypatch):
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
+    monkeypatch.setenv("VAULTWARDEN_URL", "http://127.0.0.1:8081")
+    monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
+    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider(PLAN))
+
+    with TestClient(main.app) as client:
+        client.patch("/api/settings/security", json={"mode": "confirm"})
+        submitted = client.post("/api/ingest", data={"text": "password=RejectApiSecret!"}).json()
+        response = client.post(f"/api/pending/submissions/{submitted['submission_id']}/cancel")
+
+    assert response.status_code == 200
+    assert response.json() == {"cancelled": True}
+    assert "RejectApiSecret!" not in response.text

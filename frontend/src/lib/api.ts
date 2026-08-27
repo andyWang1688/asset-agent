@@ -75,7 +75,7 @@ export const api = {
       body: JSON.stringify({ decisions, edited_text: editedText }),
     }),
   cancelSubmission: (id: number) =>
-    request<{ cancelled: boolean; restore_text: string }>(`/api/pending/submissions/${id}/cancel`, { method: 'POST' }),
+    request<{ cancelled: boolean }>(`/api/pending/submissions/${id}/cancel`, { method: 'POST' }),
 
   query: (question: string, sessionId?: string | null) =>
     request<QueryResult>('/api/query', { method: 'POST', body: JSON.stringify({ question, session_id: sessionId ?? null }) }),

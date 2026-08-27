@@ -241,12 +241,10 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
     return result
 
 
-def cancel(settings: Settings, submission_id: int) -> str:
-    """取消：不调云端模型、不写 Vaultwarden；销毁密文，返回原文供用户修改后重新提交（重新扫描）。"""
+def cancel(settings: Settings, submission_id: int) -> None:
+    """拒绝：不解密、不调模型、不写 Vaultwarden；直接销毁暂存密文。"""
     row = db.get_submission(submission_id)
     if not row or row["status"] != "waiting":
         raise SubmissionError("提交不存在或已处理")
-    payload = _decrypt(settings, row)
     db.resolve_submission(submission_id, "cancelled")
     db.log_security("submission_cancelled", f"提交 #{submission_id} 已取消，明文已销毁")
-    return payload["text"]

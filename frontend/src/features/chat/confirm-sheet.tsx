@@ -65,14 +65,16 @@ interface ConfirmSheetProps {
 export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled }: ConfirmSheetProps) {
   const [preview, setPreview] = useState('')
   const [editing, setEditing] = useState(false)
+  const [customizing, setCustomizing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [cancelOpen, setCancelOpen] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     if (view) {
       setPreview(view.preview || '')
       setEditing(false)
+      setCustomizing(false)
       setError('')
       setSubmitting(false)
     }
@@ -82,18 +84,20 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
   const counts = view?.summary || {}
   const total = findings.length
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (useSelections: boolean) => {
     if (!view) return
     const decisions: Record<string, string> = {}
     findings.forEach((f) => {
-      const el = document.querySelector<HTMLInputElement>(`input[name="fd-${CSS.escape(f.id)}"]:checked`)
+      const el = useSelections
+        ? document.querySelector<HTMLInputElement>(`input[name="fd-${CSS.escape(f.id)}"]:checked`)
+        : null
       decisions[f.id] = el?.value || f.suggested_action
     })
     setSubmitting(true)
     setError('')
     try {
-      const r = await api.confirmSubmission(view.submission_id, decisions, preview)
-      toast.success(`已确认，来源 #${r.source_id}，任务 #${r.task_id}`)
+      const r = await api.confirmSubmission(view.submission_id, decisions, useSelections ? preview : undefined)
+      toast.success(`已同意，来源 #${r.source_id}，任务 #${r.task_id}`)
       onConfirmed(r)
     } catch (e) {
       setError(errMsg(e))
@@ -106,7 +110,7 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
     if (!view) return
     try {
       await api.cancelSubmission(view.submission_id)
-      toast('已取消，未产生任何写入。')
+      toast('已拒绝，密文已销毁。')
       onCancelled()
     } catch (e) {
       setError(errMsg(e))
@@ -114,7 +118,9 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
   }, [view, onCancelled])
 
   const summary = useMemo(
-    () => `共 ${total} 项 · 凭证 ${counts.credential || 0} · 个人信息 ${counts.pii || 0} · 疑似 ${counts.unknown_suspect || 0}`,
+    () => total === 0
+      ? '未检测到敏感内容'
+      : `共 ${total} 项 · 凭证 ${counts.credential || 0} · 个人信息 ${counts.pii || 0} · 疑似 ${counts.unknown_suspect || 0}`,
     [total, counts],
   )
 
@@ -139,28 +145,31 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-            <p className="mb-3 text-xs text-muted">
-              请逐项裁决后再继续。确认前：不写入 Vaultwarden、不调用云端编译模型。点击条目展开掩码上下文。
-            </p>
-            <p className="mb-3 text-[13px] text-muted">{summary}</p>
+            <p className={cn('mb-3 text-[13px]', total === 0 ? 'font-semibold text-fg' : 'text-muted')}>{summary}</p>
+            {total > 0 && !customizing && (
+              <p className="text-xs text-muted">同意将按系统建议一次处理全部发现；也可以选择「按我说的做」逐项修改。</p>
+            )}
 
-            <div className="flex flex-col gap-2">
-              {findings.map((f) => (
-                <FindingCard key={f.id} f={f} />
-              ))}
-              {findings.length === 0 && <p className="text-xs text-muted">（未发现敏感信息，确认后直接发送）</p>}
-            </div>
+            {customizing && (
+              <div className="flex flex-col gap-2">
+                {findings.map((f) => (
+                  <FindingCard key={f.id} f={f} />
+                ))}
+              </div>
+            )}
 
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">完整脱敏预览</h3>
-                <button
-                  type="button"
-                  className="text-[13px] text-fg hover:underline"
-                  onClick={() => setEditing(!editing)}
-                >
-                  {editing ? '完成修改' : '修改脱敏'}
-                </button>
+                <h3 className="text-sm font-semibold">{total === 0 ? '资料预览' : '脱敏预览'}</h3>
+                {customizing && (
+                  <button
+                    type="button"
+                    className="text-[13px] text-fg hover:underline"
+                    onClick={() => setEditing(!editing)}
+                  >
+                    {editing ? '完成修改' : '编辑预览'}
+                  </button>
+                )}
               </div>
               <Textarea
                 value={preview}
@@ -169,10 +178,10 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
                 onChange={(e) => setPreview(e.target.value)}
                 className={cn(
                   'min-h-[150px] font-mono text-xs leading-relaxed',
-                  editing ? 'bg-surface' : 'bg-[#f2f2f5] opacity-90',
+                  editing && customizing ? 'bg-surface' : 'bg-[#f2f2f5] opacity-90',
                 )}
               />
-              {editing && (
+              {editing && customizing && (
                 <p className="mt-2 text-xs text-muted">
                   可直接编辑脱敏预览；提交时会重新扫描，若仍检测到未处置的敏感信息会被拒绝。
                 </p>
@@ -184,26 +193,31 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
         )}
 
         <SheetFooter>
-          <Button variant="outline" onClick={() => setCancelOpen(true)}>
-            取消
+          <Button variant="danger" disabled={submitting || loading} onClick={() => setRejectOpen(true)}>
+            拒绝
           </Button>
-          <Button variant="primary" disabled={submitting || loading} onClick={submit}>
-            {submitting ? '处理中…' : '确认并整理'}
+          {total > 0 && (
+            <Button variant="outline" disabled={submitting || loading} onClick={() => setCustomizing((open) => !open)}>
+              {customizing ? '收起逐项设置' : '按我说的做'}
+            </Button>
+          )}
+          <Button variant="primary" disabled={submitting || loading} onClick={() => void submit(customizing)}>
+            {submitting ? '处理中…' : '同意'}
           </Button>
         </SheetFooter>
 
-        <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <AlertDialog open={rejectOpen} onOpenChange={setRejectOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>取消本次提交？</AlertDialogTitle>
+              <AlertDialogTitle>拒绝整份资料？</AlertDialogTitle>
               <AlertDialogDescription>
-                不会调用云端模型，也不会写入 Vaultwarden；密文将被销毁，可修改后重新提交。
+                整份资料会被丢弃，暂存密文立即销毁；不会调用模型，也不会写入 Vaultwarden。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>继续裁决</AlertDialogCancel>
+              <AlertDialogCancel>返回确认页</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={cancel}>
-                确认取消
+                确认拒绝
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

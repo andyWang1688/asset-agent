@@ -274,16 +274,45 @@ async def test_confirm_uses_submission_policy_snapshot(settings, monkeypatch):
     assert captured["policy"]["gate"]["confirm_before_llm"] == "always"  # 快照，而非 never
 
 
-async def test_cancel_no_writes_and_restore_text(settings):
+async def test_reject_no_writes_and_does_not_return_plaintext(settings):
     creds = FakeCredentialStore()
     r = await _submit(settings, creds, "password=Sup3rSecret! 内容")
-    restore = submissions.cancel(settings, r["submission_id"])
-    assert "Sup3rSecret!" in restore  # 返回原文供修改后重新提交
+    result = submissions.cancel(settings, r["submission_id"])
+    assert result is None
     assert db.get_submission(r["submission_id"])["status"] == "cancelled"
     assert db.get_submission(r["submission_id"])["payload"] == ""  # 密文已销毁
     assert creds.created == []
     assert db.list_tasks() == []
     assert list(settings.inbox_dir.glob("*")) == []
+
+
+async def test_reject_endpoint_destroys_ciphertext_without_plaintext_residue(settings):
+    r = await _submit(settings, FakeCredentialStore(), "password=RejectSecret! 内容")
+    row = db.get_submission(r["submission_id"])
+    assert row["payload"] and "RejectSecret!" not in row["payload"]
+
+    submissions.cancel(settings, r["submission_id"])
+
+    row = db.get_submission(r["submission_id"])
+    assert row["status"] == "cancelled"
+    assert row["payload"] == ""
+    assert "RejectSecret!" not in json.dumps([dict(e) for e in db.list_security()], ensure_ascii=False)
+
+
+async def test_confirm_mode_no_findings_can_accept_in_one_action(settings):
+    store = _store(settings)
+    store.update_security_settings({"mode": "confirm"})
+    r = await receiver.ingest(
+        settings, FakeCredentialStore(), text="没有任何敏感信息的普通资料",
+        policy_store=store, knowledge_provider_getter=lambda: FakeProvider(PLAN),
+    )
+    assert r["pending_confirmation"] is True and r["findings"] == []
+
+    result = await submissions.confirm(
+        settings, FakeCredentialStore(), store, r["submission_id"], {},
+        knowledge_provider_getter=lambda: FakeProvider(PLAN),
+    )
+    assert result["source_id"] and db.get_submission(r["submission_id"])["payload"] == ""
 
 
 async def test_rescan_after_edit_and_resubmit(settings):
