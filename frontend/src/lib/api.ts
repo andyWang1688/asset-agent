@@ -18,6 +18,7 @@ import type {
   RetrievalConfigView,
   RetrievalTestResult,
   SecurityEvent,
+  SecuritySettingsView,
   SettingsStatus,
   SubmissionView,
   TaskRow,
@@ -124,6 +125,9 @@ export const api = {
     request<ModelDownloadStatus>(`/api/settings/retrieval/download/status?model=${encodeURIComponent(model)}`),
   resetRetrieval: () => request<{ ok: boolean }>('/api/settings/retrieval', { method: 'DELETE' }),
 
+  securitySettings: () => request<SecuritySettingsView>('/api/settings/security'),
+  updateSecuritySettings: (body: Partial<SecuritySettingsView>) =>
+    request<SecuritySettingsView & { ok?: boolean }>('/api/settings/security', { method: 'PATCH', body: JSON.stringify(body) }),
   policy: () => request<PolicyResp>('/api/settings/policy'),
   savePolicy: (yaml: string) => request<{ ok: boolean; policy: unknown }>('/api/settings/policy', { method: 'POST', body: JSON.stringify({ yaml }) }),
   policyRules: () => request<{ rules: DetectionRule[]; validators: string[] }>('/api/settings/policy/rules'),

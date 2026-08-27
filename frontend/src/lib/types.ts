@@ -142,6 +142,15 @@ export interface PolicyResp {
   yaml: string
 }
 
+export type SecurityMode = 'default' | 'confirm'
+export type EntropySensitivity = 'sensitive' | 'balanced' | 'conservative' | 'custom'
+
+export interface SecuritySettingsView {
+  mode: SecurityMode
+  keywords: { enabled: boolean; items: string[] }
+  entropy: { enabled: boolean; sensitivity: EntropySensitivity }
+}
+
 export interface DetectionRule {
   name: string
   kind: string

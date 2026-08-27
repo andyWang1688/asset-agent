@@ -3,11 +3,6 @@ import { Bot, ChevronLeft, ChevronRight, RefreshCw, Search, ShieldCheck, Siren }
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
@@ -24,23 +19,10 @@ import { useModels } from '@/hooks/use-models'
 import { api, errMsg } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { DetectionRule, ModelRow, SecurityEvent } from '@/lib/types'
+import type { ModelRow, SecurityEvent, SecurityMode } from '@/lib/types'
 import { ModelSheet } from './model-sheet'
 import { RetrievalSection } from './retrieval-section'
 import type { SettingsModule } from './settings-navigation'
-
-const KIND_LABELS: Record<string, string> = {
-  credential: '凭证',
-  pii: '个人信息（PII）',
-  unknown_suspect: '疑似敏感信息',
-}
-
-const VALIDATOR_LABELS: Record<string, string> = {
-  id_card: '身份证校验',
-  luhn: 'Luhn 校验',
-}
-
-const SOURCE_LABELS: Record<string, string> = { builtin: '内置', override: '已覆盖', custom: '自定义' }
 
 const MODULES: { id: SettingsModule; title: string; description: string; icon: ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
   { id: 'models', title: '模型配置', description: '管理知识库与安全增强模型', icon: Bot },
@@ -50,10 +32,6 @@ const MODULES: { id: SettingsModule; title: string; description: string; icon: C
 ]
 
 /** 去掉后端表单错误的字段路径前缀（detection.extra_rules[0].），保留友好信息 */
-const friendlyRuleError = (msg: string) => msg
-  .replace(/^detection\.extra_rules\[\d+\]\./, '')
-  .replace(/^detection\.builtin_rules\.overrides\.[^.]+\./, '')
-
 function ModelCard({
   m,
   emptyDesc,
@@ -119,93 +97,83 @@ function ModelCard({
   )
 }
 
-function RuleRow({
-  rule,
-  onToggle,
-  onOverride,
-  onRestore,
+type SecurityTab = 'regex' | 'keywords' | 'entropy' | 'security-model'
+
+const SECURITY_TABS: { id: SecurityTab; label: string }[] = [
+  { id: 'regex', label: '正则' },
+  { id: 'keywords', label: '关键词' },
+  { id: 'entropy', label: '熵值判定' },
+  { id: 'security-model', label: '安全增强模型' },
+]
+
+const securityTabFromHash = (): SecurityTab => {
+  const value = window.location.hash.replace(/^#/, '')
+  return SECURITY_TABS.some((tab) => tab.id === value) ? value as SecurityTab : 'regex'
+}
+
+function SecurityPolicySkeleton({
+  mode,
+  loading,
+  onModeChange,
+  tab,
+  onTabChange,
 }: {
-  rule: DetectionRule
-  onToggle: () => void
-  onOverride: (body: { pattern?: string; kind?: string }) => Promise<void>
-  onRestore: () => Promise<void>
+  mode: SecurityMode
+  loading: boolean
+  onModeChange: (mode: SecurityMode) => void
+  tab: SecurityTab
+  onTabChange: (tab: SecurityTab) => void
 }) {
-  const [advanced, setAdvanced] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [pattern, setPattern] = useState(rule.pattern || '')
-  const [kind, setKind] = useState(rule.kind)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  useEffect(() => {
-    setPattern(rule.pattern || '')
-    setKind(rule.kind)
-  }, [rule.pattern, rule.kind])
-  const save = async () => {
-    if (!pattern.trim() && kind === rule.kind) return
-    setError('')
-    setSaving(true)
-    try {
-      await onOverride({ pattern: pattern.trim() || undefined, kind: kind !== rule.kind ? kind : undefined })
-      setEditing(false)
-    } catch (e) {
-      setError(friendlyRuleError(errMsg(e)))
-    } finally {
-      setSaving(false)
-    }
-  }
   return (
-    <div className="border-b border-border px-3 py-3 last:border-b-0">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <strong className="text-caption font-medium">{rule.name}</strong>
-            <Badge variant={rule.source === 'custom' ? 'muted' : rule.source === 'override' ? 'warn' : 'accent'}>
-              {SOURCE_LABELS[rule.source || 'builtin']}
-            </Badge>
-            <Badge variant="muted">{KIND_LABELS[rule.kind] ?? rule.kind}</Badge>
-          </div>
-          <p className="mt-1 text-caption text-muted">{rule.description || '自定义匹配规则'}</p>
-          {!!rule.examples?.length && <p className="mt-1 text-meta text-muted">示例命中：{rule.examples.join('、')}</p>}
-          <Collapsible open={advanced} onOpenChange={setAdvanced}>
-            <CollapsibleTrigger asChild>
-              <button type="button" className="mt-1 text-meta text-primary hover:underline">{advanced ? '收起高级' : '展开高级（正则）'}</button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <code className="mt-1 block break-all rounded bg-bg px-2 py-1 font-mono text-meta text-muted">{rule.pattern || '未提供'}</code>
-            </CollapsibleContent>
-          </Collapsible>
+    <section>
+      <div className="border-b border-border px-[17px] py-4">
+        <h3 className="text-panel font-semibold">处理方式</h3>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {([
+            ['default', '默认模式', '扫描后按既定规则自动处理，无需人工步骤。'],
+            ['confirm', '确认模式', '每份资料入库前先过确认页，逐份看一眼。'],
+          ] as const).map(([value, label, description]) => (
+            <label key={value} className={cn('flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors', mode === value ? 'border-fg/45 bg-soft' : 'border-border')}>
+              <input
+                type="radio"
+                name="security-mode"
+                value={value}
+                checked={mode === value}
+                disabled={loading}
+                onChange={() => onModeChange(value)}
+                className="mt-1 accent-[var(--color-fg)]"
+              />
+              <span>
+                <strong className="block text-caption font-semibold">{label}</strong>
+                <span className="mt-0.5 block text-meta text-muted">{description}</span>
+              </span>
+            </label>
+          ))}
         </div>
-        <div className="flex shrink-0 items-center gap-2 pt-1">
-          <span className="text-meta text-muted">{rule.enabled ? '已启用' : '已停用'}</span>
-          <Switch checked={rule.enabled} onCheckedChange={onToggle} aria-label={`切换 ${rule.name}`} />
+        <div className="mt-2.5 rounded-md bg-bg px-3 py-2 text-caption text-muted">
+          <strong className="font-semibold text-fg">永远生效</strong>：秘密原文永不发给模型；对话发凭证一律拦截；回答永远复扫。
         </div>
       </div>
-      {rule.source !== 'custom' && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {editing ? (
-            <div className="grid w-full gap-2 sm:grid-cols-[minmax(0,1fr)_170px_auto_auto]">
-              <Input aria-label={`${rule.name} 正则`} value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="覆盖正则模式" />
-              <Select value={kind} onValueChange={setKind}>
-                <SelectTrigger aria-label={`${rule.name} 类别`}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pii">个人信息（PII）</SelectItem>
-                  <SelectItem value="credential">凭证</SelectItem>
-                  <SelectItem value="unknown_suspect">疑似敏感信息</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="primary" size="sm" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存覆盖'}</Button>
-              <Button variant="compact" size="sm" onClick={() => setEditing(false)}>取消</Button>
-            </div>
-          ) : (
-            <>
-              <Button variant="compact" size="sm" onClick={() => setEditing(true)}>覆盖修改</Button>
-              {rule.source === 'override' && <Button variant="compact" size="sm" onClick={() => void onRestore()}>恢复默认</Button>}
-            </>
-          )}
+      <div>
+        <div className="border-b border-border px-[17px] pt-3">
+          <h3 className="mb-2.5 text-panel font-semibold">配置细则</h3>
+          <nav className="flex flex-wrap gap-1" aria-label="安全策略配置细则">
+            {SECURITY_TABS.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                aria-current={tab === id ? 'page' : undefined}
+                onClick={() => onTabChange(id)}
+                className={cn('rounded-t-md border-b-2 px-3 py-2 text-caption transition-colors', tab === id ? 'border-fg font-semibold text-fg' : 'border-transparent text-muted hover:text-fg')}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
         </div>
-      )}
-      {error && <p className="mt-2 text-caption text-danger">{error}</p>}
-    </div>
+        <div className="px-[17px] py-8 text-center text-caption text-muted">此配置页内容即将加载</div>
+      </div>
+    </section>
   )
 }
 
@@ -219,16 +187,9 @@ export function SettingsPage() {
   const [events, setEvents] = useState<SecurityEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [eventPage, setEventPage] = useState(1)
-  const [rules, setRules] = useState<DetectionRule[]>([])
-  const [validators, setValidators] = useState<string[]>([])
-  const [ruleForm, setRuleForm] = useState({ name: '', pattern: '', kind: 'pii', validator: '' })
-  const [ruleError, setRuleError] = useState('')
-  const [ruleSaving, setRuleSaving] = useState(false)
-  const [policyOpen, setPolicyOpen] = useState(false)
-  const [policyYaml, setPolicyYaml] = useState('')
-  const [policyLoaded, setPolicyLoaded] = useState(false)
-  const [policySaving, setPolicySaving] = useState(false)
-  const [policyError, setPolicyError] = useState('')
+  const [securityMode, setSecurityMode] = useState<SecurityMode>('default')
+  const [securityLoading, setSecurityLoading] = useState(false)
+  const [securityTab, setSecurityTab] = useState<SecurityTab>(securityTabFromHash)
 
   const loadEvents = useCallback(async () => {
     setEventsLoading(true)
@@ -248,70 +209,34 @@ export function SettingsPage() {
     return () => window.clearInterval(timer)
   }, [activeModule, loadEvents, tab])
   useEffect(() => {
-    void api.policyRules().then((result) => {
-      setRules(result.rules)
-      setValidators(result.validators)
-    }).catch(() => setRuleError('规则加载失败'))
+    void api.securitySettings().then((result) => setSecurityMode(result.mode)).catch(() => {})
+  }, [])
+  useEffect(() => {
+    const onHashChange = () => setSecurityTab(securityTabFromHash())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
 
-  const loadPolicy = async () => {
-    if (policyLoaded) return
-    setPolicyError('')
+  const updateSecurityMode = async (next: SecurityMode) => {
+    const previous = securityMode
+    setSecurityMode(next)
+    setSecurityLoading(true)
     try {
-      const r = await api.policy()
-      setPolicyYaml(r.yaml || '')
-      setPolicyLoaded(true)
+      const result = await api.updateSecuritySettings({ mode: next })
+      setSecurityMode(result.mode)
+      toast.success('处理方式已更新')
     } catch (e) {
-      setPolicyError(errMsg(e))
-    }
-  }
-
-  const toggleRule = async (rule: DetectionRule) => {
-    try {
-      const result = rule.source === 'custom'
-        ? await api.setCustomRule(rule.name, !rule.enabled)
-        : await api.setBuiltinRule(rule.name, !rule.enabled)
-      setRules((rows) => rows.map((r) => (r.name === rule.name ? { ...r, ...result.rule } : r)))
-      toast.success(result.rule.enabled ? '规则已启用' : '规则已停用')
-    } catch (e) {
-      toast.error(errMsg(e))
-    }
-  }
-
-  const overrideRule = async (rule: DetectionRule, body: { pattern?: string; kind?: string }) => {
-    const result = await api.setBuiltinOverride(rule.name, body)
-    setRules((rows) => rows.map((r) => (r.name === rule.name ? result.rule : r)))
-    toast.success('内置规则覆盖已生效')
-  }
-
-  const restoreRule = async (rule: DetectionRule) => {
-    try {
-      const result = await api.restoreBuiltinOverride(rule.name)
-      setRules((rows) => rows.map((r) => (r.name === rule.name ? result.rule : r)))
-      toast.success('已恢复默认规则')
-    } catch (e) {
-      toast.error(errMsg(e))
-    }
-  }
-
-  const addRule = async () => {
-    setRuleError('')
-    if (!/^[a-z0-9_]{1,40}$/.test(ruleForm.name)) return setRuleError('名称须为 1–40 位小写字母、数字或下划线')
-    if (!ruleForm.pattern.trim()) return setRuleError('请输入匹配模式')
-    if (ruleForm.pattern.length > 300) return setRuleError('匹配模式长度不得超过 300 个字符')
-    setRuleSaving(true)
-    try {
-      const result = await api.addCustomRule({ ...ruleForm, validator: ruleForm.validator || undefined })
-      setRules((rows) => [...rows, { ...result.rule, source: 'custom' }])
-      setRuleForm({ name: '', pattern: '', kind: 'pii', validator: '' })
-      toast.success('自定义规则已新增')
-    } catch (e) {
-      setRuleError(friendlyRuleError(errMsg(e)))
+      setSecurityMode(previous)
+      toast.error('处理方式更新失败：' + errMsg(e))
     } finally {
-      setRuleSaving(false)
+      setSecurityLoading(false)
     }
   }
 
+  const changeSecurityTab = (next: SecurityTab) => {
+    window.history.replaceState(null, '', `/settings/security#${next}`)
+    setSecurityTab(next)
+  }
 
   const openSheet = (role: string, model: ModelRow | null) => {
     setEditing(model)
@@ -357,25 +282,7 @@ export function SettingsPage() {
             </div>
           </header>
 
-          {activeModule === 'security' && <section>
-            <div className="border-b border-border px-[17px] py-4">
-              <div className="mb-2.5 flex items-center justify-between"><h3 className="text-panel font-semibold">检测规则</h3><span className="text-meta text-muted">统一列表 · 最多 20 条自定义规则</span></div>
-              <div className="divide-y divide-border rounded-md border border-border">
-                {rules.map((rule) => <RuleRow key={rule.name} rule={rule} onToggle={() => void toggleRule(rule)} onOverride={(body) => overrideRule(rule, body)} onRestore={() => restoreRule(rule)} />)}
-                {rules.length === 0 && <p className="px-3 py-4 text-caption text-muted">暂无检测规则</p>}
-              </div>
-            </div>
-            <div className="border-b border-border px-[17px] py-4">
-              <div className="mb-2.5 flex items-center justify-between"><h3 className="text-panel font-semibold">新增自定义规则</h3><span className="text-meta text-muted">模式最多 300 字符</span></div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Input placeholder="规则名称，如 employee_id" value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} />
-                <Input placeholder="正则匹配模式" value={ruleForm.pattern} onChange={(e) => setRuleForm({ ...ruleForm, pattern: e.target.value })} />
-                <Select value={ruleForm.kind} onValueChange={(kind) => setRuleForm({ ...ruleForm, kind })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select>
-                <Select value={ruleForm.validator || 'none'} onValueChange={(validator) => setRuleForm({ ...ruleForm, validator: validator === 'none' ? '' : validator })}><SelectTrigger><SelectValue placeholder="校验函数（可选）" /></SelectTrigger><SelectContent><SelectItem value="none">不使用校验函数</SelectItem>{validators.map((v) => <SelectItem key={v} value={v}>{VALIDATOR_LABELS[v] ?? v}</SelectItem>)}</SelectContent></Select>
-              </div>
-              <div className="mt-2.5 flex items-center gap-2.5"><Button variant="primary" size="sm" disabled={ruleSaving} onClick={() => void addRule()}>{ruleSaving ? '新增中…' : '新增规则'}</Button>{ruleError && <p className="text-caption text-danger">{ruleError}</p>}</div>
-            </div>
-          </section>}
+          {activeModule === 'security' && <SecurityPolicySkeleton mode={securityMode} loading={securityLoading} onModeChange={(mode) => void updateSecurityMode(mode)} tab={securityTab} onTabChange={changeSecurityTab} />}
 
           {activeModule === 'models' && <section>
             <div className="flex justify-end border-b border-border px-[17px] py-3">
@@ -427,51 +334,6 @@ export function SettingsPage() {
           </section>}
 
           {activeModule === 'retrieval' && <RetrievalSection />}
-
-          {activeModule === 'security' && <section>
-            <div className="flex justify-end border-b border-border px-[17px] py-3">
-              <Button
-                variant="compact"
-                size="sm"
-                onClick={() => {
-                  setPolicyOpen(!policyOpen)
-                  if (!policyOpen) void loadPolicy()
-                }}
-              >
-                {policyOpen ? '收起' : '展开'}
-              </Button>
-            </div>
-            {policyOpen && (
-              <div className="px-[17px] py-4">
-                <Textarea
-                  value={policyYaml}
-                  spellCheck={false}
-                  placeholder={policyLoaded ? '' : '正在加载策略…'}
-                  onChange={(e) => setPolicyYaml(e.target.value)}
-                  className="min-h-[145px] bg-bg font-mono text-meta leading-[1.55]"
-                />
-                <div className="mt-2.5 flex items-center gap-2.5">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={policySaving}
-                    onClick={() => {
-                      setPolicySaving(true)
-                      void api
-                        .savePolicy(policyYaml)
-                        .then(() => toast.success('安全策略已校验并保存'))
-                        .catch((e) => setPolicyError(errMsg(e)))
-                        .finally(() => setPolicySaving(false))
-                    }}
-                  >
-                    {policySaving ? '保存中…' : '保存策略'}
-                  </Button>
-                  {policyError && <p className="text-caption text-danger">{policyError}</p>}
-                </div>
-              </div>
-            )}
-          </section>}
-
 
           {activeModule === 'events' && (() => {
             const pageSize = 20

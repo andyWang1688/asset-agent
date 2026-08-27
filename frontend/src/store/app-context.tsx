@@ -36,7 +36,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const navigateSettings = useCallback((route: SettingsRoute) => {
-    window.history.pushState(null, '', `/settings/${route}`)
+    window.history.pushState(null, '', `/settings/${route}${route === 'security' ? '#regex' : ''}`)
     setSettingsRoute(route)
     setTabState('settings')
   }, [])
