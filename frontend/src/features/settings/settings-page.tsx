@@ -23,13 +23,13 @@ import { useModels } from '@/hooks/use-models'
 import { api, errMsg } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { DetectionRule, ModelRow, SecurityEvent, SecurityMode } from '@/lib/types'
+import type { DetectionRule, EntropySensitivity, ModelRow, SecurityEvent, SecurityMode, SecuritySettingsView } from '@/lib/types'
 import { ModelSheet } from './model-sheet'
 import { RetrievalSection } from './retrieval-section'
 import type { SettingsModule } from './settings-navigation'
 
 const MODULES: { id: SettingsModule; title: string; description: string; icon: ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
-  { id: 'models', title: '模型配置', description: '管理知识库与安全增强模型', icon: Bot },
+  { id: 'models', title: '模型配置', description: '管理知识库模型', icon: Bot },
   { id: 'retrieval', title: '检索配置', description: '配置语义召回与重排模型', icon: Search },
   { id: 'security', title: '安全策略', description: '管理检测规则与高级安全策略', icon: ShieldCheck },
   { id: 'events', title: '安全事件', description: '查看检测与处理记录', icon: Siren },
@@ -212,70 +212,78 @@ const securityTabFromHash = (): SecurityTab => {
   return SECURITY_TABS.some((tab) => tab.id === value) ? value as SecurityTab : 'regex'
 }
 
+const ENTROPY_OPTIONS: { value: Exclude<EntropySensitivity, 'custom'>; label: string; description: string }[] = [
+  { value: 'sensitive', label: '敏感', description: '更容易发现短小的乱串，可能带来更多待确认项。' },
+  { value: 'balanced', label: '平衡（默认）', description: '在发现能力与误报之间保持平衡。' },
+  { value: 'conservative', label: '保守', description: '减少误报，但可能漏过较短的敏感串。' },
+]
+
+type SecurityModelActions = {
+  onAdd: () => void
+  onActivate: (id: number) => void
+  onTest: (id: number) => Promise<unknown>
+  onEdit: (model: ModelRow) => void
+  onDelete: (model: ModelRow) => void
+}
+
 function SecurityPolicySkeleton({
   mode,
   loading,
   onModeChange,
   tab,
   onTabChange,
+  securityModels,
+  securityModelActions,
 }: {
   mode: SecurityMode
   loading: boolean
   onModeChange: (mode: SecurityMode) => void
   tab: SecurityTab
   onTabChange: (tab: SecurityTab) => void
+  securityModels: ModelRow[]
+  securityModelActions: SecurityModelActions
 }) {
-  return (
-    <section>
-      <div className="border-b border-border px-[17px] py-4">
-        <h3 className="text-panel font-semibold">处理方式</h3>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {([
-            ['default', '默认模式', '扫描后按既定规则自动处理，无需人工步骤。'],
-            ['confirm', '确认模式', '每份资料入库前先过确认页，逐份看一眼。'],
-          ] as const).map(([value, label, description]) => (
-            <label key={value} className={cn('flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors', mode === value ? 'border-fg/45 bg-soft' : 'border-border')}>
-              <input
-                type="radio"
-                name="security-mode"
-                value={value}
-                checked={mode === value}
-                disabled={loading}
-                onChange={() => onModeChange(value)}
-                className="mt-1 accent-[var(--color-fg)]"
-              />
-              <span>
-                <strong className="block text-caption font-semibold">{label}</strong>
-                <span className="mt-0.5 block text-meta text-muted">{description}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-        <div className="mt-2.5 rounded-md bg-bg px-3 py-2 text-caption text-muted">
-          <strong className="font-semibold text-fg">永远生效</strong>：秘密原文永不发给模型；对话发凭证一律拦截；回答永远复扫。
-        </div>
-      </div>
-      <div>
-        <div className="border-b border-border px-[17px] pt-3">
-          <h3 className="mb-2.5 text-panel font-semibold">配置细则</h3>
-          <nav className="flex flex-wrap gap-1" aria-label="安全策略配置细则">
-            {SECURITY_TABS.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                aria-current={tab === id ? 'page' : undefined}
-                onClick={() => onTabChange(id)}
-                className={cn('rounded-t-md border-b-2 px-3 py-2 text-caption transition-colors', tab === id ? 'border-fg font-semibold text-fg' : 'border-transparent text-muted hover:text-fg')}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-        </div>
-        {tab === 'regex' ? <RegexRulesSection /> : <div className="px-[17px] py-8 text-center text-caption text-muted">此配置页内容即将加载</div>}
-      </div>
-    </section>
-  )
+  const [settings, setSettings] = useState<SecuritySettingsView | null>(null)
+  const [keyword, setKeyword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => { void api.securitySettings().then(setSettings).catch(() => {}) }, [])
+  const update = async (patch: Partial<SecuritySettingsView>) => {
+    setSaving(true); setError('')
+    try { setSettings(await api.updateSecuritySettings(patch)) }
+    catch (e) { setError(errMsg(e)) }
+    finally { setSaving(false) }
+  }
+  const keywords = settings?.keywords.items ?? []
+  const addKeyword = () => {
+    const value = keyword.trim()
+    if (!value || keywords.includes(value)) return
+    setKeyword('')
+    void update({ keywords: { enabled: settings?.keywords.enabled ?? true, items: [...keywords, value] } })
+  }
+  const removeKeyword = (value: string) => {
+    void update({ keywords: { enabled: settings?.keywords.enabled ?? true, items: keywords.filter((item) => item !== value) } })
+  }
+  const updateEntropy = (value: Exclude<EntropySensitivity, 'custom'>) => {
+    void update({ entropy: { enabled: settings?.entropy.enabled ?? true, sensitivity: value } })
+  }
+  const tabContent = tab === 'regex' ? <RegexRulesSection /> : tab === 'keywords' ? <section className="space-y-4 px-[17px] py-4">
+    <div className="flex items-center justify-between"><div><h3 className="text-panel font-semibold">关键词联想</h3><p className="mt-1 text-caption text-muted">根据关键词周边内容辅助识别敏感信息。</p></div><Switch checked={settings?.keywords.enabled ?? true} disabled={!settings || saving} onCheckedChange={(enabled) => void update({ keywords: { enabled, items: keywords } })} aria-label="启用关键词联想" /></div>
+    <div className="flex flex-wrap gap-2">{keywords.map((item) => <span key={item} className="inline-flex items-center gap-1 rounded-pill bg-soft px-2.5 py-1 text-caption">{item}<button type="button" className="text-muted hover:text-fg" onClick={() => removeKeyword(item)} aria-label={`删除关键词 ${item}`}>×</button></span>)}</div>
+    <div className="flex gap-2"><Input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword() } }} placeholder="添加关键词" /><Button variant="compact" size="sm" onClick={addKeyword} disabled={!keyword.trim() || saving}>添加</Button></div>
+    {error && <p className="text-caption text-danger">{error}</p>}
+  </section> : tab === 'entropy' ? <section className="space-y-4 px-[17px] py-4">
+    <div className="flex items-center justify-between"><div><h3 className="text-panel font-semibold">乱串检测</h3><p className="mt-1 text-caption text-muted">识别看起来像随机密钥的文本片段。</p></div><Switch checked={settings?.entropy.enabled ?? true} disabled={!settings || saving} onCheckedChange={(enabled) => void update({ entropy: { enabled, sensitivity: settings?.entropy.sensitivity === 'custom' ? 'balanced' : (settings?.entropy.sensitivity ?? 'balanced') } })} aria-label="启用乱串检测" /></div>
+    <div className="grid gap-2 sm:grid-cols-3">{ENTROPY_OPTIONS.map((option) => <label key={option.value} className={cn('cursor-pointer rounded-md border px-3 py-2.5', settings?.entropy.sensitivity === option.value ? 'border-fg/45 bg-soft' : 'border-border')}><input type="radio" name="entropy-sensitivity" value={option.value} checked={settings?.entropy.sensitivity === option.value} disabled={!settings || saving} onChange={() => updateEntropy(option.value)} className="mr-2 accent-[var(--color-fg)]" /><strong className="text-caption font-semibold">{option.label}</strong><span className="mt-1 block text-meta text-muted">{option.description}</span></label>)}</div>
+    {error && <p className="text-caption text-danger">{error}</p>}
+  </section> : <section className="space-y-4 px-[17px] py-4">
+    <div><h3 className="text-panel font-semibold">安全增强模型</h3><p className="mt-1 text-caption text-muted">可选的本地 AI 辅检，只加严不放松，仅允许本机或内网端点。</p></div>
+    {securityModels.length === 0 ? <ModelCard m={null} emptyDesc="未配置时，继续使用本地检测。" emptyChip="本地检测生效" {...securityModelActions} /> : securityModels.map((model) => <ModelCard key={model.id} m={model} emptyDesc="" {...securityModelActions} />)}
+  </section>
+  return <section>
+    <div className="border-b border-border px-[17px] py-4"><h3 className="text-panel font-semibold">处理方式</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{([['default', '默认模式', '扫描后按既定规则自动处理，无需人工步骤。'], ['confirm', '确认模式', '每份资料入库前先过确认页，逐份看一眼。']] as const).map(([value, label, description]) => <label key={value} className={cn('flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors', mode === value ? 'border-fg/45 bg-soft' : 'border-border')}><input type="radio" name="security-mode" value={value} checked={mode === value} disabled={loading} onChange={() => onModeChange(value)} className="mt-1 accent-[var(--color-fg)]" /><span><strong className="block text-caption font-semibold">{label}</strong><span className="mt-0.5 block text-meta text-muted">{description}</span></span></label>)}</div><div className="mt-2.5 rounded-md bg-bg px-3 py-2 text-caption text-muted"><strong className="font-semibold text-fg">永远生效</strong>：秘密原文永不发给模型；对话发凭证一律拦截；回答永远复扫。</div></div>
+    <div><div className="border-b border-border px-[17px] pt-3"><h3 className="mb-2.5 text-panel font-semibold">配置细则</h3><nav className="flex flex-wrap gap-1" aria-label="安全策略配置细则">{SECURITY_TABS.map(({ id, label }) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => onTabChange(id)} className={cn('rounded-t-md border-b-2 px-3 py-2 text-caption transition-colors', tab === id ? 'border-fg font-semibold text-fg' : 'border-transparent text-muted hover:text-fg')}>{label}</button>)}</nav></div>{tabContent}</div>
+  </section>
 }
 
 export function SettingsPage() {
@@ -383,7 +391,7 @@ export function SettingsPage() {
             </div>
           </header>
 
-          {activeModule === 'security' && <SecurityPolicySkeleton mode={securityMode} loading={securityLoading} onModeChange={(mode) => void updateSecurityMode(mode)} tab={securityTab} onTabChange={changeSecurityTab} />}
+          {activeModule === 'security' && <SecurityPolicySkeleton mode={securityMode} loading={securityLoading} onModeChange={(mode) => void updateSecurityMode(mode)} tab={securityTab} onTabChange={changeSecurityTab} securityModels={models.security} securityModelActions={groupProps('security')} />}
 
           {activeModule === 'models' && <section>
             <div className="flex justify-end border-b border-border px-[17px] py-3">
@@ -395,7 +403,6 @@ export function SettingsPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onSelect={() => openSheet('knowledge', null)}>知识库模型</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => openSheet('security', null)}>安全增强模型</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -413,25 +420,6 @@ export function SettingsPage() {
               )}
             </div>
 
-            <div className="px-[17px] py-4">
-              <div className="mb-2.5 flex items-center gap-2">
-                <h3 className="text-panel font-semibold">安全增强模型</h3>
-                <Badge variant="muted">可选</Badge>
-              </div>
-              <p className="mb-2.5 text-caption text-muted">
-                仅在本地检测之后增强敏感信息识别；只接受本机或内网端点，发送给模型的内容已脱敏。
-              </p>
-              {models.security.length === 0 ? (
-                <ModelCard
-                  m={null}
-                  emptyDesc="未配置时，系统继续使用本地规则、上下文与熵值检测。"
-                  emptyChip="本地检测生效"
-                  {...groupProps('security')}
-                />
-              ) : (
-                models.security.map((m) => <ModelCard key={m.id} m={m} emptyDesc="" {...groupProps('security')} />)
-              )}
-            </div>
           </section>}
 
           {activeModule === 'retrieval' && <RetrievalSection />}
