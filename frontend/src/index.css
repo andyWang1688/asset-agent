@@ -25,6 +25,8 @@
   --color-danger-soft: color-mix(in oklch, #d70015 10%, transparent);
   --color-warn: #b25000;
   --color-warn-soft: color-mix(in oklch, #b25000 12%, transparent);
+  --color-info: oklch(53% 0.12 250);
+  --color-info-soft: color-mix(in oklch, oklch(53% 0.12 250) 12%, transparent);
   --color-ok: oklch(50% 0.14 145);
   --color-ok-soft: color-mix(in oklch, oklch(58% 0.16 145) 14%, transparent);
 
@@ -43,6 +45,17 @@
   --color-sidebar-border: var(--color-border);
   --color-sidebar-ring: var(--color-accent);
 
+  /* 间距：语义档位；Tailwind 生成 p-page/gap-section 等同名工具类 */
+  --spacing-compact: 0.5rem;
+  --spacing-control: 0.75rem;
+  --spacing-content: 1rem;
+  --spacing-section: 1.5rem;
+  --spacing-section-lg: 1.75rem;
+  --spacing-page: 1.5rem;
+  --spacing-page-mobile: 1rem;
+  --spacing-page-narrow: 0.875rem;
+  --spacing-overlay: 2rem;
+
   /* 圆角：六档，全站统一 */
   --radius-xs: 5px;
   --radius-sm: 7px;
@@ -57,10 +70,33 @@
   --text-body: 14px;
   --text-input: 15px;
   --text-panel: 13px;
+  --text-label: 13px;
+  --text-heading: 16px;
+  --text-title: 18px;
+  --text-display: clamp(28px, 3vw, 40px);
+  --leading-tight: 1.25;
+  --leading-body: 1.6;
+  --leading-relaxed: 1.75;
 
-  /* 阴影与动效 */
+  /* 阴影 */
   --shadow-pop: 0 10px 30px color-mix(in oklch, oklch(22% 0.02 240) 5%, transparent);
   --shadow-panel: 0 1px 2px color-mix(in oklch, oklch(22% 0.02 240) 4%, transparent);
+
+  /* 动效：时长三档；位移使用 spring，淡入淡出使用标准曲线 */
+  --motion-duration-fast: 150ms;
+  --motion-duration-standard: 300ms;
+  --motion-duration-slow: 450ms;
+  --motion-ease-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --motion-ease-fade: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Tailwind 动效命名空间，指向上面的单一来源 token */
+  --duration-fast: var(--motion-duration-fast);
+  --duration-standard: var(--motion-duration-standard);
+  --duration-slow: var(--motion-duration-slow);
+  --ease-spring: var(--motion-ease-spring);
+  --ease-fade: var(--motion-ease-fade);
+
+  /* 旧页面仍使用的曲线别名，保留以确保本票不改变页面视觉 */
   --ease-out: cubic-bezier(0.21, 1, 0.32, 1);
 }
 

@@ -12,6 +12,8 @@ Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, 
 
 Single-context layout: root `CONTEXT.md` + `docs/adr/` (created lazily by `/domain-modeling` when needed). See `docs/agents/domain.md`.
 
+前端开发前必读 `docs/frontend-design-language.md`。
+
 ## 造与买（Build vs Buy）
 
 - 来了新需求，优先评估是否有现成框架/组件可用；能用现成的绝不重复造轮子。
