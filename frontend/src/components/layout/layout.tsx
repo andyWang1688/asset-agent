@@ -20,7 +20,7 @@ export function PageShell({ title, description, actions, children, className, co
   return (
     <div className={cn('flex min-h-full flex-col gap-[var(--spacing-section)] p-[var(--spacing-page)] max-[820px]:p-[var(--spacing-page-mobile)] max-[480px]:p-[var(--spacing-page-narrow)]', className)}>
       {(title || description || actions) && (
-        <header className={cn('flex flex-wrap items-start justify-between', CONTENT_GAP)}>
+        <header className={cn('sticky top-0 z-20 -mx-[var(--spacing-page)] -mt-[var(--spacing-page)] flex flex-wrap items-start justify-between bg-surface px-[var(--spacing-page)] pb-[var(--spacing-section)] pt-[var(--spacing-page)] max-[820px]:-mx-[var(--spacing-page-mobile)] max-[820px]:-mt-[var(--spacing-page-mobile)] max-[820px]:px-[var(--spacing-page-mobile)] max-[820px]:pt-[var(--spacing-page-mobile)] max-[480px]:-mx-[var(--spacing-page-narrow)] max-[480px]:-mt-[var(--spacing-page-narrow)] max-[480px]:px-[var(--spacing-page-narrow)] max-[480px]:pt-[var(--spacing-page-narrow)]', CONTENT_GAP)}>
           <div className="min-w-0">
             {title && <h1 className="text-display leading-tight font-bold tracking-[-0.01em]">{title}</h1>}
             {description && <p className="mt-compact text-caption leading-relaxed text-muted">{description}</p>}

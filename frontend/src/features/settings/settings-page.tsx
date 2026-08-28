@@ -448,22 +448,10 @@ export function SettingsPage() {
   })
 
   const activeDefinition = MODULES.find((module) => module.id === activeModule) ?? MODULES[0]
-  const ActiveIcon = activeDefinition.icon
 
   return (
-    <PageShell title="设置中心" description="管理模型、检索与安全能力。">
+    <PageShell title={activeDefinition.title} description={activeDefinition.description}>
       <SectionCard className="min-w-0 overflow-hidden" contentClassName="p-0">
-          <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-bg px-5 py-5">
-            <div className="flex items-start gap-3.5">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-fg text-surface">
-                <ActiveIcon className="h-5 w-5" strokeWidth={1.7} />
-              </span>
-              <div>
-                <h2 className="text-[18px] font-semibold leading-6">{activeDefinition.title}</h2>
-                <p className="mt-1 text-caption text-muted">{activeDefinition.description}</p>
-              </div>
-            </div>
-          </header>
 
           {activeModule === 'security' && <SecurityPolicySkeleton mode={securityMode} loading={securityLoading} onModeChange={(mode) => void updateSecurityMode(mode)} tab={securityTab} onTabChange={changeSecurityTab} securityModels={models.security} securityModelActions={groupProps('security')} />}
 

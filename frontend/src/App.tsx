@@ -9,7 +9,7 @@ import { useChat } from '@/hooks/use-chat'
 import { PageTransition } from '@/components/layout'
 
 function Shell() {
-  const { tab, setTab } = useApp()
+  const { tab, setTab, settingsRoute } = useApp()
   const chat = useChat()
   return (
     <AppShell
@@ -25,7 +25,7 @@ function Shell() {
         if (t === 'chat') chat.newChat()
       }}
     >
-      <PageTransition pageKey={tab} className="min-h-full">
+      <PageTransition pageKey={tab === 'settings' ? `settings-${settingsRoute}` : tab} className="min-h-full">
         {tab === 'chat' && <section aria-label="对话"><ChatPage active chat={chat} /></section>}
         {tab === 'wiki' && <section aria-label="知识库"><WikiPage /></section>}
         {tab === 'tasks' && <section aria-label="任务"><TasksPage /></section>}
