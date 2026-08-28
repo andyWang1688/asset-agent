@@ -127,13 +127,7 @@ function SettingsNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
 export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
   const { attention } = useTasks()
   return (
-    <aside className="sticky top-0 flex h-svh flex-col overflow-y-auto border-r border-border bg-surface px-3 pt-[18px]">
-      <div className="flex items-center gap-2.5 px-2.5 pb-7 pt-1 text-body font-bold">
-        <span className="grid h-[26px] w-[26px] place-items-center rounded-sm bg-fg font-mono text-meta font-bold text-surface">
-          AA
-        </span>
-        资产 Agent
-      </div>
+    <aside className="flex w-[218px] shrink-0 flex-col overflow-y-auto bg-surface px-3 pt-[18px]">
       <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} onNavigate={onNavigate} />
       <SettingsNav onNavigate={onNavigate} />
       <div className="mt-auto border-t border-border px-2.5 pb-0.5 pt-3.5 text-caption text-muted">

@@ -6,10 +6,16 @@ import { HistoryPanel } from '@/components/history-panel'
 import type { ChatMessage } from '@/hooks/use-chat'
 import { cn } from '@/lib/utils'
 
-/** 顶栏：历史按钮（桌面/移动共用） */
+/** 顶栏：品牌 + 历史按钮（桌面/移动共用，New API 式全宽顶栏） */
 function Topbar({ onOpenHistory }: { onOpenHistory: () => void }) {
   return (
-    <header className="sticky top-0 z-30 flex h-[58px] items-center justify-end border-b border-border bg-bg/92 px-[30px] backdrop-blur-md max-[820px]:px-4 max-[480px]:px-3">
+    <header className="sticky top-0 z-30 flex h-[58px] shrink-0 items-center justify-between border-b border-border bg-surface px-[30px] max-[820px]:px-4 max-[480px]:px-3">
+      <div className="flex items-center gap-2.5 text-body font-bold">
+        <span className="grid h-[26px] w-[26px] place-items-center rounded-sm bg-fg font-mono text-meta font-bold text-surface">
+          AA
+        </span>
+        资产 Agent
+      </div>
       <button
         type="button"
         aria-label="对话历史"
@@ -53,7 +59,9 @@ export function AppShell({
     return (
       <div className="flex h-svh min-h-0 flex-col overflow-hidden">
         <Topbar onOpenHistory={() => setHistOpen(true)} />
-        <main className="app-main-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
+        <main className="min-h-0 flex-1 p-3">
+          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
+        </main>
         <MobileBottomNav onNavigate={onNavigate} />
         <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
       </div>
@@ -61,16 +69,18 @@ export function AppShell({
   }
 
   return (
-    <div
-      className={cn(
-        'motion-spring grid h-svh min-h-0 grid-cols-[218px_minmax(0,1fr)] overflow-hidden transition-[margin-right]',
-        histOpen && 'mr-[218px]',
-      )}
-    >
-      <AppSidebar onNavigate={onNavigate} />
-      <div className="flex min-w-0 min-h-0 flex-col">
-        <Topbar onOpenHistory={() => setHistOpen(true)} />
-        <main className="app-main-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
+    <div className="flex h-svh min-h-0 flex-col overflow-hidden">
+      <Topbar onOpenHistory={() => setHistOpen(true)} />
+      <div
+        className={cn(
+          'motion-spring flex min-h-0 flex-1 overflow-hidden transition-[margin-right]',
+          histOpen && 'mr-[218px]',
+        )}
+      >
+        <AppSidebar onNavigate={onNavigate} />
+        <main className="min-h-0 min-w-0 flex-1 p-[var(--spacing-section)] max-[1024px]:p-4">
+          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
+        </main>
       </div>
       <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
     </div>
