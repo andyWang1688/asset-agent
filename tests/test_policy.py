@@ -61,6 +61,11 @@ def test_custom_rule_form_flow_persists_and_toggles(tmp_path):
     assert reloaded.custom_rules()[0]["enabled"] is False
     assert not any(f.rule == "employee_id" for f in ScanEngine(reloaded.load()).scan("编号 EMP-123456"))
 
+    reloaded.delete_custom_rule("employee_id")
+    assert PolicyStore(store.path).custom_rules() == []
+    with pytest.raises(PolicyError, match="未知自定义规则"):
+        reloaded.delete_custom_rule("employee_id")
+
 
 def test_custom_rule_form_preserves_validation_guards(tmp_path):
     store = _store(tmp_path)

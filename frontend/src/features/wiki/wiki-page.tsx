@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { EmptyState, LoadingState, PageShell, SectionCard } from '@/components/layout'
+import { EmptyState, LoadingState, PageShell, SectionCard, springTransition, staggerTransition } from '@/components/layout'
 import { useApp } from '@/store/app-state'
 import { useWiki } from '@/hooks/use-wiki'
 import { useIsMobile } from '@/hooks/use-is-mobile'
@@ -42,6 +43,7 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
   const [query, setQuery] = useState('')
   const [closed, setClosed] = useState<Set<string>>(new Set())
   const [rootClosed, setRootClosed] = useState(false)
+  const reduceMotion = useReducedMotion()
 
   const visible = pages.filter((p) => {
     const name = p.path.split('/').pop()
@@ -71,7 +73,8 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
         </button>
         <span>知识库</span>
       </div>
-      <div className={cn('min-h-0 flex-1 overflow-y-auto', rootClosed && 'hidden')}>
+      <AnimatePresence initial={false}>
+        {!rootClosed && <motion.div className="min-h-0 flex-1 overflow-y-auto" initial={reduceMotion ? false : { height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={reduceMotion ? undefined : { height: 0, opacity: 0 }} transition={springTransition(reduceMotion)}>
         {WIKI_CATS_ORDER.map((cat) => {
           const docs = visible.filter((p) => p.path.startsWith(cat.key + '/'))
           const shown = docs.filter(hit)
@@ -95,27 +98,36 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
                 <span>{cat.label}</span>
                 <span className="ml-auto font-mono text-meta text-muted">{String(docs.length).padStart(2, '0')}</span>
               </button>
-              <div className={cn('pl-4', isClosed && 'hidden')}>
+              <AnimatePresence initial={false}>
+              {!isClosed && <motion.div className="overflow-hidden pl-4" initial={reduceMotion ? false : { height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={reduceMotion ? undefined : { height: 0, opacity: 0 }} transition={springTransition(reduceMotion)}>
                 {shown.length === 0 && <p className="py-1 pl-2.5 text-caption text-muted">（暂无文档）</p>}
-                {shown.map((d) => (
-                  <button
+                {shown.map((d, index) => (
+                  <motion.div
                     key={d.path}
-                    type="button"
-                    title={d.path}
-                    onClick={() => void open(d.path)}
-                    className={cn(
-                      'motion-interactive block w-full truncate rounded-sm px-control py-compact text-left font-mono text-caption transition-colors before:mr-compact before:inline-block before:w-3 before:opacity-65 before:content-["·"] active:scale-[0.97]',
-                      path === d.path ? 'bg-fg font-semibold text-surface' : 'text-muted hover:bg-soft hover:text-fg',
-                    )}
+                    initial={reduceMotion ? false : { opacity: 0, y: 'var(--spacing-compact)' }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={staggerTransition(reduceMotion, index)}
                   >
-                    {d.title || d.path.split('/').pop()}
-                  </button>
+                    <button
+                      type="button"
+                      title={d.path}
+                      onClick={() => void open(d.path)}
+                      className={cn(
+                        'motion-card block w-full truncate rounded-sm px-control py-compact text-left font-mono text-caption before:mr-compact before:inline-block before:w-3 before:opacity-65 before:content-["·"] active:scale-[0.97]',
+                        path === d.path ? 'bg-fg font-semibold text-surface' : 'text-muted hover:bg-soft hover:text-fg',
+                      )}
+                    >
+                      {d.title || d.path.split('/').pop()}
+                    </button>
+                  </motion.div>
                 ))}
-              </div>
+              </motion.div>}
+              </AnimatePresence>
             </div>
           )
         })}
-      </div>
+        </motion.div>}
+      </AnimatePresence>
       <div className="mt-3 border-t border-border px-2.5 py-3">
         <Button
           variant="link"

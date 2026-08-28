@@ -585,3 +585,13 @@ class PolicyStore:
         saved = validate_policy(policy)
         self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))
         return next(r for r in self.custom_rules() if r["name"] == name)
+
+    def delete_custom_rule(self, name: str) -> None:
+        policy = self.load()
+        extra = policy["detection"].get("extra_rules", []) or []
+        remaining = [rule for rule in extra if rule.get("name") != name]
+        if len(remaining) == len(extra):
+            raise PolicyError(f"未知自定义规则 {name}")
+        policy["detection"]["extra_rules"] = remaining
+        saved = validate_policy(policy)
+        self._write(saved, yaml.safe_dump(saved, allow_unicode=True, sort_keys=False))

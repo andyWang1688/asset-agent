@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { toast } from 'sonner'
 import { ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { PageShell, SegmentedControl } from '@/components/layout'
+import { PageShell, SegmentedControl, springTransition, staggerTransition } from '@/components/layout'
 import { useApp } from '@/store/app-state'
 import { useChat } from '@/hooks/use-chat'
 import { useSubmissions, useTaskWatch } from '@/hooks/use-submissions'
@@ -93,15 +94,11 @@ function MtRow({ task }: { task: MtTask }) {
 }
 
 function TaskDrawer({ tasks, collecting, onClear }: { tasks: MtTask[]; collecting: boolean; onClear: () => void }) {
+  const reduceMotion = useReducedMotion()
   return (
-    <div
-      className="motion-spring w-[min(100%,720px)] shrink-0 overflow-hidden transition-[max-height,opacity,margin-bottom]"
-      style={collecting ? { maxHeight: 320, opacity: 1, marginBottom: -18 } : { maxHeight: 0, opacity: 0, marginBottom: 0 }}
-    >
-      <div
-        className="motion-spring mx-control rounded-lg border border-border bg-surface p-content shadow-panel transition-transform"
-        style={collecting ? undefined : { transform: 'translateY(14px) scale(0.98)' }}
-      >
+    <AnimatePresence initial={false}>
+      {collecting && <motion.div className="w-[min(100%,720px)] shrink-0 overflow-hidden" initial={reduceMotion ? false : { height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={reduceMotion ? undefined : { height: 0, opacity: 0 }} transition={springTransition(reduceMotion)}>
+      <motion.div className="motion-card mx-control mb-[calc(-1*var(--spacing-section))] rounded-lg border border-border bg-surface p-content shadow-panel" initial={reduceMotion ? false : { y: 'var(--spacing-content)', scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={reduceMotion ? undefined : { y: 'var(--spacing-content)', scale: 0.98 }} transition={springTransition(reduceMotion)}>
         <div className="mb-1 flex items-center justify-between">
           <span className="font-mono text-meta text-muted">整理任务</span>
           <button
@@ -112,11 +109,14 @@ function TaskDrawer({ tasks, collecting, onClear }: { tasks: MtTask[]; collectin
             清除
           </button>
         </div>
-        {tasks.map((t) => (
-          <MtRow key={t.id} task={t} />
+        <AnimatePresence initial={false}>
+        {tasks.map((t, index) => (
+          <motion.div key={t.id} initial={reduceMotion ? false : { opacity: 0, y: 'var(--spacing-compact)' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, x: 'var(--spacing-content)' }} transition={staggerTransition(reduceMotion, index)}><MtRow task={t} /></motion.div>
         ))}
-      </div>
-    </div>
+        </AnimatePresence>
+      </motion.div>
+    </motion.div>}
+    </AnimatePresence>
   )
 }
 
@@ -168,6 +168,7 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
   const [error, setError] = useState('')
   const [pendingOpen, setPendingOpen] = useState(false)
   const [mtTasks, setMtTasks] = useState<MtTask[]>([])
+  const reduceMotion = useReducedMotion()
 
   const knowledgeMissing = !health || !health.knowledge_model
   const hasInput = value.trim().length > 0 || !!file
@@ -349,8 +350,9 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
                 <Badge variant="muted">{waiting.length}</Badge>
                 <ChevronRight className={cn('motion-interactive h-3 w-3 transition-transform', pendingOpen && 'rotate-90')} />
               </button>
+              <AnimatePresence initial={false}>
               {pendingOpen && (
-                <ul className="mt-1 max-h-[220px] w-full overflow-y-auto rounded-lg border border-border bg-surface shadow-panel">
+                <motion.ul className="mt-1 max-h-[220px] w-full overflow-y-auto rounded-lg border border-border bg-surface shadow-panel" initial={reduceMotion ? false : { height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={reduceMotion ? undefined : { height: 0, opacity: 0 }} transition={springTransition(reduceMotion)}>
                   {waiting.map((s) => (
                     <li
                       key={s.id}
@@ -368,8 +370,9 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
                       </Button>
                     </li>
                   ))}
-                </ul>
+                </motion.ul>
               )}
+              </AnimatePresence>
             </div>
           )}
 

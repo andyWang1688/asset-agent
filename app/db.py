@@ -391,6 +391,10 @@ def list_security(limit: int = 50):
     return _r("SELECT * FROM security_events ORDER BY id DESC LIMIT ?", (limit,))
 
 
+def clear_security() -> None:
+    _w("DELETE FROM security_events")
+
+
 def upsert_model_config(cfg_id, name, provider_type, base_url, api_key_enc, model, is_active,
                         role: str = "knowledge") -> int:
     """保存配置；is_active 时在单事务内先停用同角色其他配置再激活本配置
@@ -485,4 +489,3 @@ def save_retrieval_config(provider: str, model: str, reranker_enabled: int, rera
 
 def delete_retrieval_config() -> None:
     _w("DELETE FROM retrieval_config WHERE id=1")
-

@@ -86,6 +86,7 @@
   --motion-duration-fast: 150ms;
   --motion-duration-standard: 300ms;
   --motion-duration-slow: 450ms;
+  --motion-stagger: 40ms;
   --motion-ease-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
   --motion-ease-fade: cubic-bezier(0.32, 0.72, 0, 1);
 
@@ -97,7 +98,8 @@
   --ease-fade: var(--motion-ease-fade);
 
   --animate-breathe: breathe calc(var(--motion-duration-slow) * 3) var(--motion-ease-fade) infinite;
-  --animate-menu-in: menu-in var(--motion-duration-standard) var(--motion-ease-fade);
+  --animate-menu-in: menu-in var(--motion-duration-standard) var(--motion-ease-spring);
+  --animate-menu-out: menu-out var(--motion-duration-standard) var(--motion-ease-spring);
   --animate-requeue: requeue calc(var(--motion-duration-slow) * 2) var(--motion-ease-fade);
 }
 
@@ -121,6 +123,10 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+}
+
+.app-main-scroll {
+  scrollbar-gutter: stable;
 }
 
 ::selection {
@@ -163,21 +169,35 @@ body {
   }
 }
 
-@layer components {
-  .motion-interactive {
-    transition-duration: var(--motion-duration-fast);
-    transition-timing-function: var(--motion-ease-fade);
-  }
+.motion-interactive {
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-ease-fade);
+}
 
-  .motion-state {
-    transition-duration: var(--motion-duration-standard);
-    transition-timing-function: var(--motion-ease-fade);
-  }
+.motion-state {
+  transition-duration: var(--motion-duration-standard);
+  transition-timing-function: var(--motion-ease-fade);
+}
 
-  .motion-spring {
-    transition-duration: var(--motion-duration-standard);
-    transition-timing-function: var(--motion-ease-spring);
-  }
+.motion-spring {
+  transition-duration: var(--motion-duration-standard);
+  transition-timing-function: var(--motion-ease-spring);
+}
+
+.motion-card {
+  transition-property: transform, box-shadow;
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-ease-fade);
+}
+
+.motion-card:hover {
+  transform: translateY(calc(-1 * var(--spacing-compact) / 2));
+  box-shadow: var(--shadow-pop);
+}
+
+.motion-card:has(.motion-card:hover) {
+  transform: none;
+  box-shadow: var(--shadow-panel);
 }
 
 /* 流式打字光标 */
@@ -189,7 +209,7 @@ body {
   background: var(--color-fg);
   margin-left: 2px;
   vertical-align: -0.15em;
-  animation: caret 0.8s steps(1) infinite;
+  animation: caret calc(var(--motion-duration-slow) * 2) steps(1) infinite;
 }
 
 /* ============================================================
@@ -198,11 +218,17 @@ body {
 @keyframes menu-in {
   from {
     opacity: 0;
-    transform: translateY(var(--spacing-compact)) scale(0.98);
+    transform: translate(-50%, calc(-50% + var(--spacing-compact))) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: none;
+    transform: translate(-50%, -50%);
+  }
+}
+@keyframes menu-out {
+  to {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + var(--spacing-compact))) scale(0.98);
   }
 }
 @keyframes caret {
@@ -367,5 +393,9 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+  .motion-card:hover {
+    transform: none;
+    box-shadow: var(--shadow-panel) !important;
   }
 }

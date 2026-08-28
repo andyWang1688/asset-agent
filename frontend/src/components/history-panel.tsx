@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { staggerTransition } from '@/components/layout'
 import { api } from '@/lib/api'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import type { ChatEntry } from '@/lib/types'
@@ -72,6 +74,7 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
   const [renaming, setRenaming] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const isMobile = useIsMobile(820)
+  const reduceMotion = useReducedMotion()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -120,6 +123,7 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
     setMenuFor(null)
     try {
       await api.deleteSession(id)
+      setGroups((rows) => rows.filter((row) => row.id !== id))
       await load()
     } catch {
       /* 忽略 */
@@ -165,12 +169,13 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
         ) : groups.length === 0 ? (
           <p className="px-2.5 py-7 text-center text-caption text-muted">还没有对话记录，去提问吧。</p>
         ) : (
-          groups.map((g) => {
+          <AnimatePresence initial={false}>
+          {groups.map((g, index) => {
             const day = g.pinned ? '置顶' : dayLabel(g.time)
             const showDay = day !== lastDay
             lastDay = day
             return (
-              <div key={g.id}>
+              <motion.div key={g.id} initial={reduceMotion ? false : { opacity: 0, y: 'var(--spacing-compact)' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, x: 'var(--spacing-content)' }} transition={staggerTransition(reduceMotion, index)}>
                 {showDay && <div className="px-2.5 pb-1 pt-3 font-mono text-meta text-muted">{day}</div>}
                 <div className="group relative">
                   {renaming === g.id ? (
@@ -275,9 +280,10 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
                     </div>
                   )}
                 </div>
-              </div>
+              </motion.div>
             )
-          })
+          })}
+          </AnimatePresence>
         )}
       </div>
     </aside>

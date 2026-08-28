@@ -330,6 +330,16 @@ def set_custom_rule(request: Request, rule_name: str, body: CustomRuleToggleBody
     return {"ok": True, "rule": rule}
 
 
+@router.delete("/api/settings/policy/custom-rules/{rule_name}")
+def delete_custom_rule(request: Request, rule_name: str):
+    try:
+        _policy_store(request).delete_custom_rule(rule_name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.log_security("policy_updated", f"自定义规则 {rule_name} 已删除")
+    return {"ok": True}
+
+
 @router.get("/api/sources")
 def sources(request: Request, limit: int = 50):
     rows = db.list_sources(limit)
@@ -793,3 +803,9 @@ def retrieval_rebuild_status():
 def security_events(limit: int = 50):
     rows = db.list_security(limit)
     return [{"id": r["id"], "kind": r["kind"], "detail": r["detail"], "created_at": r["created_at"]} for r in rows]
+
+
+@router.delete("/api/security/events")
+def clear_security_events():
+    db.clear_security()
+    return {"ok": True}

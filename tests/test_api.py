@@ -64,6 +64,9 @@ def test_api_flow(tmp_path, monkeypatch):
             "/api/settings/policy/custom-rules/employee_id", json={"enabled": False}
         ).json()["rule"]
         assert disabled["enabled"] is False
+        deleted = client.delete("/api/settings/policy/custom-rules/employee_id")
+        assert deleted.json() == {"ok": True}
+        assert client.get("/api/settings/policy/custom-rules").json()["rules"] == []
         invalid = client.post(
             "/api/settings/policy/custom-rules",
             json={"name": "bad", "pattern": "a" * 301, "kind": "pii"},
@@ -142,6 +145,8 @@ def test_api_flow(tmp_path, monkeypatch):
         # 安全事件
         events = client.get("/api/security/events").json()
         assert isinstance(events, list)
+        assert client.delete("/api/security/events").json() == {"ok": True}
+        assert client.get("/api/security/events").json() == []
 
 
 def test_query_engine_is_replaceable(tmp_path, monkeypatch):

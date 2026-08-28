@@ -66,7 +66,7 @@ export function AppShell({
     return (
       <div className="flex h-svh min-h-0 flex-col overflow-hidden">
         <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
+        <main className="app-main-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
         <MobileBottomNav onNavigate={onNavigate} />
         <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
       </div>
@@ -83,7 +83,7 @@ export function AppShell({
       <AppSidebar onNavigate={onNavigate} />
       <div className="flex min-w-0 min-h-0 flex-col">
         <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
+        <main className="app-main-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
       </div>
       <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
     </div>

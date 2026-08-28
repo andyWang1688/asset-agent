@@ -152,8 +152,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ enabled }),
     }),
+  deleteCustomRule: (name: string) =>
+    request<{ ok: boolean }>(`/api/settings/policy/custom-rules/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
   securityEvents: () => request<SecurityEvent[]>('/api/security/events'),
+  clearSecurityEvents: () => request<{ ok: boolean }>('/api/security/events', { method: 'DELETE' }),
 }
 
 export default api

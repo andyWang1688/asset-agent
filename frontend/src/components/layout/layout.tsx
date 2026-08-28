@@ -1,46 +1,11 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { Transition } from 'motion/react'
 import { cloneElement, isValidElement, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { fadeTransition, springTransition, stateTransition } from './motion'
 
 const COMPACT_GAP = 'gap-[var(--spacing-compact)]'
 const CONTENT_GAP = 'gap-[var(--spacing-content)]'
 const CONTENT_PADDING = 'p-[var(--spacing-content)]'
-
-function readToken(name: string) {
-  if (typeof window === 'undefined') return ''
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-}
-
-function tokenSeconds(name: string) {
-  const value = readToken(name)
-  if (value.endsWith('ms')) return Number.parseFloat(value) / 1000
-  if (value.endsWith('s')) return Number.parseFloat(value)
-  return undefined
-}
-
-function tokenEase(name: string) {
-  const match = readToken(name).match(/^cubic-bezier\(([^)]+)\)$/)
-  if (!match) return undefined
-  const values = match[1].split(',').map(Number)
-  return values.length === 4 && values.every(Number.isFinite)
-    ? values as [number, number, number, number]
-    : undefined
-}
-
-function springTransition(reduceMotion: boolean | null): Transition {
-  if (reduceMotion) return { duration: 0 }
-  const visualDuration = tokenSeconds('--motion-duration-standard')
-  return visualDuration === undefined ? { type: 'spring' } : { type: 'spring', visualDuration }
-}
-
-function fadeTransition(reduceMotion: boolean | null): Transition {
-  if (reduceMotion) return { duration: 0 }
-  return {
-    duration: tokenSeconds('--motion-duration-slow'),
-    ease: tokenEase('--motion-ease-fade'),
-  }
-}
 
 export interface PageShellProps {
   title?: ReactNode
@@ -77,7 +42,7 @@ export interface SectionCardProps extends Omit<HTMLAttributes<HTMLElement>, 'tit
 
 export function SectionCard({ title, description, actions, className, contentClassName, children, ...props }: SectionCardProps) {
   return (
-    <section className={cn('rounded-lg border border-border bg-surface shadow-panel', className)} {...props}>
+    <section className={cn('motion-card rounded-lg border border-border bg-surface shadow-panel', className)} {...props}>
       {(title || description || actions) && (
         <header className={cn('flex flex-wrap items-start justify-between border-b border-border px-[var(--spacing-content)] py-[var(--spacing-control)]', CONTENT_GAP)}>
           <div className="min-w-0">
@@ -187,7 +152,7 @@ export function NavHighlight({ active, children, layoutId = 'nav-highlight', cla
         <motion.span
           layoutId={layoutId}
           className="absolute inset-0 -z-0 rounded-md bg-soft shadow-[inset_2px_0_var(--color-fg)]"
-          transition={springTransition(reduceMotion)}
+          transition={stateTransition(reduceMotion)}
           aria-hidden="true"
         />
       )}
@@ -204,12 +169,13 @@ export interface EmptyStateProps {
 }
 
 export function EmptyState({ title, description, action, className }: EmptyStateProps) {
+  const reduceMotion = useReducedMotion()
   return (
-    <div className={cn('flex min-h-40 flex-col items-center justify-center gap-[var(--spacing-compact)] px-[var(--spacing-content)] py-[var(--spacing-section)] text-center', className)}>
+    <motion.div className={cn('flex min-h-40 flex-col items-center justify-center gap-[var(--spacing-compact)] px-[var(--spacing-content)] py-[var(--spacing-section)] text-center', className)} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={fadeTransition(reduceMotion)}>
       <h2 className="text-heading font-semibold">{title}</h2>
       {description && <p className="max-w-prose text-caption leading-relaxed text-muted">{description}</p>}
       {action && <div className="mt-compact">{action}</div>}
-    </div>
+    </motion.div>
   )
 }
 
@@ -219,11 +185,12 @@ export interface LoadingStateProps {
 }
 
 export function LoadingState({ label = '加载中…', className }: LoadingStateProps) {
+  const reduceMotion = useReducedMotion()
   return (
-    <div className={cn('flex min-h-40 items-center justify-center gap-[var(--spacing-compact)] px-[var(--spacing-content)] py-[var(--spacing-section)] text-caption text-muted', className)} role="status" aria-live="polite">
+    <motion.div className={cn('flex min-h-40 items-center justify-center gap-[var(--spacing-compact)] px-[var(--spacing-content)] py-[var(--spacing-section)] text-caption text-muted', className)} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={fadeTransition(reduceMotion)} role="status" aria-live="polite">
       <span className="h-[var(--spacing-compact)] w-[var(--spacing-compact)] animate-pulse rounded-pill bg-accent" aria-hidden="true" />
       <span>{label}</span>
-    </div>
+    </motion.div>
   )
 }
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { EmptyState, PageShell, SectionCard } from '@/components/layout'
+import { EmptyState, PageShell, SectionCard, staggerTransition, stateTransition } from '@/components/layout'
 import { useTasks } from '@/hooks/use-tasks'
 import { errMsg } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
@@ -66,15 +67,20 @@ function stepsOf(status: string): string[] {
   }
 }
 
-function TaskRowItem({ t, flashing, onRetry }: { t: TaskRow; flashing: boolean; onRetry?: (id: number) => void }) {
+function TaskRowItem({ t, index, flashing, onRetry }: { t: TaskRow; index: number; flashing: boolean; onRetry?: (id: number) => void }) {
   const name = t.original_name || `来源 #${t.source_id}`
   const retryable = (t.status === 'failed' || t.status === 'credential_pending') && !!onRetry
+  const reduceMotion = useReducedMotion()
   return (
-    <div
+    <motion.div
       className={cn(
         'task-row grid grid-cols-[10px_minmax(0,1fr)_52px_125px_92px] items-center gap-3 border-b border-border px-[17px] py-4 last:border-b-0 max-[820px]:grid-cols-[10px_minmax(0,1fr)_74px]',
         flashing && 'animate-requeue',
       )}
+      initial={reduceMotion ? false : { opacity: 0, y: 'var(--spacing-compact)' }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={reduceMotion ? undefined : { opacity: 0, x: 'var(--spacing-content)' }}
+      transition={staggerTransition(reduceMotion, index)}
     >
       <span className={cn('h-2.5 w-2.5 rounded-pill', DOT_CLASS[dotOf(t.status)])} title={t.status} />
       <div className="min-w-0">
@@ -100,7 +106,7 @@ function TaskRowItem({ t, flashing, onRetry }: { t: TaskRow; flashing: boolean; 
       ) : (
         <span className="whitespace-nowrap text-right font-mono text-meta text-muted">{fmtTime(t.created_at)}</span>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -109,6 +115,7 @@ export function TasksPage() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [page, setPage] = useState(0)
   const [flashId, setFlashId] = useState<number | null>(null)
+  const reduceMotion = useReducedMotion()
 
   // 点击外部收起图例
   useEffect(() => {
@@ -151,16 +158,16 @@ export function TasksPage() {
       <div className="flex flex-wrap items-end justify-between gap-section max-[480px]:flex-col max-[480px]:items-start max-[480px]:gap-control">
         <div className="flex flex-wrap gap-2">
           <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
-            processing <b className="text-fg">{counts.processing}</b>
+            processing <motion.b key={counts.processing} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={stateTransition(reduceMotion)} className="text-fg">{counts.processing}</motion.b>
           </span>
           <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
-            pending <b className="text-fg">{counts.pending}</b>
+            pending <motion.b key={counts.pending} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={stateTransition(reduceMotion)} className="text-fg">{counts.pending}</motion.b>
           </span>
           <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
-            待重试 <b className="text-fg">{counts.retry}</b>
+            待重试 <motion.b key={counts.retry} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={stateTransition(reduceMotion)} className="text-fg">{counts.retry}</motion.b>
           </span>
           <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
-            今日完成 <b className="text-fg">{counts.doneToday}</b>
+            今日完成 <motion.b key={counts.doneToday} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={stateTransition(reduceMotion)} className="text-fg">{counts.doneToday}</motion.b>
           </span>
         </div>
         <Button
@@ -232,10 +239,12 @@ export function TasksPage() {
           </div>
 
           {pageRows.length === 0 && <EmptyState title="暂无任务" description="一切正常。" />}
-          {pageRows.map((t) => (
+          <AnimatePresence mode="popLayout">
+          {pageRows.map((t, index) => (
             <TaskRowItem
               key={t.id}
               t={t}
+              index={index}
               flashing={flashId === t.id}
               onRetry={(id) => {
                 setFlashId(id)
@@ -246,6 +255,7 @@ export function TasksPage() {
               }}
             />
           ))}
+          </AnimatePresence>
 
           <div className="flex items-center justify-end gap-2.5 border-t border-border px-[17px] py-3 max-[480px]:justify-center">
             <Button variant="compact" size="sm" disabled={page === 0} onClick={() => setPage(Math.max(0, page - 1))}>

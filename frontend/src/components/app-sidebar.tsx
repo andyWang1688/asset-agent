@@ -1,7 +1,8 @@
 import type { ReactElement } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { NavHighlight } from '@/components/layout'
+import { NavHighlight, stateTransition } from '@/components/layout'
 import { useTasks } from '@/hooks/use-tasks'
 import { useApp, type SettingsRoute, type Tab } from '@/store/app-state'
 
@@ -59,6 +60,7 @@ function NavGroup({
   onNavigate?: (t: Tab) => void
 }) {
   const { tab, setTab } = useApp()
+  const reduceMotion = useReducedMotion()
   return (
     <>
       <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">{label}</div>
@@ -78,11 +80,13 @@ function NavGroup({
             {ICONS[t]}
             {l}
             {t === 'tasks' && taskCount > 0 && (
-              <span className="ml-auto">
+              <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span key={taskCount} className="ml-auto" initial={reduceMotion ? false : { opacity: 0, y: 'calc(-1 * var(--spacing-compact))' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, y: 'var(--spacing-compact)' }} transition={stateTransition(reduceMotion)}>
                 <Badge variant="muted" className="font-mono">
                   {taskCount}
                 </Badge>
-              </span>
+              </motion.span>
+              </AnimatePresence>
             )}
           </NavHighlight>
         ))}

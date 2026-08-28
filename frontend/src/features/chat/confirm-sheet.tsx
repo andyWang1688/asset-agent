@@ -230,7 +230,7 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
 function FindingCard({ f }: { f: Finding }) {
   const [open, setOpen] = useState(false)
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="overflow-hidden rounded-xl border border-border bg-surface shadow-card">
+    <Collapsible open={open} onOpenChange={setOpen} className="motion-card overflow-hidden rounded-xl border border-border bg-surface shadow-panel">
       <CollapsibleTrigger asChild>
         <button
           type="button"

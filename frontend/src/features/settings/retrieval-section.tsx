@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -6,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api, errMsg } from '@/lib/api'
+import { springTransition } from '@/components/layout'
 import type { ModelDownloadStatus, RebuildStatus, RetrievalConfigBody, RetrievalConfigView } from '@/lib/types'
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -52,6 +54,7 @@ export function RetrievalSection({ onStatusChange }: { onStatusChange?: () => vo
   const [dlStatus, setDlStatus] = useState<ModelDownloadStatus | null>(null)
   const [downloading, setDownloading] = useState(false)
   const dlTimer = useRef<number | null>(null)
+  const reduceMotion = useReducedMotion()
 
   const load = async () => {
     try {
@@ -322,8 +325,9 @@ export function RetrievalSection({ onStatusChange }: { onStatusChange?: () => vo
                 使用推荐模型
               </Button>
             )}
+            <AnimatePresence initial={false}>
             {provider === 'sentence-transformers' && (
-              <div className="space-y-1.5 pt-1">
+              <motion.div className="space-y-1.5 overflow-hidden pt-1" initial={reduceMotion ? false : { height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={reduceMotion ? undefined : { height: 0, opacity: 0 }} transition={springTransition(reduceMotion)}>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button variant="compact" size="sm" disabled={downloading || !currentModel()} onClick={() => void startDownload()}>
                     {downloading ? '下载中…' : dlStatus?.downloaded ? '重新下载' : '下载模型'}
@@ -341,8 +345,9 @@ export function RetrievalSection({ onStatusChange }: { onStatusChange?: () => vo
                   </div>
                 )}
                 {dlStatus?.status === 'failed' && <p className="text-caption text-danger">{dlStatus.error}</p>}
-              </div>
+              </motion.div>
             )}
+            </AnimatePresence>
             {provider === 'ollama' && (
               <p className="pt-1 text-meta text-muted">Ollama 模型请在终端执行 `ollama pull 模型名` 拉取后再测试。</p>
             )}

@@ -33,7 +33,7 @@ const AlertDialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         'fixed left-[50%] top-[50%] z-50 grid w-full max-w-[400px] translate-x-[-50%] translate-y-[-50%] gap-3 rounded-2xl border border-border bg-surface p-5 shadow-pop',
-        'data-[state=open]:animate-menu-in',
+        'motion-spring data-[state=open]:animate-menu-in data-[state=closed]:animate-menu-out',
         className,
       )}
       {...props}
