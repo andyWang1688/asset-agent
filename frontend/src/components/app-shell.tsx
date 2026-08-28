@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 /** 顶栏：品牌 + 历史按钮（桌面/移动共用，New API 式全宽顶栏） */
 function Topbar({ onOpenHistory }: { onOpenHistory: () => void }) {
   return (
-    <header className="sticky top-0 z-30 flex h-[58px] shrink-0 items-center justify-between border-b border-border bg-surface px-[30px] max-[820px]:px-4 max-[480px]:px-3">
+    <header className="sticky top-0 z-30 flex h-[58px] shrink-0 items-center justify-between bg-surface px-[30px] max-[820px]:px-4 max-[480px]:px-3">
       <div className="flex items-center gap-2.5 text-body font-bold">
         <span className="grid h-[26px] w-[26px] place-items-center rounded-sm bg-fg font-mono text-meta font-bold text-surface">
           AA
@@ -60,7 +60,7 @@ export function AppShell({
       <div className="flex h-svh min-h-0 flex-col overflow-hidden">
         <Topbar onOpenHistory={() => setHistOpen(true)} />
         <main className="min-h-0 flex-1 bg-surface p-3">
-          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl bg-surface shadow-panel">{children}</div>
+          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
         </main>
         <MobileBottomNav onNavigate={onNavigate} />
         <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
@@ -79,7 +79,7 @@ export function AppShell({
       >
         <AppSidebar onNavigate={onNavigate} />
         <main className="min-h-0 min-w-0 flex-1 bg-surface p-[var(--spacing-section)] max-[1024px]:p-4">
-          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl bg-surface shadow-panel">{children}</div>
+          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
         </main>
       </div>
       <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
