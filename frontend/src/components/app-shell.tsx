@@ -59,8 +59,8 @@ export function AppShell({
     return (
       <div className="flex h-svh min-h-0 flex-col overflow-hidden">
         <Topbar onOpenHistory={() => setHistOpen(true)} />
-        <main className="min-h-0 flex-1 p-3">
-          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
+        <main className="min-h-0 flex-1 bg-surface p-3">
+          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl bg-surface shadow-panel">{children}</div>
         </main>
         <MobileBottomNav onNavigate={onNavigate} />
         <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
@@ -78,8 +78,8 @@ export function AppShell({
         )}
       >
         <AppSidebar onNavigate={onNavigate} />
-        <main className="min-h-0 min-w-0 flex-1 p-[var(--spacing-section)] max-[1024px]:p-4">
-          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
+        <main className="min-h-0 min-w-0 flex-1 bg-surface p-[var(--spacing-section)] max-[1024px]:p-4">
+          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl bg-surface shadow-panel">{children}</div>
         </main>
       </div>
       <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
