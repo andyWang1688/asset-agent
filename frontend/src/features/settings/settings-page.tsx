@@ -3,6 +3,7 @@ import { Bot, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, RefreshCw, Rota
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { EmptyState, LoadingState, PageShell, SectionCard } from '@/components/layout'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -426,11 +427,8 @@ export function SettingsPage() {
   const ActiveIcon = activeDefinition.icon
 
   return (
-    <>
-      <h1 className="page-heading">设置中心</h1>
-      <p className="page-sub">管理模型、检索与安全能力。</p>
-
-      <div className="mt-7 min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-panel">
+    <PageShell title="设置中心" description="管理模型、检索与安全能力。">
+      <SectionCard className="min-w-0 overflow-hidden" contentClassName="p-0">
           <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-bg px-5 py-5">
             <div className="flex items-start gap-3.5">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-fg text-surface">
@@ -496,9 +494,9 @@ export function SettingsPage() {
                 </Button>
               </div>
               {eventsLoading && events.length === 0 ? (
-                <div className="px-[17px] py-8 text-center text-caption text-muted">正在加载安全事件…</div>
+                <LoadingState label="正在加载安全事件…" />
               ) : events.length === 0 ? (
-                <div className="px-[17px] py-8 text-center text-caption text-muted">暂无安全事件</div>
+                <EmptyState title="暂无安全事件" />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full border-collapse text-left text-caption">
@@ -530,7 +528,7 @@ export function SettingsPage() {
               </div>}
             </section>
           })()}
-      </div>
+      </SectionCard>
 
       <ModelSheet
         open={sheetOpen}
@@ -574,6 +572,6 @@ export function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </PageShell>
   )
 }

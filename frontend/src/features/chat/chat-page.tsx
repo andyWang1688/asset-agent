@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { PageShell, SegmentedControl } from '@/components/layout'
 import { useApp } from '@/store/app-state'
 import { useChat } from '@/hooks/use-chat'
 import { useSubmissions, useTaskWatch } from '@/hooks/use-submissions'
@@ -80,8 +81,8 @@ function MtRow({ task }: { task: MtTask }) {
           <i
             key={i}
             className={cn(
-              'h-[7px] w-[7px] rounded-pill transition-colors duration-300',
-              i < step ? 'bg-fg' : i === step ? (hold ? 'bg-fg' : 'animate-[breathe_1.4s_ease-in-out_infinite] bg-accent') : 'bg-border',
+              'motion-state h-[7px] w-[7px] rounded-pill transition-colors',
+              i < step ? 'bg-fg' : i === step ? (hold ? 'bg-fg' : 'animate-breathe bg-accent') : 'bg-border',
             )}
           />
         ))}
@@ -94,11 +95,11 @@ function MtRow({ task }: { task: MtTask }) {
 function TaskDrawer({ tasks, collecting, onClear }: { tasks: MtTask[]; collecting: boolean; onClear: () => void }) {
   return (
     <div
-      className="w-[min(100%,720px)] shrink-0 overflow-hidden transition-[max-height,opacity,margin-bottom] duration-500 ease-out"
+      className="motion-spring w-[min(100%,720px)] shrink-0 overflow-hidden transition-[max-height,opacity,margin-bottom]"
       style={collecting ? { maxHeight: 320, opacity: 1, marginBottom: -18 } : { maxHeight: 0, opacity: 0, marginBottom: 0 }}
     >
       <div
-        className="mx-2.5 rounded-lg border border-border bg-surface px-[17px] pb-[19px] pt-[15px] shadow-panel transition-transform duration-500 ease-out"
+        className="motion-spring mx-control rounded-lg border border-border bg-surface p-content shadow-panel transition-transform"
         style={collecting ? undefined : { transform: 'translateY(14px) scale(0.98)' }}
       >
         <div className="mb-1 flex items-center justify-between">
@@ -106,7 +107,7 @@ function TaskDrawer({ tasks, collecting, onClear }: { tasks: MtTask[]; collectin
           <button
             type="button"
             onClick={onClear}
-            className="font-mono text-meta text-muted transition-colors duration-150 hover:text-fg"
+            className="motion-interactive font-mono text-meta text-muted transition-colors hover:text-fg"
           >
             清除
           </button>
@@ -139,7 +140,7 @@ const TITLES: Record<ChatMode, { title: string; sub: string }> = {
 function StreamTitle({ k, text, speed }: { k: string; text: string; speed: number }) {
   const { shown, typing } = useTypewriter(text, speed)
   return (
-    <h1 key={k} className={cn('animate-[swap-in_0.3s_ease-out] text-[clamp(31px,4vw,46px)] font-bold leading-[1.2]', typing && 'streaming')}>
+    <h1 key={k} className={cn('text-display font-bold leading-tight', typing && 'streaming')}>
       {shown}
     </h1>
   )
@@ -148,7 +149,7 @@ function StreamTitle({ k, text, speed }: { k: string; text: string; speed: numbe
 function StreamSub({ k, text, speed }: { k: string; text: string; speed: number }) {
   const { shown, typing } = useTypewriter(text, speed)
   return (
-    <p key={k} className={cn('mt-2.5 text-caption leading-[1.7] text-muted', typing && 'streaming')}>
+    <p key={k} className={cn('mt-control text-caption leading-relaxed text-muted', typing && 'streaming')}>
       {shown}
     </p>
   )
@@ -280,10 +281,10 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
   }, [closeView, loadSubs])
 
   return (
-    <>
+    <PageShell className="gap-0" contentClassName="overflow-visible">
       <div
         className={cn(
-          'flex flex-col items-center px-0 transition-[justify-content] duration-300',
+          'motion-state flex flex-col items-center px-0 transition-[justify-content]',
           collecting
             ? 'min-h-[calc(100vh-164px)] justify-end pb-[72px] pt-0 max-[820px]:min-h-[calc(100vh-140px)]'
             : inSession
@@ -300,7 +301,7 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
             <button
               type="button"
               onClick={newChat}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-border bg-surface px-3 py-[7px] text-caption text-fg transition-[border-color,background,transform] duration-150 hover:border-fg/30 hover:bg-soft active:scale-[0.96]"
+              className="motion-interactive inline-flex shrink-0 items-center gap-compact rounded-pill border border-border bg-surface px-control py-compact text-caption text-fg transition-[border-color,background,transform] hover:border-fg/30 hover:bg-soft active:scale-[0.97]"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
                 <path d="M12 5v14M5 12h14" />
@@ -309,31 +310,16 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
             </button>
           </div>
         ) : (
-          <div className="mb-[30px] text-center">
+          <div className="mb-section-lg text-center">
             <StreamTitle k={streamKey} text={TITLES[mode].title} speed={95} />
             <StreamSub k={streamKey + '-s'} text={TITLES[mode].sub} speed={32} />
-            <div className="relative mt-[18px] inline-flex gap-0.5 rounded-md border border-border bg-surface p-1" data-active={mode}>
-              <span
-                className={cn(
-                  'absolute bottom-1 left-1 top-1 w-[calc(50%-5px)] rounded-sm bg-fg transition-transform duration-300 ease-out',
-                  mode === 'collect' && 'translate-x-[calc(100%+2px)]',
-                )}
-              />
-              <button
-                type="button"
-                className={cn('relative z-10 min-w-[88px] rounded-sm px-3.5 py-2 text-caption transition-colors duration-200', mode === 'ask' ? 'font-semibold text-surface' : 'text-muted')}
-                onClick={() => changeMode('ask')}
-              >
-                询问知识
-              </button>
-              <button
-                type="button"
-                className={cn('relative z-10 min-w-[88px] rounded-sm px-3.5 py-2 text-caption transition-colors duration-200', mode === 'collect' ? 'font-semibold text-surface' : 'text-muted')}
-                onClick={() => changeMode('collect')}
-              >
-                收集资料
-              </button>
-            </div>
+            <SegmentedControl
+              className="mt-content"
+              label="对话模式"
+              value={mode}
+              options={[{ value: 'ask', label: '询问知识' }, { value: 'collect', label: '收集资料' }]}
+              onChange={changeMode}
+            />
           </div>
         )}
 
@@ -357,11 +343,11 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
                 type="button"
                 onClick={() => setPendingOpen(!pendingOpen)}
                 aria-expanded={pendingOpen}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-caption text-muted transition-colors duration-150 hover:bg-soft"
+                className="motion-interactive flex items-center gap-compact rounded-md px-compact py-1 text-caption text-muted transition-colors hover:bg-soft"
               >
                 <span>待确认提交</span>
                 <Badge variant="muted">{waiting.length}</Badge>
-                <ChevronRight className={cn('h-3 w-3 transition-transform duration-200', pendingOpen && 'rotate-90')} />
+                <ChevronRight className={cn('motion-interactive h-3 w-3 transition-transform', pendingOpen && 'rotate-90')} />
               </button>
               {pendingOpen && (
                 <ul className="mt-1 max-h-[220px] w-full overflow-y-auto rounded-lg border border-border bg-surface shadow-panel">
@@ -407,7 +393,7 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
                   key={h}
                   type="button"
                   onClick={() => setValue(h)}
-                  className="rounded-pill border border-border bg-surface px-3.5 py-[7px] text-caption text-muted transition-colors duration-150 hover:border-fg hover:bg-soft hover:text-fg"
+                  className="motion-interactive rounded-pill border border-border bg-surface px-control py-compact text-caption text-muted transition-colors hover:border-fg hover:bg-soft hover:text-fg active:scale-[0.97]"
                 >
                   {h}
                 </button>
@@ -424,6 +410,6 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
         onConfirmed={(r) => onConfirmed(r)}
         onCancelled={onCancelled}
       />
-    </>
+    </PageShell>
   )
 }

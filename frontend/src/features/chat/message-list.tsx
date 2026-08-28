@@ -41,7 +41,7 @@ export function MessageList({ messages, asking }: { messages: ChatMessage[]; ask
                   key={c}
                   type="button"
                   onClick={() => openWikiDoc(c)}
-                  className="rounded-sm border border-border bg-surface px-2 py-0.5 font-mono text-meta text-muted transition-colors duration-150 hover:border-fg hover:text-fg"
+                  className="motion-interactive rounded-sm border border-border bg-surface px-compact py-0.5 font-mono text-meta text-muted transition-colors hover:border-fg hover:text-fg active:scale-[0.97]"
                 >
                   {c}
                 </button>

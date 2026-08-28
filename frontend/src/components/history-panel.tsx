@@ -132,7 +132,7 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
     <aside
       aria-hidden={!open}
       className={
-        'fixed inset-y-0 right-0 z-40 flex w-[218px] max-w-[92vw] flex-col border-l border-border bg-surface shadow-pop transition-transform duration-500 ease-out ' +
+        'motion-spring fixed inset-y-0 right-0 z-40 flex w-[218px] max-w-[92vw] flex-col border-l border-border bg-surface shadow-pop transition-transform ' +
         (open ? 'translate-x-0' : 'translate-x-full')
       }
     >
@@ -142,7 +142,7 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
           type="button"
           aria-label="关闭历史"
           onClick={onClose}
-          className="grid h-[26px] w-[26px] place-items-center rounded-sm text-muted transition-colors duration-150 hover:bg-soft hover:text-fg"
+          className="motion-interactive grid h-[26px] w-[26px] place-items-center rounded-sm text-muted transition-[color,background-color,transform] hover:bg-soft hover:text-fg active:scale-[0.97]"
         >
           ×
         </button>
@@ -151,7 +151,7 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
         <button
           type="button"
           onClick={onNewChat}
-          className="flex w-full items-center justify-center gap-1.5 rounded-pill border border-border bg-surface px-3 py-[7px] text-caption font-semibold text-fg transition-[border-color,background,transform] duration-150 hover:border-fg/30 hover:bg-soft active:scale-[0.96]"
+          className="motion-interactive flex w-full items-center justify-center gap-1.5 rounded-pill border border-border bg-surface px-3 py-[7px] text-caption font-semibold text-fg transition-[border-color,background,transform] hover:border-fg/30 hover:bg-soft active:scale-[0.97]"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
             <path d="M12 5v14M5 12h14" />
@@ -194,7 +194,7 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
                         onOpenSession(g.id, g.messages, g.title)
                         if (isMobile) onClose()
                       }}
-                      className="block w-full rounded-md px-2.5 py-2.5 pr-8 text-left transition-colors duration-150 hover:bg-soft"
+                      className="motion-interactive block w-full rounded-md px-2.5 py-2.5 pr-8 text-left transition-colors hover:bg-soft active:scale-[0.97]"
                     >
                       <b className="block truncate text-caption font-semibold text-fg">{g.title}</b>
                       <small className="mt-0.5 block font-mono text-meta leading-[1.6] text-muted">
@@ -211,7 +211,7 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
                       setConfirmFor(null)
                     }}
                     className={cn(
-                      'absolute right-1.5 top-2 grid h-6 w-6 place-items-center rounded-sm text-muted transition-[opacity,background,color] duration-150 hover:bg-soft hover:text-fg',
+                      'motion-interactive absolute right-1.5 top-2 grid h-6 w-6 place-items-center rounded-sm text-muted transition-[opacity,background,color,transform] hover:bg-soft hover:text-fg active:scale-[0.97]',
                       menuFor === g.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
                     )}
                   >
@@ -231,14 +231,14 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
                           <button
                             type="button"
                             onClick={() => void remove(g.id)}
-                            className="block w-full rounded-sm px-2 py-1.5 text-left text-caption font-semibold text-danger transition-colors duration-150 hover:bg-danger-soft"
+                            className="motion-interactive block w-full rounded-sm px-2 py-1.5 text-left text-caption font-semibold text-danger transition-colors hover:bg-danger-soft active:scale-[0.97]"
                           >
                             确认删除
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmFor(null)}
-                            className="block w-full rounded-sm px-2 py-1.5 text-left text-caption text-muted transition-colors duration-150 hover:bg-soft hover:text-fg"
+                            className="motion-interactive block w-full rounded-sm px-2 py-1.5 text-left text-caption text-muted transition-colors hover:bg-soft hover:text-fg active:scale-[0.97]"
                           >
                             取消
                           </button>
@@ -252,21 +252,21 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
                               setDraft(g.title)
                               setMenuFor(null)
                             }}
-                            className="block w-full rounded-sm px-2 py-1.5 text-left text-caption text-fg transition-colors duration-150 hover:bg-soft"
+                            className="motion-interactive block w-full rounded-sm px-2 py-1.5 text-left text-caption text-fg transition-colors hover:bg-soft active:scale-[0.97]"
                           >
                             重命名
                           </button>
                           <button
                             type="button"
                             onClick={() => void togglePin(g.id, g.pinned)}
-                            className="block w-full rounded-sm px-2 py-1.5 text-left text-caption text-fg transition-colors duration-150 hover:bg-soft"
+                            className="motion-interactive block w-full rounded-sm px-2 py-1.5 text-left text-caption text-fg transition-colors hover:bg-soft active:scale-[0.97]"
                           >
                             {g.pinned ? '取消置顶' : '置顶'}
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmFor(g.id)}
-                            className="block w-full rounded-sm px-2 py-1.5 text-left text-caption text-danger transition-colors duration-150 hover:bg-danger-soft"
+                            className="motion-interactive block w-full rounded-sm px-2 py-1.5 text-left text-caption text-danger transition-colors hover:bg-danger-soft active:scale-[0.97]"
                           >
                             删除
                           </button>

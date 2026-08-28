@@ -96,8 +96,9 @@
   --ease-spring: var(--motion-ease-spring);
   --ease-fade: var(--motion-ease-fade);
 
-  /* 旧页面仍使用的曲线别名，保留以确保本票不改变页面视觉 */
-  --ease-out: cubic-bezier(0.21, 1, 0.32, 1);
+  --animate-breathe: breathe calc(var(--motion-duration-slow) * 3) var(--motion-ease-fade) infinite;
+  --animate-menu-in: menu-in var(--motion-duration-standard) var(--motion-ease-fade);
+  --animate-requeue: requeue calc(var(--motion-duration-slow) * 2) var(--motion-ease-fade);
 }
 
 /* ============================================================
@@ -162,49 +163,21 @@ body {
   }
 }
 
-/* ============================================================
- * 页面骨架（仅布局结构；视觉一律走 token/组件）
- * ============================================================ */
-.page {
-  width: 100%;
-  padding: 24px;
-}
+@layer components {
+  .motion-interactive {
+    transition-duration: var(--motion-duration-fast);
+    transition-timing-function: var(--motion-ease-fade);
+  }
 
-.page-heading {
-  font-size: clamp(28px, 3vw, 40px);
-  line-height: 1.25;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.page-sub {
-  margin-top: 9px;
-  color: var(--color-muted);
-  font-size: var(--text-caption);
-  line-height: 1.7;
-}
+  .motion-state {
+    transition-duration: var(--motion-duration-standard);
+    transition-timing-function: var(--motion-ease-fade);
+  }
 
-/* 视图切换动画 */
-.view {
-  display: none;
-}
-.view.active {
-  display: block;
-  animation: view-enter 0.22s ease both;
-}
-.view.active > * {
-  animation: rise 0.55s var(--ease-out) both;
-}
-.view.active > *:nth-child(2) {
-  animation-delay: 70ms;
-}
-.view.active > *:nth-child(3) {
-  animation-delay: 120ms;
-}
-.view.active > *:nth-child(4) {
-  animation-delay: 170ms;
-}
-.view.active > *:nth-child(5) {
-  animation-delay: 230ms;
+  .motion-spring {
+    transition-duration: var(--motion-duration-standard);
+    transition-timing-function: var(--motion-ease-spring);
+  }
 }
 
 /* 流式打字光标 */
@@ -222,38 +195,10 @@ body {
 /* ============================================================
  * 动画
  * ============================================================ */
-@keyframes view-enter {
+@keyframes menu-in {
   from {
     opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes swap-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes doc-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(var(--spacing-compact)) scale(0.98);
   }
   to {
     opacity: 1;
@@ -414,18 +359,6 @@ body {
 /* ============================================================
  * 响应式（断点唯一：820px，与 useIsMobile(820) 保持一致）
  * ============================================================ */
-@media (max-width: 820px) {
-  .page {
-    padding: 24px 16px 96px;
-  }
-}
-
-@media (max-width: 480px) {
-  .page {
-    padding: 24px 14px 96px;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

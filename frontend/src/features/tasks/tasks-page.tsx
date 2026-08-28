@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { EmptyState, PageShell, SectionCard } from '@/components/layout'
 import { useTasks } from '@/hooks/use-tasks'
 import { errMsg } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
@@ -28,7 +29,7 @@ function dotOf(status: string): DotClass {
 }
 
 const DOT_CLASS: Record<DotClass, string> = {
-  processing: 'animate-[breathe_1.4s_ease-in-out_infinite] bg-accent',
+  processing: 'animate-breathe bg-accent',
   waiting: 'bg-border',
   hold: 'bg-fg',
   failed: 'bg-fg',
@@ -72,7 +73,7 @@ function TaskRowItem({ t, flashing, onRetry }: { t: TaskRow; flashing: boolean; 
     <div
       className={cn(
         'task-row grid grid-cols-[10px_minmax(0,1fr)_52px_125px_92px] items-center gap-3 border-b border-border px-[17px] py-4 last:border-b-0 max-[820px]:grid-cols-[10px_minmax(0,1fr)_74px]',
-        flashing && 'animate-[requeue_1.1s_ease-out]',
+        flashing && 'animate-requeue',
       )}
     >
       <span className={cn('h-2.5 w-2.5 rounded-pill', DOT_CLASS[dotOf(t.status)])} title={t.status} />
@@ -86,7 +87,7 @@ function TaskRowItem({ t, flashing, onRetry }: { t: TaskRow; flashing: boolean; 
             key={i}
             className={cn(
               'h-[7px] w-[7px] rounded-pill',
-              c === 'done' ? 'bg-fg' : c === 'active' ? 'animate-[breathe_1.4s_ease-in-out_infinite] bg-accent' : c === 'hold' ? 'bg-fg' : 'bg-border',
+              c === 'done' ? 'bg-fg' : c === 'active' ? 'animate-breathe bg-accent' : c === 'hold' ? 'bg-fg' : 'bg-border',
             )}
           />
         ))}
@@ -146,11 +147,8 @@ export function TasksPage() {
   const lastDone = done[0]
 
   return (
-    <>
-      <h1 className="page-heading">任务</h1>
-      <p className="page-sub">后台编译状态一览：任务由 Worker 推进，仅失败或凭证暂存的任务可重试。</p>
-
-      <div className="mt-6 flex flex-wrap items-end justify-between gap-6 max-[480px]:flex-col max-[480px]:items-start max-[480px]:gap-2.5">
+    <PageShell title="任务" description="后台编译状态一览：任务由 Worker 推进，仅失败或凭证暂存的任务可重试。">
+      <div className="flex flex-wrap items-end justify-between gap-section max-[480px]:flex-col max-[480px]:items-start max-[480px]:gap-control">
         <div className="flex flex-wrap gap-2">
           <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
             processing <b className="text-fg">{counts.processing}</b>
@@ -178,8 +176,8 @@ export function TasksPage() {
         </Button>
       </div>
 
-      <div className="mt-7 grid grid-cols-[minmax(0,1fr)_260px] items-start gap-4 max-[820px]:grid-cols-1">
-        <section className="relative overflow-hidden rounded-lg border border-border bg-surface shadow-panel">
+      <div className="mt-section-lg grid grid-cols-[minmax(0,1fr)_260px] items-start gap-content max-[820px]:grid-cols-1">
+        <SectionCard className="relative overflow-hidden" contentClassName="p-0">
           <div className="flex items-center justify-between gap-3 border-b border-border px-[17px] py-[15px]">
             <h2 className="text-panel font-semibold">任务队列</h2>
             <div className="flex items-center gap-2">
@@ -192,7 +190,7 @@ export function TasksPage() {
                   e.stopPropagation()
                   setHelpOpen(!helpOpen)
                 }}
-                className="grid h-6 w-6 place-items-center rounded-pill bg-soft text-muted transition-colors duration-150 hover:bg-soft hover:text-fg"
+                className="motion-interactive grid h-6 w-6 place-items-center rounded-pill bg-soft text-muted transition-[color,background-color,transform] hover:bg-soft hover:text-fg active:scale-[0.97]"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-[13px] w-[13px]">
                   <circle cx="12" cy="12" r="8.5" />
@@ -206,7 +204,7 @@ export function TasksPage() {
           <div
             data-help-pop
             className={cn(
-              'absolute right-3.5 top-11 z-20 w-[264px] rounded-md border border-border bg-surface p-3.5 shadow-pop transition-[opacity,transform] duration-200 ease-out',
+              'motion-interactive absolute right-control top-11 z-20 w-[264px] rounded-md border border-border bg-surface p-content shadow-pop transition-[opacity,transform]',
               helpOpen ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none translate-y-[-6px] scale-[0.98] opacity-0',
             )}
           >
@@ -215,7 +213,7 @@ export function TasksPage() {
             </p>
             <div className="mt-3 grid gap-[7px] text-caption text-muted">
               <div className="flex items-center gap-2">
-                <i className="h-[7px] w-[7px] shrink-0 animate-[breathe_1.4s_ease-in-out_infinite] rounded-pill bg-accent" />
+                <i className="h-[7px] w-[7px] shrink-0 animate-breathe rounded-pill bg-accent" />
                 processing · 编译中
               </div>
               <div className="flex items-center gap-2">
@@ -233,7 +231,7 @@ export function TasksPage() {
             </div>
           </div>
 
-          {pageRows.length === 0 && <p className="px-[17px] py-5 text-caption text-muted">暂无任务，一切正常。</p>}
+          {pageRows.length === 0 && <EmptyState title="暂无任务" description="一切正常。" />}
           {pageRows.map((t) => (
             <TaskRowItem
               key={t.id}
@@ -260,10 +258,9 @@ export function TasksPage() {
               下一页
             </Button>
           </div>
-        </section>
+        </SectionCard>
 
-        <aside className="rounded-lg border border-border bg-surface p-[17px] shadow-panel">
-          <h2 className="text-panel font-semibold">最近完成</h2>
+        <SectionCard title="最近完成">
           {lastDone ? (
             <div className="mt-2.5 block text-caption text-muted">
               <b className="block font-semibold text-fg">{lastDone.original_name || `来源 #${lastDone.source_id}`}</b>
@@ -272,8 +269,8 @@ export function TasksPage() {
           ) : (
             <div className="mt-2.5 text-caption text-muted">暂无已完成任务</div>
           )}
-        </aside>
+        </SectionCard>
       </div>
-    </>
+    </PageShell>
   )
 }

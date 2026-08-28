@@ -188,7 +188,7 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
               )}
             </div>
 
-            {error && <p className="mt-3 text-[13px] text-[#d70015]">{error}</p>}
+            {error && <p className="mt-control text-label text-danger">{error}</p>}
           </div>
         )}
 
@@ -236,7 +236,7 @@ function FindingCard({ f }: { f: Finding }) {
           type="button"
           className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left text-[13px] transition hover:bg-[#fafafa]"
         >
-          <ChevronRight className={cn('h-3 w-3 shrink-0 text-muted transition-transform duration-200', open && 'rotate-90')} />
+          <ChevronRight className={cn('motion-interactive h-3 w-3 shrink-0 text-muted transition-transform', open && 'rotate-90')} />
           <Badge variant={KIND_BADGE[f.kind] || 'info'}>{KIND_LABELS[f.kind] || f.kind}</Badge>
           <span className="font-semibold">{f.rule}</span>
           {f.detector && <span className="text-[11.5px] text-muted">{f.detector}</span>}

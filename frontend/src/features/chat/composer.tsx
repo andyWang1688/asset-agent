@@ -43,7 +43,7 @@ export function Composer({ mode, value, onChange, onSend, sending, sendDisabled,
   const collect = mode === 'collect'
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-3.5 shadow-pop transition-[border-color,box-shadow] duration-200 focus-within:border-fg/45 focus-within:ring-[3px] focus-within:ring-soft">
+    <div className="motion-interactive rounded-lg border border-border bg-surface p-content shadow-pop transition-[border-color,box-shadow] focus-within:border-fg/45 focus-within:ring-[3px] focus-within:ring-soft">
       <textarea
         ref={taRef}
         value={value}
@@ -80,7 +80,7 @@ export function Composer({ mode, value, onChange, onSend, sending, sendDisabled,
                 type="button"
                 aria-label="添加附件"
                 onClick={() => fileRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-caption text-muted transition-colors duration-150 hover:bg-soft hover:text-fg"
+                className="motion-interactive inline-flex items-center gap-compact rounded-sm px-compact py-compact text-caption text-muted transition-colors hover:bg-soft hover:text-fg active:scale-[0.97]"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
                   <path d="m20.5 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-2.8-2.8l7.7-7.7" />

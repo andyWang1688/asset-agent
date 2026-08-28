@@ -337,7 +337,7 @@ export function RetrievalSection({ onStatusChange }: { onStatusChange?: () => vo
                 </div>
                 {dlStatus && (dlStatus.status === 'queued' || dlStatus.status === 'downloading') && (
                   <div className="h-1.5 w-full overflow-hidden rounded-pill bg-border">
-                    <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${dlStatus.progress}%` }} />
+                    <div className="motion-state h-full bg-accent transition-[width]" style={{ width: `${dlStatus.progress}%` }} />
                   </div>
                 )}
                 {dlStatus?.status === 'failed' && <p className="text-caption text-danger">{dlStatus.error}</p>}

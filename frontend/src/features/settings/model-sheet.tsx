@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { FormRow } from '@/components/layout'
 import { errMsg } from '@/lib/api'
 import type { ModelBody, ModelRow, Preset } from '@/lib/types'
 
@@ -96,10 +97,7 @@ export function ModelSheet({ open, role, model, presets, onSave, onClose }: Mode
             </Select>
             <p className="text-xs text-muted">{ROLE_HINTS[role] || ''}</p>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted">名称</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="如：DeepSeek 生产" />
-          </div>
+          <FormRow label="名称" htmlFor="model-name" error={error || undefined} control={<Input id="model-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="如：DeepSeek 生产" />} />
           <div className="space-y-1.5">
             <Label className="text-xs text-muted">Provider</Label>
             <Select
@@ -150,7 +148,6 @@ export function ModelSheet({ open, role, model, presets, onSave, onClose }: Mode
               激活
             </Label>
           </div>
-          {error && <p className="text-[13px] text-[#d70015]">{error}</p>}
         </div>
         <SheetFooter>
           <Button variant="outline" onClick={onClose}>

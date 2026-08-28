@@ -14,7 +14,7 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
     className={cn(
-      'fixed inset-0 z-50 bg-black/30 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 transition-opacity duration-200',
+      'motion-state fixed inset-0 z-50 bg-black/30 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 transition-opacity',
       className,
     )}
     {...props}
@@ -34,7 +34,7 @@ const SheetContent = React.forwardRef<
       className={cn(
         'fixed z-50 flex h-full w-[470px] max-w-[94vw] flex-col border-l border-border-strong bg-background shadow-pop outline-none',
         'inset-y-0 right-0',
-        'transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]',
+        'motion-state transition-transform',
         'data-[state=closed]:translate-x-6 data-[state=open]:translate-x-0',
         className,
       )}
@@ -42,7 +42,7 @@ const SheetContent = React.forwardRef<
     >
       {children}
       {!hideClose && (
-        <SheetPrimitive.Close className="absolute right-3.5 top-3.5 rounded-lg p-1 text-muted-fg opacity-70 transition hover:bg-fill hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+        <SheetPrimitive.Close className="motion-interactive absolute right-3.5 top-3.5 rounded-lg p-1 text-muted-fg opacity-70 transition-[background-color,opacity,transform] hover:bg-fill hover:opacity-100 active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
           <X className="h-4 w-4" />
           <span className="sr-only">关闭</span>
         </SheetPrimitive.Close>

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { NavHighlight } from '@/components/layout'
 import { useTasks } from '@/hooks/use-tasks'
 import { useApp, type SettingsRoute, type Tab } from '@/store/app-state'
 
@@ -63,20 +64,16 @@ function NavGroup({
       <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">{label}</div>
       <nav className="mb-5 grid gap-[3px]">
         {items.map(({ tab: t, label: l }) => (
-          <button
+          <NavHighlight
             key={t}
-            type="button"
-            aria-current={tab === t ? 'page' : undefined}
+            active={tab === t}
+            layoutId="primary-nav-highlight"
             onClick={() => {
               setTab(t)
               onNavigate?.(t)
             }}
-            className={
-              'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-panel transition-all duration-150 active:scale-[0.97] ' +
-              (tab === t
-                ? 'bg-soft font-semibold text-fg shadow-[inset_2px_0_var(--color-fg)]'
-                : 'text-muted hover:bg-soft hover:text-fg')
-            }
+            className={tab === t ? 'w-full rounded-md text-left text-panel font-semibold text-fg' : 'w-full rounded-md text-left text-panel text-muted hover:bg-soft hover:text-fg'}
+            contentClassName="flex w-full items-center gap-2.5 px-2.5 py-2"
           >
             {ICONS[t]}
             {l}
@@ -87,7 +84,7 @@ function NavGroup({
                 </Badge>
               </span>
             )}
-          </button>
+          </NavHighlight>
         ))}
       </nav>
     </>
@@ -102,24 +99,20 @@ function SettingsNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
       <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">本地设置</div>
       <nav className="mb-5 grid gap-[3px]" aria-label="本地设置">
         {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
-          <button
+          <NavHighlight
             key={route}
-            type="button"
-            aria-current={activeRoute === route ? 'page' : undefined}
+            active={activeRoute === route}
+            layoutId="primary-nav-highlight"
             onClick={() => {
               navigateSettings(route)
               onNavigate?.('settings')
             }}
-            className={
-              'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-panel transition-all duration-150 active:scale-[0.97] ' +
-              (activeRoute === route
-                ? 'bg-soft font-semibold text-fg shadow-[inset_2px_0_var(--color-fg)]'
-                : 'text-muted hover:bg-soft hover:text-fg')
-            }
+            className={activeRoute === route ? 'w-full rounded-md text-left text-panel font-semibold text-fg' : 'w-full rounded-md text-left text-panel text-muted hover:bg-soft hover:text-fg'}
+            contentClassName="flex w-full items-center gap-2.5 px-2.5 py-2"
           >
             <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
             {label}
-          </button>
+          </NavHighlight>
         ))}
       </nav>
     </>
@@ -156,32 +149,30 @@ export function MobileBottomNav({ onNavigate }: { onNavigate?: (t: Tab) => void 
       className="fixed inset-x-0 bottom-0 z-[70] flex border-t border-border px-2 pb-[calc(6px+env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-md"
       style={{ background: 'color-mix(in oklch, var(--color-surface) 92%, transparent)' }}
     >
-      <button
-        type="button"
+      <NavHighlight
         aria-label="对话"
+        active={tab === 'chat'}
+        layoutId="mobile-primary-nav-highlight"
         onClick={() => { setTab('chat'); onNavigate?.('chat') }}
-        className={
-          'flex flex-1 flex-col items-center gap-[3px] rounded-md px-1 py-[5px] text-[10.5px] transition-colors duration-150 ' +
-          (tab === 'chat' ? 'font-semibold text-fg' : 'text-fg opacity-55')
-        }
+        className={tab === 'chat' ? 'flex-1 rounded-md font-semibold text-fg' : 'flex-1 rounded-md text-fg opacity-55'}
+        contentClassName="flex flex-col items-center gap-[3px] px-1 py-[5px] text-[10.5px]"
       >
         <span className="[&>svg]:h-[18px] [&>svg]:w-[18px]">{ICONS.chat}</span>
         <span>对话</span>
-      </button>
+      </NavHighlight>
       {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
-            <button
+            <NavHighlight
               key={route}
-              type="button"
               aria-label={label}
+              active={tab === 'settings' && settingsRoute === route}
+              layoutId="mobile-primary-nav-highlight"
               onClick={() => navigateSettings(route)}
-              className={
-                'flex flex-1 flex-col items-center gap-[3px] rounded-md px-1 py-[5px] text-[10.5px] transition-colors duration-150 ' +
-                (tab === 'settings' && settingsRoute === route ? 'font-semibold text-fg' : 'text-fg opacity-55')
-              }
+              className={tab === 'settings' && settingsRoute === route ? 'flex-1 rounded-md font-semibold text-fg' : 'flex-1 rounded-md text-fg opacity-55'}
+              contentClassName="flex flex-col items-center gap-[3px] px-1 py-[5px] text-[10.5px]"
             >
               <Icon className="h-[18px] w-[18px]" strokeWidth={1.7} />
               <span>{label}</span>
-            </button>
+            </NavHighlight>
       ))}
     </nav>
   )

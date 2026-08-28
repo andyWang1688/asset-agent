@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { EmptyState, LoadingState, PageShell, SectionCard } from '@/components/layout'
 import { useApp } from '@/store/app-state'
 import { useWiki } from '@/hooks/use-wiki'
 import { useIsMobile } from '@/hooks/use-is-mobile'
@@ -53,7 +54,7 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
   return (
     <aside className="flex min-w-0 flex-col border-r border-border bg-bg p-3 max-[820px]:max-h-[40vh] max-[820px]:border-b max-[820px]:border-r-0">
       <input
-        className="h-8 w-full rounded-pill border border-border bg-surface px-3 text-caption outline-none transition-[border-color] duration-150 focus:border-fg/45"
+        className="motion-interactive h-8 w-full rounded-pill border border-border bg-surface px-control text-caption outline-none transition-[border-color] focus:border-fg/45"
         placeholder="搜索知识页"
         aria-label="搜索知识页"
         value={query}
@@ -64,7 +65,7 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
           type="button"
           aria-label="折叠全部目录"
           onClick={() => setRootClosed(!rootClosed)}
-          className="text-caption text-muted transition-colors duration-150 hover:text-fg"
+          className="motion-interactive text-caption text-muted transition-colors hover:text-fg active:scale-[0.97]"
         >
           ⌄
         </button>
@@ -88,9 +89,9 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
                     return next
                   })
                 }
-                className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-caption font-semibold text-fg transition-colors duration-150 hover:bg-soft"
+                className="motion-interactive flex w-full items-center gap-compact rounded-sm px-control py-compact text-left text-caption font-semibold text-fg transition-colors hover:bg-soft active:scale-[0.97]"
               >
-                <span className={cn('inline-block transition-transform duration-200', isClosed && '-rotate-90')}>⌄</span>
+                <span className={cn('motion-interactive inline-block transition-transform', isClosed && '-rotate-90')}>⌄</span>
                 <span>{cat.label}</span>
                 <span className="ml-auto font-mono text-meta text-muted">{String(docs.length).padStart(2, '0')}</span>
               </button>
@@ -103,7 +104,7 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
                     title={d.path}
                     onClick={() => void open(d.path)}
                     className={cn(
-                      'tree-file block w-full truncate rounded-sm px-2.5 py-1.5 text-left font-mono text-caption transition-colors duration-150 before:mr-2 before:inline-block before:w-3 before:opacity-65 before:content-["·"]',
+                      'motion-interactive block w-full truncate rounded-sm px-control py-compact text-left font-mono text-caption transition-colors before:mr-compact before:inline-block before:w-3 before:opacity-65 before:content-["·"] active:scale-[0.97]',
                       path === d.path ? 'bg-fg font-semibold text-surface' : 'text-muted hover:bg-soft hover:text-fg',
                     )}
                   >
@@ -135,21 +136,12 @@ function WikiReader({ wiki }: { wiki: Wiki }) {
   const { doc, path, loading, error, pages } = wiki
   if (!doc && !loading) {
     return (
-      <article className="flex items-center justify-center px-8 py-14">
-        <p className="text-caption text-muted">{error || '选择左侧的文档开始阅读'}</p>
-      </article>
+      <article><EmptyState title="暂无文档" description={error || '选择左侧的文档开始阅读'} /></article>
     )
   }
   if (loading) {
     return (
-      <article className="px-8 py-14">
-        <div className="flex flex-col gap-3">
-          <div className="h-6 w-1/3 animate-pulse rounded-md bg-soft" />
-          <div className="h-3 w-1/4 animate-pulse rounded-md bg-soft" />
-          <div className="mt-4 h-3 w-full animate-pulse rounded-md bg-soft" />
-          <div className="h-3 w-5/6 animate-pulse rounded-md bg-soft" />
-        </div>
-      </article>
+      <article><LoadingState label="正在加载知识页…" /></article>
     )
   }
   const meta = pages.find((p) => p.path === doc!.path)
@@ -160,7 +152,7 @@ function WikiReader({ wiki }: { wiki: Wiki }) {
       key={path}
       className="max-h-[calc(100vh-210px)] min-w-0 overflow-y-auto px-[clamp(32px,6vw,88px)] py-[54px] max-[820px]:max-h-none max-[820px]:px-5 max-[820px]:py-9 max-[480px]:px-4"
     >
-      <div className="animate-[doc-in_0.3s_ease-out]">
+      <div>
         <div className="mb-5 font-mono text-meta text-muted">{catOf(path || '')}</div>
         <h2 className="text-[clamp(32px,3.2vw,44px)] font-bold leading-[1.3]">{title}</h2>
         {dek && <p className="mt-3 max-w-[58ch] text-input leading-[1.7] text-muted">{dek}</p>}
@@ -195,18 +187,19 @@ export function WikiPage() {
   const navVisible = useMemo(() => !isMobile || showNav, [isMobile, showNav])
 
   return (
-    <>
-      <h1 className="page-heading">知识库</h1>
-      <p className="page-sub">浏览模型维护的知识页。</p>
-      {isMobile && (
-        <Button variant="link" size="sm" className="mt-2 h-auto p-0 text-caption" onClick={() => setShowNav(!showNav)}>
+    <PageShell
+      title="知识库"
+      description="浏览模型维护的知识页。"
+      actions={isMobile && (
+        <Button variant="link" size="sm" className="h-auto p-0 text-caption" onClick={() => setShowNav(!showNav)}>
           {showNav ? '收起目录' : '打开目录'}
         </Button>
       )}
-      <div className="mt-7 grid min-h-[590px] grid-cols-[264px_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-surface shadow-panel max-[820px]:grid-cols-1 max-[820px]:overflow-visible">
-        {navVisible && <WikiNav wiki={wiki} />}
-        <WikiReader wiki={wiki} />
-      </div>
-    </>
+    >
+      <SectionCard className="min-h-[590px] overflow-hidden max-[820px]:overflow-visible" contentClassName="grid min-h-[590px] grid-cols-[264px_minmax(0,1fr)] p-0 max-[820px]:grid-cols-1">
+          {navVisible && <WikiNav wiki={wiki} />}
+          <WikiReader wiki={wiki} />
+      </SectionCard>
+    </PageShell>
   )
 }

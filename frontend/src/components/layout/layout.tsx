@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { Transition } from 'motion/react'
-import { cloneElement, isValidElement, useId, type HTMLAttributes, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 const COMPACT_GAP = 'gap-[var(--spacing-compact)]'
@@ -72,9 +72,10 @@ export interface SectionCardProps extends Omit<HTMLAttributes<HTMLElement>, 'tit
   title?: ReactNode
   description?: ReactNode
   actions?: ReactNode
+  contentClassName?: string
 }
 
-export function SectionCard({ title, description, actions, className, children, ...props }: SectionCardProps) {
+export function SectionCard({ title, description, actions, className, contentClassName, children, ...props }: SectionCardProps) {
   return (
     <section className={cn('rounded-lg border border-border bg-surface shadow-panel', className)} {...props}>
       {(title || description || actions) && (
@@ -86,7 +87,7 @@ export function SectionCard({ title, description, actions, className, children, 
           {actions && <div className={cn('flex shrink-0 items-center', COMPACT_GAP)}>{actions}</div>}
         </header>
       )}
-      <div className={CONTENT_PADDING}>{children}</div>
+      <div className={cn(CONTENT_PADDING, contentClassName)}>{children}</div>
     </section>
   )
 }
@@ -142,7 +143,7 @@ export function SegmentedControl<T extends string>({ value, options, onChange, l
   const generatedId = useId()
   const layoutId = label ? `segmented-${label}` : `segmented-${generatedId}`
   return (
-    <div className={cn('inline-flex rounded-md bg-soft p-[var(--spacing-compact)]', className)} role="group" aria-label={label}>
+    <div className={cn('inline-flex rounded-md border border-border bg-surface p-[var(--spacing-compact)]', className)} role="group" aria-label={label}>
       {options.map((option) => {
         const selected = option.value === value
         return (
@@ -152,17 +153,17 @@ export function SegmentedControl<T extends string>({ value, options, onChange, l
             disabled={option.disabled}
             aria-pressed={selected}
             onClick={() => onChange(option.value)}
-            className="relative isolate rounded-sm px-[var(--spacing-control)] py-[var(--spacing-compact)] text-caption font-medium text-muted transition-colors duration-[var(--motion-duration-fast)] hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            className="motion-interactive relative isolate rounded-sm px-[var(--spacing-control)] py-[var(--spacing-compact)] text-caption font-medium text-muted transition-[color,transform] hover:text-fg active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {selected && (
               <motion.span
                 layoutId={layoutId}
-                className="absolute inset-0 -z-0 rounded-sm bg-surface shadow-panel"
+                className="absolute inset-0 -z-0 rounded-sm bg-fg"
                 transition={springTransition(reduceMotion)}
                 aria-hidden="true"
               />
             )}
-            <span className={cn('relative z-10', selected && 'text-fg')}>{option.label}</span>
+            <span className={cn('relative z-10', selected && 'text-surface')}>{option.label}</span>
           </button>
         )
       })}
@@ -170,27 +171,27 @@ export function SegmentedControl<T extends string>({ value, options, onChange, l
   )
 }
 
-export interface NavHighlightProps {
+export interface NavHighlightProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   active: boolean
   children: ReactNode
   layoutId?: string
   className?: string
-  onClick?: () => void
+  contentClassName?: string
 }
 
-export function NavHighlight({ active, children, layoutId = 'nav-highlight', className, onClick }: NavHighlightProps) {
+export function NavHighlight({ active, children, layoutId = 'nav-highlight', className, contentClassName, ...props }: NavHighlightProps) {
   const reduceMotion = useReducedMotion()
   return (
-    <button type="button" onClick={onClick} className={cn('relative isolate overflow-hidden', className)} aria-current={active ? 'page' : undefined}>
+    <button type="button" className={cn('motion-interactive relative isolate overflow-hidden transition-[color,transform] active:scale-[0.97]', className)} aria-current={active ? 'page' : undefined} {...props}>
       {active && (
         <motion.span
           layoutId={layoutId}
-          className="absolute inset-0 -z-0 rounded-md bg-soft"
+          className="absolute inset-0 -z-0 rounded-md bg-soft shadow-[inset_2px_0_var(--color-fg)]"
           transition={springTransition(reduceMotion)}
           aria-hidden="true"
         />
       )}
-      <span className="relative z-10">{children}</span>
+      <span className={cn('relative z-10', contentClassName)}>{children}</span>
     </button>
   )
 }

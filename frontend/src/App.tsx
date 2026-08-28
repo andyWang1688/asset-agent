@@ -6,7 +6,7 @@ import { WikiPage } from '@/features/wiki/wiki-page'
 import { TasksPage } from '@/features/tasks/tasks-page'
 import { SettingsPage } from '@/features/settings/settings-page'
 import { useChat } from '@/hooks/use-chat'
-import { cn } from '@/lib/utils'
+import { PageTransition } from '@/components/layout'
 
 function Shell() {
   const { tab, setTab } = useApp()
@@ -25,18 +25,12 @@ function Shell() {
         if (t === 'chat') chat.newChat()
       }}
     >
-      <section className={cn('view', tab === 'chat' && 'active')} aria-label="对话">
-        <ChatPage active={tab === 'chat'} chat={chat} />
-      </section>
-      <section className={cn('view', tab === 'wiki' && 'active')} aria-label="知识库">
-        <WikiPage />
-      </section>
-      <section className={cn('view', tab === 'tasks' && 'active')} aria-label="任务">
-        <TasksPage />
-      </section>
-      <section className={cn('view', tab === 'settings' && 'active')} aria-label="设置">
-        <SettingsPage />
-      </section>
+      <PageTransition pageKey={tab} className="min-h-full">
+        {tab === 'chat' && <section aria-label="对话"><ChatPage active chat={chat} /></section>}
+        {tab === 'wiki' && <section aria-label="知识库"><WikiPage /></section>}
+        {tab === 'tasks' && <section aria-label="任务"><TasksPage /></section>}
+        {tab === 'settings' && <section aria-label="设置"><SettingsPage /></section>}
+      </PageTransition>
     </AppShell>
   )
 }

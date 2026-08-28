@@ -24,7 +24,7 @@ function Topbar({ pageName, onOpenHistory }: { pageName: string; onOpenHistory: 
         type="button"
         aria-label="对话历史"
         onClick={onOpenHistory}
-        className="grid h-[34px] w-[34px] place-items-center rounded-md border border-border bg-surface text-muted transition-colors duration-150 hover:bg-soft hover:text-fg"
+        className="motion-interactive grid h-[34px] w-[34px] place-items-center rounded-md border border-border bg-surface text-muted transition-[color,background-color,transform] hover:bg-soft hover:text-fg active:scale-[0.97]"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-[15px] w-[15px]">
           <path d="M4.5 5.5v4h4" />
@@ -66,7 +66,7 @@ export function AppShell({
     return (
       <div className="flex h-svh min-h-0 flex-col overflow-hidden">
         <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
-        <main className={cn('page min-h-0 flex-1 overflow-y-auto overflow-x-hidden', tab === 'settings' && 'page-settings')}>{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
         <MobileBottomNav onNavigate={onNavigate} />
         <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
       </div>
@@ -76,14 +76,14 @@ export function AppShell({
   return (
     <div
       className={cn(
-        'grid h-svh min-h-0 grid-cols-[218px_minmax(0,1fr)] overflow-hidden transition-[margin-right] duration-500 ease-out',
+        'motion-spring grid h-svh min-h-0 grid-cols-[218px_minmax(0,1fr)] overflow-hidden transition-[margin-right]',
         histOpen && 'mr-[218px]',
       )}
     >
       <AppSidebar onNavigate={onNavigate} />
       <div className="flex min-w-0 min-h-0 flex-col">
         <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
-        <main className={cn('page min-h-0 flex-1 overflow-y-auto overflow-x-hidden', tab === 'settings' && 'page-settings')}>{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
       </div>
       <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
     </div>
