@@ -185,18 +185,16 @@ body {
 }
 
 .motion-card {
-  transition-property: transform, box-shadow;
+  transition-property: box-shadow;
   transition-duration: var(--motion-duration-fast);
   transition-timing-function: var(--motion-ease-fade);
 }
 
 .motion-card:hover {
-  transform: translateY(calc(-1 * var(--spacing-compact) / 2));
   box-shadow: var(--shadow-pop);
 }
 
 .motion-card:has(.motion-card:hover) {
-  transform: none;
   box-shadow: var(--shadow-panel);
 }
 
