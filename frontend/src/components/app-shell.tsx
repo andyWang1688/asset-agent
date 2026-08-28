@@ -1,25 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { useApp, type Tab } from '@/store/app-state'
+import type { Tab } from '@/store/app-state'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppSidebar, MobileBottomNav } from '@/components/app-sidebar'
 import { HistoryPanel } from '@/components/history-panel'
 import type { ChatMessage } from '@/hooks/use-chat'
 import { cn } from '@/lib/utils'
 
-const PAGE_NAMES: Record<Tab, string> = {
-  chat: '对话',
-  wiki: '知识库',
-  tasks: '任务',
-  settings: '设置',
-}
-
-/** 顶栏：面包屑 + 历史按钮（桌面/移动共用） */
-function Topbar({ pageName, onOpenHistory }: { pageName: string; onOpenHistory: () => void }) {
+/** 顶栏：历史按钮（桌面/移动共用） */
+function Topbar({ onOpenHistory }: { onOpenHistory: () => void }) {
   return (
-    <header className="sticky top-0 z-30 flex h-[58px] items-center justify-between border-b border-border bg-bg/92 px-[30px] backdrop-blur-md max-[820px]:px-4 max-[480px]:px-3">
-      <div className="text-caption text-muted">
-        工作台 / <b className="font-semibold text-fg">{pageName}</b>
-      </div>
+    <header className="sticky top-0 z-30 flex h-[58px] items-center justify-end border-b border-border bg-bg/92 px-[30px] backdrop-blur-md max-[820px]:px-4 max-[480px]:px-3">
       <button
         type="button"
         aria-label="对话历史"
@@ -48,11 +38,8 @@ export function AppShell({
   onNewChat: () => void
   onNavigate: (t: Tab) => void
 }) {
-  const { tab } = useApp()
   const isMobile = useIsMobile(820)
   const [histOpen, setHistOpen] = useState(false)
-  const pageName = PAGE_NAMES[tab]
-
   useEffect(() => {
     if (!histOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -65,7 +52,7 @@ export function AppShell({
   if (isMobile) {
     return (
       <div className="flex h-svh min-h-0 flex-col overflow-hidden">
-        <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
+        <Topbar onOpenHistory={() => setHistOpen(true)} />
         <main className="app-main-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
         <MobileBottomNav onNavigate={onNavigate} />
         <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
@@ -82,7 +69,7 @@ export function AppShell({
     >
       <AppSidebar onNavigate={onNavigate} />
       <div className="flex min-w-0 min-h-0 flex-col">
-        <Topbar pageName={pageName} onOpenHistory={() => setHistOpen(true)} />
+        <Topbar onOpenHistory={() => setHistOpen(true)} />
         <main className="app-main-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
       </div>
       <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
