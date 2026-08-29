@@ -82,7 +82,7 @@ function MtRow({ task }: { task: MtTask }) {
           <i
             key={i}
             className={cn(
-              'motion-state h-[7px] w-[7px] rounded-pill transition-colors',
+              'motion-state h-dot w-dot rounded-pill transition-colors',
               i < step ? 'bg-fg' : i === step ? (hold ? 'bg-fg' : 'animate-breathe bg-accent') : 'bg-border',
             )}
           />

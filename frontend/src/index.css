@@ -58,6 +58,12 @@
   --spacing-page-mobile: 1rem;
   --spacing-page-narrow: 0.875rem;
   --spacing-overlay: 2rem;
+  /* 卡片内行/表格单元格的水平内边距（历史值 17px，收敛为 token） */
+  --spacing-cell: 17px;
+  /* 徽标胶囊/底部导航的垂直内边距（历史值 5px，收敛为 token） */
+  --spacing-chip: 5px;
+  /* 状态圆点直径（历史值 7px，收敛为 token） */
+  --spacing-dot: 7px;
 
   /* 圆角：六档，全站统一 */
   --radius-xs: 5px;

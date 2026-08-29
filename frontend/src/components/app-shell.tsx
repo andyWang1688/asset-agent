@@ -3,7 +3,8 @@ import type { Tab } from '@/store/app-state'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppSidebar, MobileBottomNav } from '@/components/app-sidebar'
 import { HistoryPanel } from '@/components/history-panel'
-import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
+import { SidebarProvider } from '@/components/ui/sidebar'
+import { useSidebar } from '@/components/ui/sidebar-context'
 import type { ChatMessage } from '@/hooks/use-chat'
 import { cn } from '@/lib/utils'
 
@@ -61,7 +62,7 @@ export function AppShell({
 }) {
   const isMobile = useIsMobile(820)
   const [histOpen, setHistOpen] = useState(false)
-  const [defaultOpen] = useState(() => localStorage.getItem('sidebar-collapsed') !== '1')
+  const [defaultOpen] = useState(() => document.cookie.split('; ').find((c) => c.startsWith('sidebar_state='))?.split('=')[1] !== 'false')
   useEffect(() => {
     if (!histOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -74,7 +75,7 @@ export function AppShell({
   if (isMobile) {
     return (
       <SidebarProvider defaultOpen={defaultOpen} style={{ '--sidebar-width': '12.5rem', '--sidebar-width-icon': '4rem' } as CSSProperties}>
-        <div className="flex h-svh min-h-0 flex-col overflow-hidden">
+        <div className="flex h-svh min-h-0 w-full min-w-0 flex-col overflow-hidden">
           <Topbar onOpenHistory={() => setHistOpen(true)} />
           <main className="min-h-0 flex-1 bg-surface p-3">
             <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
@@ -87,8 +88,8 @@ export function AppShell({
   }
 
   return (
-    <SidebarProvider defaultOpen={defaultOpen} style={{ '--sidebar-width': '12.5rem', '--sidebar-width-icon': '4rem' } as CSSProperties}>
-      <div className="flex h-svh min-h-0 flex-col overflow-hidden" style={{ '--app-header-height': '3rem' } as CSSProperties}>
+      <SidebarProvider defaultOpen={defaultOpen} style={{ '--sidebar-width': '12.5rem', '--sidebar-width-icon': '4rem' } as CSSProperties}>
+      <div className="flex h-svh min-h-0 w-full min-w-0 flex-col overflow-hidden" style={{ '--app-header-height': '3rem' } as CSSProperties}>
         <Topbar onOpenHistory={() => setHistOpen(true)} />
         <div className={cn('flex min-h-0 flex-1', histOpen && 'motion-spring mr-[218px] transition-[margin-right]')}>
           <AppSidebar onNavigate={onNavigate} />

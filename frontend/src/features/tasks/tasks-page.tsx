@@ -74,7 +74,7 @@ function TaskRowItem({ t, index, flashing, onRetry }: { t: TaskRow; index: numbe
   return (
     <motion.div
       className={cn(
-        'task-row grid grid-cols-[10px_minmax(0,1fr)_52px_125px_92px] items-center gap-3 border-b border-border px-[17px] py-4 last:border-b-0 max-[820px]:grid-cols-[10px_minmax(0,1fr)_74px]',
+        'task-row grid grid-cols-[10px_minmax(0,1fr)_52px_125px_92px] items-center gap-3 border-b border-border px-cell py-4 last:border-b-0 max-[820px]:grid-cols-[10px_minmax(0,1fr)_74px]',
         flashing && 'animate-requeue',
       )}
       initial={reduceMotion ? false : { opacity: 0, y: 'var(--spacing-compact)' }}
@@ -92,7 +92,7 @@ function TaskRowItem({ t, index, flashing, onRetry }: { t: TaskRow; index: numbe
           <i
             key={i}
             className={cn(
-              'h-[7px] w-[7px] rounded-pill',
+              'h-dot w-dot rounded-pill',
               c === 'done' ? 'bg-fg' : c === 'active' ? 'animate-breathe bg-accent' : c === 'hold' ? 'bg-fg' : 'bg-border',
             )}
           />
@@ -157,16 +157,16 @@ export function TasksPage() {
     <PageShell title="任务" description="后台编译状态一览：任务由 Worker 推进，仅失败或凭证暂存的任务可重试。">
       <div className="flex flex-wrap items-end justify-between gap-section max-[480px]:flex-col max-[480px]:items-start max-[480px]:gap-control">
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
+          <span className="rounded-pill bg-soft px-2.5 py-chip font-mono text-meta text-muted">
             processing <motion.b key={counts.processing} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={stateTransition(reduceMotion)} className="text-fg">{counts.processing}</motion.b>
           </span>
-          <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
+          <span className="rounded-pill bg-soft px-2.5 py-chip font-mono text-meta text-muted">
             pending <motion.b key={counts.pending} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={stateTransition(reduceMotion)} className="text-fg">{counts.pending}</motion.b>
           </span>
-          <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
+          <span className="rounded-pill bg-soft px-2.5 py-chip font-mono text-meta text-muted">
             待重试 <motion.b key={counts.retry} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={stateTransition(reduceMotion)} className="text-fg">{counts.retry}</motion.b>
           </span>
-          <span className="rounded-pill bg-soft px-2.5 py-[5px] font-mono text-meta text-muted">
+          <span className="rounded-pill bg-soft px-2.5 py-chip font-mono text-meta text-muted">
             今日完成 <motion.b key={counts.doneToday} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={stateTransition(reduceMotion)} className="text-fg">{counts.doneToday}</motion.b>
           </span>
         </div>
@@ -185,7 +185,7 @@ export function TasksPage() {
 
       <div className="mt-section-lg grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_260px] gap-content max-[820px]:grid-cols-1">
         <SectionCard className="relative overflow-hidden" contentClassName="p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-[17px] py-[15px]">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-cell py-[15px]">
             <h2 className="text-panel font-semibold">任务队列</h2>
             <div className="flex items-center gap-2">
               <Badge variant="accent">{queue.length}</Badge>
@@ -220,19 +220,19 @@ export function TasksPage() {
             </p>
             <div className="mt-3 grid gap-[7px] text-caption text-muted">
               <div className="flex items-center gap-2">
-                <i className="h-[7px] w-[7px] shrink-0 animate-breathe rounded-pill bg-accent" />
+                <i className="h-dot w-dot shrink-0 animate-breathe rounded-pill bg-accent" />
                 processing · 编译中
               </div>
               <div className="flex items-center gap-2">
-                <i className="h-[7px] w-[7px] shrink-0 rounded-pill bg-border" />
+                <i className="h-dot w-dot shrink-0 rounded-pill bg-border" />
                 pending · 排队等待
               </div>
               <div className="flex items-center gap-2">
-                <i className="h-[7px] w-[7px] shrink-0 rounded-pill bg-fg" />
+                <i className="h-dot w-dot shrink-0 rounded-pill bg-fg" />
                 credential_pending / failed · 可重试
               </div>
               <div className="flex items-center gap-2">
-                <i className="h-[7px] w-[7px] shrink-0 rounded-pill bg-fg" />
+                <i className="h-dot w-dot shrink-0 rounded-pill bg-fg" />
                 done · 已写入 Wiki
               </div>
             </div>
@@ -257,7 +257,7 @@ export function TasksPage() {
           ))}
           </AnimatePresence>
 
-          <div className="flex items-center justify-end gap-2.5 border-t border-border px-[17px] py-3 max-[480px]:justify-center">
+          <div className="flex items-center justify-end gap-2.5 border-t border-border px-cell py-3 max-[480px]:justify-center">
             <Button variant="compact" size="sm" disabled={page === 0} onClick={() => setPage(Math.max(0, page - 1))}>
               上一页
             </Button>

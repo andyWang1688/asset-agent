@@ -85,7 +85,7 @@ export function ModelSheet({ open, role, model, presets, onSave, onClose }: Mode
         </SheetHeader>
         <div className="flex-1 space-y-3.5 overflow-y-auto px-5 py-3">
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted">角色</Label>
+            <Label className="text-caption text-muted">角色</Label>
             <Select value={role} disabled>
               <SelectTrigger>
                 <SelectValue />
@@ -95,11 +95,11 @@ export function ModelSheet({ open, role, model, presets, onSave, onClose }: Mode
                 <SelectItem value="security">安全增强（可选）</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted">{ROLE_HINTS[role] || ''}</p>
+            <p className="text-caption text-muted">{ROLE_HINTS[role] || ''}</p>
           </div>
           <FormRow label="名称" htmlFor="model-name" error={error || undefined} control={<Input id="model-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="如：DeepSeek 生产" />} />
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted">Provider</Label>
+            <Label className="text-caption text-muted">Provider</Label>
             <Select
               value={presetType}
               onValueChange={(v) => {
@@ -124,15 +124,15 @@ export function ModelSheet({ open, role, model, presets, onSave, onClose }: Mode
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted">API 地址</Label>
+            <Label className="text-caption text-muted">API 地址</Label>
             <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted">模型名</Label>
+            <Label className="text-caption text-muted">模型名</Label>
             <Input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="deepseek-chat" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted">API Key</Label>
+            <Label className="text-caption text-muted">API Key</Label>
             <Input
               type="password"
               value={apiKey}
@@ -140,7 +140,7 @@ export function ModelSheet({ open, role, model, presets, onSave, onClose }: Mode
               placeholder={model ? '留空表示保持不变' : '请输入 API Key'}
               autoComplete="new-password"
             />
-            <p className="text-xs text-muted">密钥加密保存，接口不回显。</p>
+            <p className="text-caption text-muted">密钥加密保存，接口不回显。</p>
           </div>
           <div className="flex items-center gap-2.5">
             <Switch id="mf-active" checked={active} onCheckedChange={setActive} />

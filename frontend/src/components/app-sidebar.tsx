@@ -130,22 +130,27 @@ export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
 /** 移动端底部导航（≤820px 显示） */
 export function MobileBottomNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
   const { tab, setTab, navigateSettings, settingsRoute } = useApp()
+  const itemClass = (active: boolean) => (active ? 'flex-1 rounded-md font-semibold text-fg' : 'flex-1 rounded-md text-fg opacity-55')
+  const contentClass = 'flex flex-col items-center gap-[3px] px-1 py-chip text-[10.5px]'
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-[70] flex border-t border-border px-2 pb-[calc(6px+env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-md"
       style={{ background: 'color-mix(in oklch, var(--color-surface) 92%, transparent)' }}
     >
-      <NavHighlight
-        aria-label="对话"
-        active={tab === 'chat'}
-        layoutId="mobile-primary-nav-highlight"
-        onClick={() => { setTab('chat'); onNavigate?.('chat') }}
-        className={tab === 'chat' ? 'flex-1 rounded-md font-semibold text-fg' : 'flex-1 rounded-md text-fg opacity-55'}
-        contentClassName="flex flex-col items-center gap-[3px] px-1 py-[5px] text-[10.5px]"
-      >
-        <span className="[&>svg]:h-[18px] [&>svg]:w-[18px]">{ICONS.chat}</span>
-        <span>对话</span>
-      </NavHighlight>
+      {NAV_WORKSPACE.map(({ tab: t, label }) => (
+        <NavHighlight
+          key={t}
+          aria-label={label}
+          active={tab === t}
+          layoutId="mobile-primary-nav-highlight"
+          onClick={() => { setTab(t); onNavigate?.(t) }}
+          className={itemClass(tab === t)}
+          contentClassName={contentClass}
+        >
+          <span className="[&>svg]:h-[18px] [&>svg]:w-[18px]">{ICONS[t]}</span>
+          <span>{label}</span>
+        </NavHighlight>
+      ))}
       {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
             <NavHighlight
               key={route}
@@ -153,8 +158,8 @@ export function MobileBottomNav({ onNavigate }: { onNavigate?: (t: Tab) => void 
               active={tab === 'settings' && settingsRoute === route}
               layoutId="mobile-primary-nav-highlight"
               onClick={() => navigateSettings(route)}
-              className={tab === 'settings' && settingsRoute === route ? 'flex-1 rounded-md font-semibold text-fg' : 'flex-1 rounded-md text-fg opacity-55'}
-              contentClassName="flex flex-col items-center gap-[3px] px-1 py-[5px] text-[10.5px]"
+              className={itemClass(tab === 'settings' && settingsRoute === route)}
+              contentClassName={contentClass}
             >
               <Icon className="h-[18px] w-[18px]" strokeWidth={1.7} />
               <span>{label}</span>

@@ -42,6 +42,8 @@
 | `--spacing-page-mobile` | 16px | 窄屏页面边距 |
 | `--spacing-page-narrow` | 14px | 极窄屏页面边距 |
 | `--spacing-overlay` | 32px | 弹窗、抽屉的宽松内边距 |
+| `--spacing-cell` | 17px | 卡片内行、表格单元格的水平内边距 |
+| `--spacing-chip` | 5px | 徽标胶囊、底部导航项的垂直内边距 |
 
 需要新增档位时先复用最接近的 token；不要在页面 class 中写 `px-[...]`、`gap-[...]` 等任意值。
 

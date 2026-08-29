@@ -2,14 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import type { WikiDoc, WikiPage } from '@/lib/types'
 
-export const WIKI_CATS = [
-  { key: 'concepts', label: '概念' },
-  { key: 'entities', label: '实体' },
-  { key: 'projects', label: '项目' },
-  { key: 'analyses', label: '分析' },
-  { key: 'sources', label: '来源' },
-] as const
-
 /** 知识库：目录树 + 文档阅读（/api/wiki/pages、/api/wiki/page、/api/wiki/rebuild） */
 export function useWiki(initialPath?: string | null) {
   const [pages, setPages] = useState<WikiPage[]>([])

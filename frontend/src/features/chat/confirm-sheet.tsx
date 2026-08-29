@@ -147,7 +147,7 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
             <p className={cn('mb-3 text-[13px]', total === 0 ? 'font-semibold text-fg' : 'text-muted')}>{summary}</p>
             {total > 0 && !customizing && (
-              <p className="text-xs text-muted">同意将按系统建议一次处理全部发现；也可以选择「按我说的做」逐项修改。</p>
+              <p className="text-caption text-muted">同意将按系统建议一次处理全部发现；也可以选择「按我说的做」逐项修改。</p>
             )}
 
             {customizing && (
@@ -177,12 +177,12 @@ export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled 
                 spellCheck={false}
                 onChange={(e) => setPreview(e.target.value)}
                 className={cn(
-                  'min-h-[150px] font-mono text-xs leading-relaxed',
+                  'min-h-[150px] font-mono text-caption leading-relaxed',
                   editing && customizing ? 'bg-surface' : 'bg-[#f2f2f5] opacity-90',
                 )}
               />
               {editing && customizing && (
-                <p className="mt-2 text-xs text-muted">
+                <p className="mt-2 text-caption text-muted">
                   可直接编辑脱敏预览；提交时会重新扫描，若仍检测到未处置的敏感信息会被拒绝。
                 </p>
               )}
@@ -240,7 +240,7 @@ function FindingCard({ f }: { f: Finding }) {
           <Badge variant={KIND_BADGE[f.kind] || 'info'}>{KIND_LABELS[f.kind] || f.kind}</Badge>
           <span className="font-semibold">{f.rule}</span>
           {f.detector && <span className="text-[11.5px] text-muted">{f.detector}</span>}
-          <span className="text-xs text-muted">置信度 {Math.round((f.confidence || 0) * 100)}%</span>
+          <span className="text-caption text-muted">置信度 {Math.round((f.confidence || 0) * 100)}%</span>
           <span
             className={cn(
               'ml-auto whitespace-nowrap rounded-pill px-2 py-px text-[11px]',
@@ -255,8 +255,8 @@ function FindingCard({ f }: { f: Finding }) {
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 pb-3">
-        {f.evidence && <p className="mb-2 text-xs text-muted">证据：{f.evidence}</p>}
-        <pre className="mb-2 whitespace-pre-wrap break-all rounded-lg bg-[#f2f2f5] p-2.5 font-mono text-xs leading-relaxed text-muted">
+        {f.evidence && <p className="mb-2 text-caption text-muted">证据：{f.evidence}</p>}
+        <pre className="mb-2 whitespace-pre-wrap break-all rounded-lg bg-[#f2f2f5] p-2.5 font-mono text-caption leading-relaxed text-muted">
           {f.context || ''}
         </pre>
         <div className="flex flex-col gap-0.5">

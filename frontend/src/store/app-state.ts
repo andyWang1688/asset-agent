@@ -1,7 +1,8 @@
 import { createContext, useContext } from 'react'
 import type { Health } from '@/lib/types'
+import type { SecurityTab, SettingsModule } from '@/features/settings/settings-navigation'
 
-export type SettingsRoute = 'models' | 'retrieval' | 'security' | 'events'
+export type SettingsRoute = SettingsModule
 export type Tab = 'chat' | 'wiki' | 'tasks' | 'settings'
 
 export interface AppState {
@@ -13,6 +14,9 @@ export interface AppState {
   refreshHealth: () => Promise<void>
   navigateSettings: (route: SettingsRoute) => void
   settingsRoute: SettingsRoute
+  /** 安全策略二级标签（URL hash 为唯一来源，Provider 统一同步） */
+  securityTab: SecurityTab
+  setSecurityTab: (tab: SecurityTab) => void
 }
 
 export const AppContext = createContext<AppState | null>(null)

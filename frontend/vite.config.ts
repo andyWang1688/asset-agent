@@ -37,6 +37,21 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // vendor 分包按“更新频率不同、来源不同”的稳定边界划分：
+        // 框架 / 动效 / 无样式原语 / markdown 生态各自独立，业务代码变更不使它们失效。
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('@radix-ui') || id.includes('@floating-ui')) return 'vendor-radix'
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react'
+          if (id.includes('motion-dom') || id.includes('motion-utils') || /[\\/]node_modules[\\/]motion[\\/]/.test(id)) return 'vendor-motion'
+          if (id.includes('react-markdown') || id.includes('remark-') || id.includes('unified') || id.includes('micromark') || id.includes('mdast') || id.includes('hast')) return 'vendor-markdown'
+          if (id.includes('sonner')) return 'vendor-sonner'
+          return undefined
+        },
+      },
+    },
   },
   test: {
     environment: 'node',
