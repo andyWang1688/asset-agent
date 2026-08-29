@@ -1,9 +1,18 @@
 import type { ReactElement } from 'react'
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from '@/components/ui/sidebar'
 import { NavHighlight, stateTransition } from '@/components/layout'
-import { cn } from '@/lib/utils'
 import { useTasks } from '@/hooks/use-tasks'
 import { useApp, type SettingsRoute, type Tab } from '@/store/app-state'
 
@@ -47,97 +56,74 @@ const NAV_LOCAL: { route: SettingsRoute; label: string; icon: typeof Bot }[] = [
   { route: 'events', label: '安全事件', icon: Siren },
 ]
 
-function NavGroup({
-  label,
-  items,
-  taskCount,
-  collapsed,
-  onNavigate,
-}: {
-  label: string
-  items: NavItemDef[]
-  taskCount: number
-  collapsed: boolean
-  onNavigate?: (t: Tab) => void
-}) {
-  const { tab, setTab } = useApp()
+/** shadcn 官方 Sidebar（New API 同款）：collapsible=icon，滑动高亮保留 */
+export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
+  const { attention } = useTasks()
+  const { tab, setTab, navigateSettings, settingsRoute } = useApp()
   const reduceMotion = useReducedMotion()
-  return (
-    <>
-      <div className="nav-group-label px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted" data-collapsed={collapsed}>{label}</div>
-      <nav className="mb-5 grid gap-[3px]">
-        {items.map(({ tab: t, label: l }) => (
-          <NavHighlight
-            key={t}
-            active={tab === t}
-            layoutId="primary-nav-highlight"
-            title={collapsed ? l : undefined}
-            onClick={() => {
-              setTab(t)
-              onNavigate?.(t)
-            }}
-            className={tab === t ? 'w-full rounded-md text-panel font-semibold text-fg' : 'w-full rounded-md text-panel text-muted hover:bg-soft hover:text-fg'}
-            contentClassName="flex w-full items-center gap-2.5 px-2.5 py-2"
-          >
-            {ICONS[t]}
-            <span className="nav-collapse" data-collapsed={collapsed}><span>{l}</span></span>
-            {t === 'tasks' && taskCount > 0 && (
-              <span className="nav-collapse ml-auto" data-collapsed={collapsed}>
-                <span>
-                  <AnimatePresence mode="popLayout" initial={false}>
-                  <motion.span key={taskCount} initial={reduceMotion ? false : { opacity: 0, y: 'calc(-1 * var(--spacing-compact))' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, y: 'var(--spacing-compact)' }} transition={stateTransition(reduceMotion)}>
-                    <Badge variant="muted" className="font-mono">
-                      {taskCount}
-                    </Badge>
-                  </motion.span>
-                  </AnimatePresence>
-                </span>
-              </span>
-            )}
-          </NavHighlight>
-        ))}
-      </nav>
-    </>
-  )
-}
-
-function SettingsNav({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (t: Tab) => void }) {
-  const { tab, navigateSettings, settingsRoute } = useApp()
   const activeRoute = tab === 'settings' ? settingsRoute : null
   return (
-    <>
-      <div className="nav-group-label px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted" data-collapsed={collapsed}>本地设置</div>
-      <nav className="mb-5 grid gap-[3px]" aria-label="本地设置">
-        {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
-          <NavHighlight
-            key={route}
-            active={activeRoute === route}
-            layoutId="primary-nav-highlight"
-            title={collapsed ? label : undefined}
-            onClick={() => {
-              navigateSettings(route)
-              onNavigate?.('settings')
-            }}
-            className={activeRoute === route ? 'w-full rounded-md text-panel font-semibold text-fg' : 'w-full rounded-md text-panel text-muted hover:bg-soft hover:text-fg'}
-            contentClassName="flex w-full items-center gap-2.5 px-2.5 py-2"
-          >
-            <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
-            <span className="nav-collapse" data-collapsed={collapsed}><span>{label}</span></span>
-          </NavHighlight>
-        ))}
-      </nav>
-    </>
-  )
-}
-
-/** 侧栏：工作区/本地设置导航（品牌在顶栏）；collapsed 时仅图标 */
-export function AppSidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (t: Tab) => void }) {
-  const { attention } = useTasks()
-  return (
-    <aside className={cn('flex shrink-0 flex-col overflow-y-auto bg-surface px-3 pt-[18px] transition-[width] duration-[var(--motion-duration-collapse)] ease-linear', collapsed ? 'w-[64px]' : 'w-[200px]')}>
-      <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} collapsed={collapsed} onNavigate={onNavigate} />
-      <SettingsNav collapsed={collapsed} onNavigate={onNavigate} />
-    </aside>
+    <Sidebar collapsible="icon" variant="inset">
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>工作区</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {NAV_WORKSPACE.map(({ tab: t, label }) => (
+                <SidebarMenuItem key={t}>
+                  <SidebarMenuButton
+                    isActive={tab === t}
+                    title={label}
+                    onClick={() => {
+                      setTab(t)
+                      onNavigate?.(t)
+                    }}
+                    className="relative isolate data-[active=true]:bg-transparent"
+                  >
+                    {tab === t && (
+                      <motion.span layoutId="primary-nav-highlight" className="absolute inset-0 -z-10 rounded-md bg-sidebar-accent" transition={stateTransition(reduceMotion)} aria-hidden="true" />
+                    )}
+                    {ICONS[t]}
+                    <span>{label}</span>
+                    {t === 'tasks' && attention.length > 0 && (
+                      <span className="ml-auto">
+                        <Badge variant="muted" className="font-mono">{attention.length}</Badge>
+                      </span>
+                    )}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>本地设置</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
+                <SidebarMenuItem key={route}>
+                  <SidebarMenuButton
+                    isActive={activeRoute === route}
+                    title={label}
+                    onClick={() => {
+                      navigateSettings(route)
+                      onNavigate?.('settings')
+                    }}
+                    className="relative isolate data-[active=true]:bg-transparent"
+                  >
+                    {activeRoute === route && (
+                      <motion.span layoutId="primary-nav-highlight" className="absolute inset-0 -z-10 rounded-md bg-sidebar-accent" transition={stateTransition(reduceMotion)} aria-hidden="true" />
+                    )}
+                    <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
+                    <span>{label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+    </Sidebar>
   )
 }
 

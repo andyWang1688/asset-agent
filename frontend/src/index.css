@@ -185,40 +185,15 @@ body {
   transition-timing-function: var(--motion-ease-spring);
 }
 
+.motion-collapse {
+  transition-duration: var(--motion-duration-collapse);
+  transition-timing-function: linear;
+}
+
 .motion-card {
   transition-property: box-shadow;
   transition-duration: var(--motion-duration-fast);
   transition-timing-function: var(--motion-ease-fade);
-}
-
-/* 侧栏折叠：图标不动，文字以 0fr 网格平滑收起 */
-.nav-collapse {
-  display: grid;
-  grid-template-columns: 1fr;
-  transition: grid-template-columns var(--motion-duration-collapse) linear;
-}
-.nav-collapse > span {
-  overflow: hidden;
-  white-space: nowrap;
-}
-.nav-collapse[data-collapsed='true'] {
-  grid-template-columns: 0fr;
-}
-
-/* 侧栏分组小标题：折叠时向上收起淡出（New API 同款 200ms linear） */
-.nav-group-label {
-  overflow: hidden;
-  max-height: 2.5rem;
-  opacity: 1;
-  transition:
-    max-height var(--motion-duration-collapse) linear,
-    opacity var(--motion-duration-collapse) linear,
-    padding-bottom var(--motion-duration-collapse) linear;
-}
-.nav-group-label[data-collapsed='true'] {
-  max-height: 0;
-  opacity: 0;
-  padding-bottom: 0;
 }
 
 .motion-card:hover {

@@ -1,20 +1,23 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { Tab } from '@/store/app-state'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppSidebar, MobileBottomNav } from '@/components/app-sidebar'
 import { HistoryPanel } from '@/components/history-panel'
+import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import type { ChatMessage } from '@/hooks/use-chat'
 import { cn } from '@/lib/utils'
 
-/** 顶栏：折叠按钮 + 品牌 + 历史按钮（桌面/移动共用，New API 式全宽顶栏） */
-function Topbar({ collapsed, onToggleSidebar, onOpenHistory }: { collapsed: boolean; onToggleSidebar: () => void; onOpenHistory: () => void }) {
+/** 顶栏：折叠按钮 | 分隔线 | 品牌 + 历史按钮（New API 式全宽顶栏） */
+function Topbar({ onOpenHistory }: { onOpenHistory: () => void }) {
+  const { toggleSidebar, state } = useSidebar()
+  const collapsed = state === 'collapsed'
   return (
     <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between bg-surface px-[30px] max-[820px]:px-4 max-[480px]:px-3">
       <div className="flex items-center gap-2 text-body font-bold">
         <button
           type="button"
           aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
-          onClick={onToggleSidebar}
+          onClick={toggleSidebar}
           className={cn('motion-interactive grid h-[30px] w-[30px] place-items-center rounded-md transition-[color,background-color,transform] hover:bg-soft hover:text-fg active:scale-[0.97] max-[820px]:hidden', collapsed ? 'border border-border bg-soft text-fg' : 'text-muted')}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-[15px] w-[15px]">
@@ -44,7 +47,7 @@ function Topbar({ collapsed, onToggleSidebar, onOpenHistory }: { collapsed: bool
   )
 }
 
-/** 应用外壳：218px 固定侧栏 + 顶栏 + 内容页；≤820px 隐藏侧栏改底部导航；历史面板打开时桌面端内容让位 */
+/** 应用外壳：shadcn Sidebar（New API 同款）+ 全宽顶栏 + 内容卡片；≤820px 隐藏侧栏改底部导航；历史面板打开时桌面端内容让位 */
 export function AppShell({
   children,
   onOpenSession,
@@ -58,12 +61,7 @@ export function AppShell({
 }) {
   const isMobile = useIsMobile(820)
   const [histOpen, setHistOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === '1')
-  const toggleSidebar = () =>
-    setCollapsed((c) => {
-      localStorage.setItem('sidebar-collapsed', c ? '0' : '1')
-      return !c
-    })
+  const [defaultOpen] = useState(() => localStorage.getItem('sidebar-collapsed') !== '1')
   useEffect(() => {
     if (!histOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -75,32 +73,31 @@ export function AppShell({
 
   if (isMobile) {
     return (
-      <div className="flex h-svh min-h-0 flex-col overflow-hidden">
-        <Topbar collapsed={collapsed} onToggleSidebar={toggleSidebar} onOpenHistory={() => setHistOpen(true)} />
-        <main className="min-h-0 flex-1 bg-surface p-3">
-          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
-        </main>
-        <MobileBottomNav onNavigate={onNavigate} />
-        <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
-      </div>
+      <SidebarProvider defaultOpen={defaultOpen}>
+        <div className="flex h-svh min-h-0 flex-col overflow-hidden">
+          <Topbar onOpenHistory={() => setHistOpen(true)} />
+          <main className="min-h-0 flex-1 bg-surface p-3">
+            <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
+          </main>
+          <MobileBottomNav onNavigate={onNavigate} />
+          <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
+        </div>
+      </SidebarProvider>
     )
   }
 
   return (
-    <div className="flex h-svh min-h-0 flex-col overflow-hidden">
-      <Topbar collapsed={collapsed} onToggleSidebar={toggleSidebar} onOpenHistory={() => setHistOpen(true)} />
-      <div
-        className={cn(
-          'motion-spring flex min-h-0 flex-1 overflow-hidden transition-[margin-right]',
-          histOpen && 'mr-[218px]',
-        )}
-      >
-        <AppSidebar collapsed={collapsed} onNavigate={onNavigate} />
-        <main className="min-h-0 min-w-0 flex-1 bg-surface p-4">
-          <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
-        </main>
+    <SidebarProvider defaultOpen={defaultOpen}>
+      <div className="flex h-svh min-h-0 flex-col overflow-hidden" style={{ '--app-header-height': '3rem' } as CSSProperties}>
+        <Topbar onOpenHistory={() => setHistOpen(true)} />
+        <div className={cn('flex min-h-0 flex-1', histOpen && 'motion-spring mr-[218px] transition-[margin-right]')}>
+          <AppSidebar onNavigate={onNavigate} />
+          <main className="min-h-0 min-w-0 flex-1 bg-surface p-4">
+            <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
+          </main>
+        </div>
+        <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
       </div>
-      <HistoryPanel open={histOpen} onClose={() => setHistOpen(false)} onOpenSession={onOpenSession} onNewChat={onNewChat} />
-    </div>
+    </SidebarProvider>
   )
 }
