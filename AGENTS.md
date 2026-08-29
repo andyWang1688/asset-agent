@@ -1,18 +1,24 @@
-## Agent skills
+# AGENTS.md
 
-### Issue tracker
+## Agent 技能
 
-Issues are tracked as GitHub Issues on `andyWang1688/asset-agent`, operated via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+### Issue 跟踪
 
-### Triage labels
+Issue 统一记在 `andyWang1688/asset-agent` 的 GitHub Issues，用 `gh` CLI 操作。见 `docs/agents/issue-tracker.md`。
 
-Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+### 分诊标签
 
-### Domain docs
+默认五标签（`needs-triage` 待分诊 / `needs-info` 需补充信息 / `ready-for-agent` 可交给 agent / `ready-for-human` 需人处理 / `wontfix` 不修）。见 `docs/agents/triage-labels.md`。
 
-Single-context layout: root `CONTEXT.md` + `docs/adr/` (created lazily by `/domain-modeling` when needed). See `docs/agents/domain.md`.
+### 领域文档
 
-前端开发前必读 `docs/frontend-design-language.md`。
+单上下文布局：根目录 `CONTEXT.md` + `docs/adr/`（按需由 `/domain-modeling` 创建）。见 `docs/agents/domain.md`。
+
+## 前端开发原则
+
+- 动前端前必读 `docs/frontend-design-language.md`（设计语言与动效规范）。
+- 写组件前先查 `frontend/src/components/ui/` 有没有现成实现，shadcn 官方组件优先；有现成的绝不手写替代。
+  历史教训：sidebar、card 曾被手写替代，后已换回官方组件。
 
 ## 造与买（Build vs Buy）
 
