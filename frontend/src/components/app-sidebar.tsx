@@ -64,7 +64,7 @@ function NavGroup({
   const reduceMotion = useReducedMotion()
   return (
     <>
-      {!collapsed && <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">{label}</div>}
+      <div className="nav-group-label px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted" data-collapsed={collapsed}>{label}</div>
       <nav className="mb-5 grid gap-[3px]">
         {items.map(({ tab: t, label: l }) => (
           <NavHighlight
@@ -81,14 +81,18 @@ function NavGroup({
           >
             {ICONS[t]}
             <span className="nav-collapse" data-collapsed={collapsed}><span>{l}</span></span>
-            {!collapsed && t === 'tasks' && taskCount > 0 && (
-              <AnimatePresence mode="popLayout" initial={false}>
-              <motion.span key={taskCount} className="ml-auto" initial={reduceMotion ? false : { opacity: 0, y: 'calc(-1 * var(--spacing-compact))' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, y: 'var(--spacing-compact)' }} transition={stateTransition(reduceMotion)}>
-                <Badge variant="muted" className="font-mono">
-                  {taskCount}
-                </Badge>
-              </motion.span>
-              </AnimatePresence>
+            {t === 'tasks' && taskCount > 0 && (
+              <span className="nav-collapse ml-auto" data-collapsed={collapsed}>
+                <span>
+                  <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span key={taskCount} initial={reduceMotion ? false : { opacity: 0, y: 'calc(-1 * var(--spacing-compact))' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, y: 'var(--spacing-compact)' }} transition={stateTransition(reduceMotion)}>
+                    <Badge variant="muted" className="font-mono">
+                      {taskCount}
+                    </Badge>
+                  </motion.span>
+                  </AnimatePresence>
+                </span>
+              </span>
             )}
           </NavHighlight>
         ))}
@@ -102,7 +106,7 @@ function SettingsNav({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
   const activeRoute = tab === 'settings' ? settingsRoute : null
   return (
     <>
-      {!collapsed && <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">本地设置</div>}
+      <div className="nav-group-label px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted" data-collapsed={collapsed}>本地设置</div>
       <nav className="mb-5 grid gap-[3px]" aria-label="本地设置">
         {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
           <NavHighlight
@@ -130,7 +134,7 @@ function SettingsNav({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
 export function AppSidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (t: Tab) => void }) {
   const { attention } = useTasks()
   return (
-    <aside className={cn('motion-spring flex shrink-0 flex-col overflow-y-auto bg-surface px-3 pt-[18px] transition-[width]', collapsed ? 'w-[64px]' : 'w-[200px]')}>
+    <aside className={cn('flex shrink-0 flex-col overflow-y-auto bg-surface px-3 pt-[18px] transition-[width] duration-[var(--motion-duration-collapse)] ease-linear', collapsed ? 'w-[64px]' : 'w-[200px]')}>
       <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} collapsed={collapsed} onNavigate={onNavigate} />
       <SettingsNav collapsed={collapsed} onNavigate={onNavigate} />
     </aside>

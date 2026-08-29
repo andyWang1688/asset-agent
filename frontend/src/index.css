@@ -87,6 +87,7 @@
   --motion-duration-standard: 300ms;
   --motion-duration-slow: 450ms;
   --motion-stagger: 40ms;
+  --motion-duration-collapse: 200ms;
   --motion-ease-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
   --motion-ease-fade: cubic-bezier(0.32, 0.72, 0, 1);
 
@@ -194,10 +195,7 @@ body {
 .nav-collapse {
   display: grid;
   grid-template-columns: 1fr;
-  opacity: 1;
-  transition:
-    grid-template-columns var(--motion-duration-standard) var(--motion-ease-fade),
-    opacity var(--motion-duration-fast) var(--motion-ease-fade);
+  transition: grid-template-columns var(--motion-duration-collapse) linear;
 }
 .nav-collapse > span {
   overflow: hidden;
@@ -205,7 +203,22 @@ body {
 }
 .nav-collapse[data-collapsed='true'] {
   grid-template-columns: 0fr;
+}
+
+/* 侧栏分组小标题：折叠时向上收起淡出（New API 同款 200ms linear） */
+.nav-group-label {
+  overflow: hidden;
+  max-height: 2.5rem;
+  opacity: 1;
+  transition:
+    max-height var(--motion-duration-collapse) linear,
+    opacity var(--motion-duration-collapse) linear,
+    padding-bottom var(--motion-duration-collapse) linear;
+}
+.nav-group-label[data-collapsed='true'] {
+  max-height: 0;
   opacity: 0;
+  padding-bottom: 0;
 }
 
 .motion-card:hover {
