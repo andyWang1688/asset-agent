@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { cloneElement, isValidElement, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { fadeTransition, springTransition, stateTransition } from './motion'
 
@@ -42,18 +43,18 @@ export interface SectionCardProps extends Omit<HTMLAttributes<HTMLElement>, 'tit
 
 export function SectionCard({ title, description, actions, className, contentClassName, children, ...props }: SectionCardProps) {
   return (
-    <section className={cn('motion-card rounded-lg border border-border bg-surface shadow-panel', className)} {...props}>
+    <Card className={cn('motion-card gap-0 rounded-lg border border-border py-0 ring-0 shadow-panel', className)} {...props}>
       {(title || description || actions) && (
-        <header className={cn('flex flex-wrap items-start justify-between border-b border-border px-[var(--spacing-content)] py-[var(--spacing-control)]', CONTENT_GAP)}>
+        <CardHeader className="border-b border-border px-[var(--spacing-content)] pt-[var(--spacing-control)]">
           <div className="min-w-0">
-            {title && <h2 className="text-panel font-semibold">{title}</h2>}
-            {description && <p className="mt-compact text-caption leading-relaxed text-muted">{description}</p>}
+            {title && <CardTitle className="text-panel font-semibold">{title}</CardTitle>}
+            {description && <CardDescription className="mt-compact text-caption leading-relaxed">{description}</CardDescription>}
           </div>
-          {actions && <div className={cn('flex shrink-0 items-center', COMPACT_GAP)}>{actions}</div>}
-        </header>
+          {actions && <CardAction className={cn('flex shrink-0 items-center', COMPACT_GAP)}>{actions}</CardAction>}
+        </CardHeader>
       )}
-      <div className={cn(CONTENT_PADDING, contentClassName)}>{children}</div>
-    </section>
+      <CardContent className={cn(CONTENT_PADDING, contentClassName)}>{children}</CardContent>
+    </Card>
   )
 }
 

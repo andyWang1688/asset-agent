@@ -44,6 +44,9 @@
   --color-sidebar-accent-foreground: var(--color-fg);
   --color-sidebar-border: var(--color-border);
   --color-sidebar-ring: var(--color-accent);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-fg);
+  --color-muted-foreground: var(--color-muted);
 
   /* 间距：语义档位；Tailwind 生成 p-page/gap-section 等同名工具类 */
   --spacing-compact: 0.5rem;

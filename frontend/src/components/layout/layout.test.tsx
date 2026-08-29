@@ -11,7 +11,7 @@ describe('layout components', () => {
     )
     expect(markup).toContain('<h1')
     expect(markup).toContain('页面')
-    expect(markup).toContain('<h2')
+    expect(markup).toContain('data-slot="card-title"')
     expect(markup).toContain('var(--spacing-page)')
     expect(markup).toContain('rounded-lg')
   })
