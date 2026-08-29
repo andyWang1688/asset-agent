@@ -73,7 +73,7 @@ export function AppShell({
 
   if (isMobile) {
     return (
-      <SidebarProvider defaultOpen={defaultOpen}>
+      <SidebarProvider defaultOpen={defaultOpen} style={{ '--sidebar-width': '12.5rem', '--sidebar-width-icon': '4rem' } as CSSProperties}>
         <div className="flex h-svh min-h-0 flex-col overflow-hidden">
           <Topbar onOpenHistory={() => setHistOpen(true)} />
           <main className="min-h-0 flex-1 bg-surface p-3">
@@ -87,7 +87,7 @@ export function AppShell({
   }
 
   return (
-    <SidebarProvider defaultOpen={defaultOpen}>
+    <SidebarProvider defaultOpen={defaultOpen} style={{ '--sidebar-width': '12.5rem', '--sidebar-width-icon': '4rem' } as CSSProperties}>
       <div className="flex h-svh min-h-0 flex-col overflow-hidden" style={{ '--app-header-height': '3rem' } as CSSProperties}>
         <Topbar onOpenHistory={() => setHistOpen(true)} />
         <div className={cn('flex min-h-0 flex-1', histOpen && 'motion-spring mr-[218px] transition-[margin-right]')}>
