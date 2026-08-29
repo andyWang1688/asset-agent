@@ -451,7 +451,7 @@ export function SettingsPage() {
 
   return (
     <PageShell title={activeDefinition.title} description={activeDefinition.description}>
-      <SectionCard className="min-w-0 overflow-hidden" contentClassName="p-0">
+      <SectionCard className="min-w-0 min-h-0 flex-1 overflow-hidden" contentClassName="p-0">
 
           {activeModule === 'security' && <SecurityPolicySkeleton mode={securityMode} loading={securityLoading} onModeChange={(mode) => void updateSecurityMode(mode)} tab={securityTab} onTabChange={changeSecurityTab} securityModels={models.security} securityModelActions={groupProps('security')} />}
 

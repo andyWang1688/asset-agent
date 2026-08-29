@@ -183,7 +183,7 @@ export function TasksPage() {
         </Button>
       </div>
 
-      <div className="mt-section-lg grid grid-cols-[minmax(0,1fr)_260px] items-start gap-content max-[820px]:grid-cols-1">
+      <div className="mt-section-lg grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_260px] gap-content max-[820px]:grid-cols-1">
         <SectionCard className="relative overflow-hidden" contentClassName="p-0">
           <div className="flex items-center justify-between gap-3 border-b border-border px-[17px] py-[15px]">
             <h2 className="text-panel font-semibold">任务队列</h2>

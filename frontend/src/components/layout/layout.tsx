@@ -29,7 +29,7 @@ export function PageShell({ title, description, actions, children, className, co
           {actions && <div className={cn('flex shrink-0 items-center', COMPACT_GAP)}>{actions}</div>}
         </header>
       )}
-      <div className={cn('min-h-0 flex-1 overflow-y-auto', contentClassName)}>{children}</div>
+      <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto', contentClassName)}>{children}</div>
     </div>
   )
 }

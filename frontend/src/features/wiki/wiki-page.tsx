@@ -208,7 +208,7 @@ export function WikiPage() {
         </Button>
       )}
     >
-      <SectionCard className="min-h-[590px] overflow-hidden max-[820px]:overflow-visible" contentClassName="grid min-h-[590px] grid-cols-[264px_minmax(0,1fr)] p-0 max-[820px]:grid-cols-1">
+      <SectionCard className="min-h-0 flex-1 overflow-hidden max-[820px]:overflow-visible" contentClassName="grid min-h-full grid-cols-[264px_minmax(0,1fr)] p-0 max-[820px]:grid-cols-1">
           {navVisible && <WikiNav wiki={wiki} />}
           <WikiReader wiki={wiki} />
       </SectionCard>
