@@ -78,7 +78,7 @@ export function AppShell({
         )}
       >
         <AppSidebar onNavigate={onNavigate} />
-        <main className="min-h-0 min-w-0 flex-1 bg-surface p-[var(--spacing-section)] max-[1024px]:p-4">
+        <main className="min-h-0 min-w-0 flex-1 bg-surface p-4">
           <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
         </main>
       </div>

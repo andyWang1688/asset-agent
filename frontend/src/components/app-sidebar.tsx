@@ -6,8 +6,6 @@ import { NavHighlight, stateTransition } from '@/components/layout'
 import { useTasks } from '@/hooks/use-tasks'
 import { useApp, type SettingsRoute, type Tab } from '@/store/app-state'
 
-const APP_VERSION = 'v1.0.0'
-
 const ICONS: Record<Tab, ReactElement> = {
   chat: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 shrink-0">
@@ -130,11 +128,6 @@ export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
     <aside className="flex w-[218px] shrink-0 flex-col overflow-y-auto bg-surface px-3 pt-[18px]">
       <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} onNavigate={onNavigate} />
       <SettingsNav onNavigate={onNavigate} />
-      <div className="mt-auto border-t border-border px-2.5 pb-0.5 pt-3.5 text-caption text-muted">
-        <b className="mb-0.5 block font-semibold text-fg">本地模式</b>
-        资料仅保存在此设备
-        <span className="mt-2 block font-mono text-meta text-muted">{APP_VERSION}</span>
-      </div>
     </aside>
   )
 }
