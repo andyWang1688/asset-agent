@@ -15,13 +15,14 @@ function Topbar({ collapsed, onToggleSidebar, onOpenHistory }: { collapsed: bool
           type="button"
           aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
           onClick={onToggleSidebar}
-          className="motion-interactive grid h-[30px] w-[30px] place-items-center rounded-md text-muted transition-[color,background-color,transform] hover:bg-soft hover:text-fg active:scale-[0.97] max-[820px]:hidden"
+          className={cn('motion-interactive grid h-[30px] w-[30px] place-items-center rounded-md transition-[color,background-color,transform] hover:bg-soft hover:text-fg active:scale-[0.97] max-[820px]:hidden', collapsed ? 'border border-border bg-soft text-fg' : 'text-muted')}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-[15px] w-[15px]">
             <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
             <path d="M9.5 4.5v15" />
           </svg>
         </button>
+        <span className="h-4 w-px bg-border max-[820px]:hidden" aria-hidden="true" />
         <span className="grid h-[26px] w-[26px] place-items-center rounded-sm bg-fg font-mono text-meta font-bold text-surface">
           AA
         </span>

@@ -77,10 +77,10 @@ function NavGroup({
               onNavigate?.(t)
             }}
             className={tab === t ? 'w-full rounded-md text-panel font-semibold text-fg' : 'w-full rounded-md text-panel text-muted hover:bg-soft hover:text-fg'}
-            contentClassName={collapsed ? 'flex w-full items-center justify-center py-2' : 'flex w-full items-center gap-2.5 px-2.5 py-2'}
+            contentClassName="flex w-full items-center gap-2.5 px-2.5 py-2"
           >
             {ICONS[t]}
-            {!collapsed && l}
+            <span className="nav-collapse" data-collapsed={collapsed}><span>{l}</span></span>
             {!collapsed && t === 'tasks' && taskCount > 0 && (
               <AnimatePresence mode="popLayout" initial={false}>
               <motion.span key={taskCount} className="ml-auto" initial={reduceMotion ? false : { opacity: 0, y: 'calc(-1 * var(--spacing-compact))' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, y: 'var(--spacing-compact)' }} transition={stateTransition(reduceMotion)}>
@@ -115,10 +115,10 @@ function SettingsNav({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
               onNavigate?.('settings')
             }}
             className={activeRoute === route ? 'w-full rounded-md text-panel font-semibold text-fg' : 'w-full rounded-md text-panel text-muted hover:bg-soft hover:text-fg'}
-            contentClassName={collapsed ? 'flex w-full items-center justify-center py-2' : 'flex w-full items-center gap-2.5 px-2.5 py-2'}
+            contentClassName="flex w-full items-center gap-2.5 px-2.5 py-2"
           >
             <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
-            {!collapsed && label}
+            <span className="nav-collapse" data-collapsed={collapsed}><span>{label}</span></span>
           </NavHighlight>
         ))}
       </nav>
@@ -130,7 +130,7 @@ function SettingsNav({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
 export function AppSidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (t: Tab) => void }) {
   const { attention } = useTasks()
   return (
-    <aside className={cn('motion-spring flex shrink-0 flex-col overflow-y-auto bg-surface pt-[18px] transition-[width]', collapsed ? 'w-[64px] px-2' : 'w-[200px] px-3')}>
+    <aside className={cn('motion-spring flex shrink-0 flex-col overflow-y-auto bg-surface px-3 pt-[18px] transition-[width]', collapsed ? 'w-[64px]' : 'w-[200px]')}>
       <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} collapsed={collapsed} onNavigate={onNavigate} />
       <SettingsNav collapsed={collapsed} onNavigate={onNavigate} />
     </aside>

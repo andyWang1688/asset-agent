@@ -190,6 +190,24 @@ body {
   transition-timing-function: var(--motion-ease-fade);
 }
 
+/* 侧栏折叠：图标不动，文字以 0fr 网格平滑收起 */
+.nav-collapse {
+  display: grid;
+  grid-template-columns: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-columns var(--motion-duration-standard) var(--motion-ease-fade),
+    opacity var(--motion-duration-fast) var(--motion-ease-fade);
+}
+.nav-collapse > span {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.nav-collapse[data-collapsed='true'] {
+  grid-template-columns: 0fr;
+  opacity: 0;
+}
+
 .motion-card:hover {
   box-shadow: var(--shadow-pop);
 }
