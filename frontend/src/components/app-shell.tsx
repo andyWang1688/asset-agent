@@ -6,11 +6,22 @@ import { HistoryPanel } from '@/components/history-panel'
 import type { ChatMessage } from '@/hooks/use-chat'
 import { cn } from '@/lib/utils'
 
-/** 顶栏：品牌 + 历史按钮（桌面/移动共用，New API 式全宽顶栏） */
-function Topbar({ onOpenHistory }: { onOpenHistory: () => void }) {
+/** 顶栏：折叠按钮 + 品牌 + 历史按钮（桌面/移动共用，New API 式全宽顶栏） */
+function Topbar({ collapsed, onToggleSidebar, onOpenHistory }: { collapsed: boolean; onToggleSidebar: () => void; onOpenHistory: () => void }) {
   return (
-    <header className="sticky top-0 z-30 flex h-[58px] shrink-0 items-center justify-between bg-surface px-[30px] max-[820px]:px-4 max-[480px]:px-3">
-      <div className="flex items-center gap-2.5 text-body font-bold">
+    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between bg-surface px-[30px] max-[820px]:px-4 max-[480px]:px-3">
+      <div className="flex items-center gap-2 text-body font-bold">
+        <button
+          type="button"
+          aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
+          onClick={onToggleSidebar}
+          className="motion-interactive grid h-[30px] w-[30px] place-items-center rounded-md text-muted transition-[color,background-color,transform] hover:bg-soft hover:text-fg active:scale-[0.97] max-[820px]:hidden"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-[15px] w-[15px]">
+            <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+            <path d="M9.5 4.5v15" />
+          </svg>
+        </button>
         <span className="grid h-[26px] w-[26px] place-items-center rounded-sm bg-fg font-mono text-meta font-bold text-surface">
           AA
         </span>
@@ -46,6 +57,12 @@ export function AppShell({
 }) {
   const isMobile = useIsMobile(820)
   const [histOpen, setHistOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === '1')
+  const toggleSidebar = () =>
+    setCollapsed((c) => {
+      localStorage.setItem('sidebar-collapsed', c ? '0' : '1')
+      return !c
+    })
   useEffect(() => {
     if (!histOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -58,7 +75,7 @@ export function AppShell({
   if (isMobile) {
     return (
       <div className="flex h-svh min-h-0 flex-col overflow-hidden">
-        <Topbar onOpenHistory={() => setHistOpen(true)} />
+        <Topbar collapsed={collapsed} onToggleSidebar={toggleSidebar} onOpenHistory={() => setHistOpen(true)} />
         <main className="min-h-0 flex-1 bg-surface p-3">
           <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
         </main>
@@ -70,14 +87,14 @@ export function AppShell({
 
   return (
     <div className="flex h-svh min-h-0 flex-col overflow-hidden">
-      <Topbar onOpenHistory={() => setHistOpen(true)} />
+      <Topbar collapsed={collapsed} onToggleSidebar={toggleSidebar} onOpenHistory={() => setHistOpen(true)} />
       <div
         className={cn(
           'motion-spring flex min-h-0 flex-1 overflow-hidden transition-[margin-right]',
           histOpen && 'mr-[218px]',
         )}
       >
-        <AppSidebar onNavigate={onNavigate} />
+        <AppSidebar collapsed={collapsed} onNavigate={onNavigate} />
         <main className="min-h-0 min-w-0 flex-1 bg-surface p-4">
           <div className="app-main-scroll h-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface shadow-panel">{children}</div>
         </main>

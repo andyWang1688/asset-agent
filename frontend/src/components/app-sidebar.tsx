@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { NavHighlight, stateTransition } from '@/components/layout'
+import { cn } from '@/lib/utils'
 import { useTasks } from '@/hooks/use-tasks'
 import { useApp, type SettingsRoute, type Tab } from '@/store/app-state'
 
@@ -50,34 +51,37 @@ function NavGroup({
   label,
   items,
   taskCount,
+  collapsed,
   onNavigate,
 }: {
   label: string
   items: NavItemDef[]
   taskCount: number
+  collapsed: boolean
   onNavigate?: (t: Tab) => void
 }) {
   const { tab, setTab } = useApp()
   const reduceMotion = useReducedMotion()
   return (
     <>
-      <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">{label}</div>
+      {!collapsed && <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">{label}</div>}
       <nav className="mb-5 grid gap-[3px]">
         {items.map(({ tab: t, label: l }) => (
           <NavHighlight
             key={t}
             active={tab === t}
             layoutId="primary-nav-highlight"
+            title={collapsed ? l : undefined}
             onClick={() => {
               setTab(t)
               onNavigate?.(t)
             }}
-            className={tab === t ? 'w-full rounded-md text-left text-panel font-semibold text-fg' : 'w-full rounded-md text-left text-panel text-muted hover:bg-soft hover:text-fg'}
-            contentClassName="flex w-full items-center gap-2.5 px-2.5 py-2"
+            className={tab === t ? 'w-full rounded-md text-panel font-semibold text-fg' : 'w-full rounded-md text-panel text-muted hover:bg-soft hover:text-fg'}
+            contentClassName={collapsed ? 'flex w-full items-center justify-center py-2' : 'flex w-full items-center gap-2.5 px-2.5 py-2'}
           >
             {ICONS[t]}
-            {l}
-            {t === 'tasks' && taskCount > 0 && (
+            {!collapsed && l}
+            {!collapsed && t === 'tasks' && taskCount > 0 && (
               <AnimatePresence mode="popLayout" initial={false}>
               <motion.span key={taskCount} className="ml-auto" initial={reduceMotion ? false : { opacity: 0, y: 'calc(-1 * var(--spacing-compact))' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, y: 'var(--spacing-compact)' }} transition={stateTransition(reduceMotion)}>
                 <Badge variant="muted" className="font-mono">
@@ -93,27 +97,28 @@ function NavGroup({
   )
 }
 
-function SettingsNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
+function SettingsNav({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (t: Tab) => void }) {
   const { tab, navigateSettings, settingsRoute } = useApp()
   const activeRoute = tab === 'settings' ? settingsRoute : null
   return (
     <>
-      <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">本地设置</div>
+      {!collapsed && <div className="px-2.5 pb-1.5 font-mono text-meta tracking-wide text-muted">本地设置</div>}
       <nav className="mb-5 grid gap-[3px]" aria-label="本地设置">
         {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
           <NavHighlight
             key={route}
             active={activeRoute === route}
             layoutId="primary-nav-highlight"
+            title={collapsed ? label : undefined}
             onClick={() => {
               navigateSettings(route)
               onNavigate?.('settings')
             }}
-            className={activeRoute === route ? 'w-full rounded-md text-left text-panel font-semibold text-fg' : 'w-full rounded-md text-left text-panel text-muted hover:bg-soft hover:text-fg'}
-            contentClassName="flex w-full items-center gap-2.5 px-2.5 py-2"
+            className={activeRoute === route ? 'w-full rounded-md text-panel font-semibold text-fg' : 'w-full rounded-md text-panel text-muted hover:bg-soft hover:text-fg'}
+            contentClassName={collapsed ? 'flex w-full items-center justify-center py-2' : 'flex w-full items-center gap-2.5 px-2.5 py-2'}
           >
             <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
-            {label}
+            {!collapsed && label}
           </NavHighlight>
         ))}
       </nav>
@@ -121,13 +126,13 @@ function SettingsNav({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
   )
 }
 
-/** 设计稿侧栏：AA 品牌 + 工作区/本地设置导航 + 本地模式页脚 */
-export function AppSidebar({ onNavigate }: { onNavigate?: (t: Tab) => void }) {
+/** 侧栏：工作区/本地设置导航（品牌在顶栏）；collapsed 时仅图标 */
+export function AppSidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (t: Tab) => void }) {
   const { attention } = useTasks()
   return (
-    <aside className="flex w-[218px] shrink-0 flex-col overflow-y-auto bg-surface px-3 pt-[18px]">
-      <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} onNavigate={onNavigate} />
-      <SettingsNav onNavigate={onNavigate} />
+    <aside className={cn('motion-spring flex shrink-0 flex-col overflow-y-auto bg-surface pt-[18px] transition-[width]', collapsed ? 'w-[64px] px-2' : 'w-[200px] px-3')}>
+      <NavGroup label="工作区" items={NAV_WORKSPACE} taskCount={attention.length} collapsed={collapsed} onNavigate={onNavigate} />
+      <SettingsNav collapsed={collapsed} onNavigate={onNavigate} />
     </aside>
   )
 }
