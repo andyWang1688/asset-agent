@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { Composer, type ChatMode } from './composer'
 import { ConfirmSheet } from './confirm-sheet'
 import { MessageList } from './message-list'
+import { HistoryPanel } from '@/components/history-panel'
 
 /** ingest 的待确认响应本身就是完整确认视图（submissions.view 展开） */
 function viewFromIngest(r: IngestResult): SubmissionView {
@@ -168,7 +169,17 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
   const [error, setError] = useState('')
   const [pendingOpen, setPendingOpen] = useState(false)
   const [mtTasks, setMtTasks] = useState<MtTask[]>([])
+  const [histOpen, setHistOpen] = useState(false)
   const reduceMotion = useReducedMotion()
+
+  useEffect(() => {
+    if (!histOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHistOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [histOpen])
 
   const knowledgeMissing = !health || !health.knowledge_model
   const hasInput = value.trim().length > 0 || !!file
@@ -282,19 +293,35 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
   }, [closeView, loadSubs])
 
   return (
-    <PageShell className="gap-0" contentClassName="overflow-visible">
+    <PageShell className="h-full gap-0" contentClassName="h-full overflow-visible">
+      {/* 对话历史是聊天页的上下文工具：仅出现在对话内容卡右上角 */}
+      <button
+        type="button"
+        aria-label="对话历史"
+        title="对话历史"
+        onClick={() => setHistOpen(true)}
+        className="motion-interactive absolute right-3 top-3 z-20 flex h-[34px] items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-muted shadow-panel transition-[color,background-color,transform] hover:bg-soft hover:text-fg active:scale-[0.97]"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-[15px] w-[15px]">
+          <path d="M4.5 5.5v4h4" />
+          <path d="M5.2 9.5a7.5 7.5 0 1 1-1.2 4" />
+          <path d="M12 8.5v4l2.6 1.6" />
+        </svg>
+        <span className="text-caption font-medium max-[820px]:hidden">历史</span>
+      </button>
       <div
         className={cn(
-          'motion-state flex flex-col items-center px-0 transition-[justify-content]',
+          // 高度由内容卡驱动（flex-1 撑满 PageShell 内容区），不再用 100vh 拍脑袋计算
+          'flex h-full flex-col items-center px-0',
           collecting
-            ? 'min-h-[calc(100vh-164px)] justify-end pb-[72px] pt-0 max-[820px]:min-h-[calc(100vh-140px)]'
+            ? 'justify-end pb-section'
             : inSession
-              ? 'h-[calc(100vh-118px)] justify-start pb-4 pt-1 max-[820px]:h-[calc(100vh-150px)]'
-              : 'min-h-[calc(100vh-164px)] justify-center pb-[72px] pt-[30px] max-[820px]:min-h-[calc(100vh-140px)]',
+              ? 'justify-start pt-1 pb-compact'
+              : 'justify-center py-section',
         )}
       >
         {inSession ? (
-          <div className="flex w-[min(100%,720px)] shrink-0 items-center gap-2.5 py-4">
+          <div className="flex w-[min(100%,760px)] shrink-0 items-center gap-2.5 py-4">
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-panel font-semibold">{sessionTitle || messages[0].q}</h2>
               <small className="mt-0.5 block font-mono text-meta text-muted">询问知识 · {messages.length} 条</small>
@@ -311,7 +338,7 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
             </button>
           </div>
         ) : (
-          <div className="mb-section-lg text-center">
+          <div className="mb-section text-center">
             <StreamTitle k={streamKey} text={TITLES[mode].title} speed={95} />
             <StreamSub k={streamKey + '-s'} text={TITLES[mode].sub} speed={32} />
             <SegmentedControl
@@ -328,7 +355,7 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
 
         <TaskDrawer tasks={mtTasks} collecting={collecting} onClear={() => setMtTasks([])} />
 
-        <div className="relative z-10 w-[min(100%,720px)] shrink-0">
+        <div className={cn('relative z-10 w-[min(100%,760px)] shrink-0', !inSession && 'mt-content', (inSession || collecting) && 'mt-auto')}>
           {knowledgeMissing && (
             <div className="mb-2 flex items-center justify-center gap-2 px-1 text-caption text-muted">
               <span>请先配置知识库模型</span>
@@ -390,7 +417,7 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
           {error && <p className="mt-2 text-center text-caption text-danger">{error}</p>}
 
           {!inSession && (
-            <div className="mt-3.5 flex flex-wrap justify-center gap-2">
+            <div className="mt-control flex flex-wrap justify-center gap-2">
               {HINTS[mode].map((h) => (
                 <button
                   key={h}
@@ -412,6 +439,20 @@ export function ChatPage({ active, chat }: { active: boolean; chat: ReturnType<t
         onClose={closeView}
         onConfirmed={(r) => onConfirmed(r)}
         onCancelled={onCancelled}
+      />
+      <HistoryPanel
+        open={histOpen}
+        activeSessionId={chat.sessionId}
+        onClose={() => setHistOpen(false)}
+        onOpenSession={(sid, msgs, title) => {
+          chat.openSession(sid, msgs, title)
+          setMode('ask')
+          setHistOpen(false)
+        }}
+        onNewChat={() => {
+          chat.newChat()
+          setHistOpen(false)
+        }}
       />
     </PageShell>
   )

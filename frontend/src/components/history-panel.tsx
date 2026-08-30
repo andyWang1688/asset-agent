@@ -13,6 +13,8 @@ interface HistoryPanelProps {
   onClose: () => void
   onOpenSession: (sessionId: string, messages: ChatMessage[], title?: string | null) => void
   onNewChat: () => void
+  /** 当前正在查看的会话：列表中高亮，保持抽屉与内容区的层级关系 */
+  activeSessionId?: string | null
 }
 
 interface SessionGroup {
@@ -66,7 +68,7 @@ function groupSessions(rows: ChatEntry[]): SessionGroup[] {
 }
 
 /** 对话历史滑入面板：会话列表（按日期分组、置顶优先），悬停三点菜单支持重命名/置顶/删除 */
-export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: HistoryPanelProps) {
+export function HistoryPanel({ open, onClose, onOpenSession, onNewChat, activeSessionId }: HistoryPanelProps) {
   const [groups, setGroups] = useState<SessionGroup[]>([])
   const [loading, setLoading] = useState(false)
   const [menuFor, setMenuFor] = useState<string | null>(null)
@@ -199,7 +201,7 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat }: Histor
                         onOpenSession(g.id, g.messages, g.title)
                         if (isMobile) onClose()
                       }}
-                      className="motion-interactive block w-full rounded-md px-2.5 py-2.5 pr-8 text-left transition-colors hover:bg-soft active:scale-[0.97]"
+                      className={cn('motion-interactive block w-full rounded-md px-2.5 py-2.5 pr-8 text-left transition-colors hover:bg-soft active:scale-[0.97]', g.id === activeSessionId && 'bg-soft')}
                     >
                       <b className="block truncate text-caption font-semibold text-fg">{g.title}</b>
                       <small className="mt-0.5 block font-mono text-meta leading-[1.6] text-muted">

@@ -199,6 +199,11 @@ body {
   transition-timing-function: linear;
 }
 
+/* 拖拽侧栏期间关闭外壳全部 transition（实时跟手），pointerup 后移除属性恢复平滑吸附 */
+div[class*="sidebar-wrapper"][data-dragging] * {
+  transition-duration: 0ms !important;
+}
+
 .motion-card {
   transition-property: box-shadow;
   transition-duration: var(--motion-duration-fast);

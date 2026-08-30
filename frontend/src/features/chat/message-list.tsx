@@ -18,7 +18,7 @@ export function MessageList({ messages, asking }: { messages: ChatMessage[]; ask
   }, [messages, asking])
 
   return (
-    <div ref={scrollRef} className="flex w-[min(100%,720px)] min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-1 pb-5 pt-1.5">
+    <div ref={scrollRef} className="flex w-[min(100%,760px)] min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-1 pb-5 pt-1.5">
       <AnimatePresence initial={false}>
       {messages.map((m, i) => (
         <motion.div key={`${i}-${m.q}`} className="flex flex-col gap-2.5" layout>
