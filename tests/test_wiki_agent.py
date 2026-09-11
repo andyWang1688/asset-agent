@@ -275,6 +275,34 @@ async def test_first_model_context_contains_actual_index(settings):
     assert "索引中的项目入口" in m.calls[0]["user"]
 
 
+async def test_step_budget_forces_final_instead_of_abort(settings):
+    """开放式问题反复读取耗尽步数：临近上限提醒收口，用尽后仍给一次只输出 final 的机会。"""
+    _write_page(settings, "projects/loop.md", "Loop", "循环测试内容。")
+    m = SequenceModel(
+        {"action": "read", "path": "projects/loop.md"},
+        {"action": "read", "path": "projects/loop.md"},
+        {"action": "final", "answer": "基于已读内容。", "citations": ["projects/loop.md"]},
+    )
+    r = await WikiQuestionAnswerEngine(settings, max_steps=2).answer(m, "介绍下你知道的知识")
+    assert r["answer"] == "基于已读内容。"
+    assert r["citations"] == ["projects/loop.md"]
+    assert "剩余动作步数" in m.calls[0]["user"]
+    assert "最后机会" in m.calls[-1]["user"]
+    assert len(m.calls) == 3
+
+
+async def test_step_budget_still_fails_without_final(settings):
+    """耗尽步数且最后一次仍不输出 final：必须失败，不返回残缺结果。"""
+    _write_page(settings, "projects/loop.md", "Loop", "循环测试内容。")
+    m = SequenceModel(
+        {"action": "read", "path": "projects/loop.md"},
+        {"action": "read", "path": "projects/loop.md"},
+        {"action": "read", "path": "projects/loop.md"},
+    )
+    with pytest.raises(LLMError):
+        await WikiQuestionAnswerEngine(settings, max_steps=2).answer(m, "介绍下你知道的知识")
+
+
 async def test_update_must_read_existing_page(settings, monkeypatch):
     p = settings.wiki_dir / "entities" / "fixture.md"
     p.parent.mkdir(parents=True, exist_ok=True)

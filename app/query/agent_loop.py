@@ -66,7 +66,7 @@ def _execute(action: dict, tools: WikiTools) -> dict:
     return {"error": "未知动作（只允许 list/read/search/final）"}
 
 
-def _build_user(task: str, context: list[str], final_hint: str) -> str:
+def _build_user(task: str, context: list[str], final_hint: str, remaining: int | None = None) -> str:
     parts = ["【任务】", task, "", "<已读内容>"]
     if context:
         parts.extend(context)
@@ -75,6 +75,8 @@ def _build_user(task: str, context: list[str], final_hint: str) -> str:
     parts.append("</已读内容>")
     parts.append("")
     parts.append("现在输出下一步 JSON 动作。最终动作字段：" + final_hint)
+    if remaining is not None and remaining <= 2:
+        parts.append(f"【提醒】剩余动作步数仅 {remaining} 步：已能回答时必须立即输出 final，不要继续读取新页面。")
     return "\n".join(parts)
 
 
@@ -100,7 +102,7 @@ async def run_tool_loop(
     parse_failures = 0
     steps = 0
     while steps < max_steps:
-        user = _build_user(task, context, final_hint)
+        user = _build_user(task, context, final_hint, remaining=max_steps - steps)
         resp = await provider.complete(system, user, json_mode=True, max_tokens=max_tokens)
         try:
             action = _parse_action(resp)
@@ -125,4 +127,13 @@ async def run_tool_loop(
             return {"final": action, "read_pages": sorted(tools.read_pages)}
         result = _execute(action, tools)
         context.append(json.dumps(result, ensure_ascii=False))
+    # 步数用尽仍不收口：给一次只允许 final 的机会；模型仍不配合则失败（不静默降级、不返回残缺答案）。
+    user = _build_user(task, context, final_hint, remaining=0)
+    user += "\n【最后机会】动作步数已用尽，现在必须直接输出一个 final JSON 动作（字段：" + final_hint + "），不得再输出其他动作。"
+    try:
+        action = _parse_action(await provider.complete(system, user, json_mode=True, max_tokens=max_tokens))
+    except LLMError:
+        raise LLMError("工具循环超过步数上限，已中止") from None
+    if action.get("action") == "final" and len(action) > 1:
+        return {"final": action, "read_pages": sorted(tools.read_pages)}
     raise LLMError("工具循环超过步数上限，已中止")
