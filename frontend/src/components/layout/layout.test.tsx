@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { EmptyState, FormRow, LoadingState, NavHighlight, PageShell, PageTransition, SectionCard, SegmentedControl } from '.'
+import { DocSkeleton, EmptyState, FormRow, LoadingState, NavHighlight, PageShell, PageTransition, SectionCard, SegmentedControl, TableSkeleton } from '.'
 
 describe('layout components', () => {
   it('renders page and section structure with token classes', () => {
@@ -45,5 +45,17 @@ describe('layout components', () => {
     expect(markup).toContain('role="status"')
     expect(markup).toContain('正在加载')
     expect(markup).toContain('内容区')
+  })
+
+  it('renders table and document skeletons with matching sizes', () => {
+    const markup = renderToStaticMarkup(
+      <>
+        <TableSkeleton rows={3} cols={2} />
+        <DocSkeleton />
+      </>,
+    )
+    expect(markup).toContain('加载中')
+    expect(markup).toContain('正在加载知识页')
+    expect((markup.match(/animate-pulse/g) ?? []).length).toBe(17)
   })
 })

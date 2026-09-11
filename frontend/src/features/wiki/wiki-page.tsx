@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { EmptyState, LoadingState, PageShell, SectionCard, springTransition, staggerTransition } from '@/components/layout'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { DocSkeleton, EmptyState, PageShell, SectionCard, springTransition, staggerTransition } from '@/components/layout'
 import { useApp } from '@/store/app-state'
 import { useWiki } from '@/hooks/use-wiki'
 import { useIsMobile } from '@/hooks/use-is-mobile'
@@ -55,13 +56,29 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
 
   return (
     <aside className="flex min-w-0 flex-col border-r border-border bg-bg p-3 max-[820px]:max-h-[40vh] max-[820px]:border-b max-[820px]:border-r-0">
-      <input
-        className="motion-interactive h-8 w-full rounded-pill border border-border bg-surface px-control text-caption outline-none transition-[border-color] focus:border-fg/45"
-        placeholder="搜索知识页"
-        aria-label="搜索知识页"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      <Command shouldFilter={false} className="flex min-h-0 w-full flex-1 flex-col">
+        <div className="motion-interactive shrink-0 rounded-pill border border-border transition-[border-color] focus-within:border-fg/45">
+          <CommandInput value={query} onValueChange={setQuery} placeholder="搜索知识页" aria-label="搜索知识页" />
+        </div>
+        {q ? (
+        <CommandList className="mt-3 min-h-0 flex-1">
+          <CommandEmpty>没有匹配的知识页</CommandEmpty>
+          {WIKI_CATS_ORDER.map((cat) => {
+            const docs = visible.filter((p) => p.path.startsWith(cat.key + '/') && hit(p))
+            if (docs.length === 0) return null
+            return (
+              <CommandGroup key={cat.key} heading={`${cat.label}（${docs.length}）`}>
+                {docs.map((d) => (
+                  <CommandItem key={d.path} value={d.path} onSelect={() => { void open(d.path); setQuery('') }}>
+                    <span className="truncate font-mono">{d.title || d.path.split('/').pop()}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )
+          })}
+        </CommandList>
+        ) : (
+        <>
       <div className="flex items-center gap-2 px-2.5 pb-2 pt-5 text-caption font-semibold">
         <button
           type="button"
@@ -128,6 +145,9 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
         })}
         </motion.div>}
       </AnimatePresence>
+        </>
+        )}
+      </Command>
       <div className="mt-3 border-t border-border px-2.5 py-3">
         <Button
           variant="link"
@@ -146,6 +166,7 @@ function WikiNav({ wiki }: { wiki: Wiki }) {
 
 function WikiReader({ wiki }: { wiki: Wiki }) {
   const { doc, path, loading, error, pages } = wiki
+  const { openPrivateRef } = useApp()
   if (!doc && !loading) {
     return (
       <article><EmptyState title="暂无文档" description={error || '选择左侧的文档开始阅读'} /></article>
@@ -153,7 +174,7 @@ function WikiReader({ wiki }: { wiki: Wiki }) {
   }
   if (loading) {
     return (
-      <article><LoadingState label="正在加载知识页…" /></article>
+      <article><DocSkeleton /></article>
     )
   }
   const meta = pages.find((p) => p.path === doc!.path)
@@ -170,7 +191,7 @@ function WikiReader({ wiki }: { wiki: Wiki }) {
         {dek && <p className="mt-3 max-w-[58ch] text-input leading-[1.7] text-muted">{dek}</p>}
         <hr className="my-6 border-t border-border" />
         <div className="min-w-0">
-          <Markdown content={doc!.content} onWikiLink={(p) => void wiki.open(p)} />
+          <Markdown content={doc!.content} onWikiLink={(p) => void wiki.open(p)} onPrivateRef={openPrivateRef} />
         </div>
         <div className="mt-8 border-t border-border pt-4 text-caption text-muted">
           <b className="mr-1.5 font-semibold text-fg">路径</b>

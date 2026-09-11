@@ -1,6 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { cloneElement, isValidElement, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { fadeTransition, springTransition, stateTransition } from './motion'
 
@@ -192,6 +193,57 @@ export function LoadingState({ label = '加载中…', className }: LoadingState
       <span className="h-[var(--spacing-compact)] w-[var(--spacing-compact)] animate-pulse rounded-pill bg-accent" aria-hidden="true" />
       <span>{label}</span>
     </motion.div>
+  )
+}
+
+export interface TableSkeletonProps {
+  rows?: number
+  cols?: number
+  className?: string
+}
+
+/** 表格加载态：与最终表格同内边距、同列数，避免加载完成后的布局跳动 */
+export function TableSkeleton({ rows = 6, cols = 4, className }: TableSkeletonProps) {
+  return (
+    <div className={cn('w-full', className)} role="status" aria-live="polite">
+      <span className="sr-only">加载中…</span>
+      <div aria-hidden="true" className="flex items-center gap-[var(--spacing-control)] border-b border-border px-3 py-2.5">
+        {Array.from({ length: cols }, (_, c) => (
+          <Skeleton key={c} className="h-2.5 flex-1 rounded-sm" />
+        ))}
+      </div>
+      {Array.from({ length: rows }, (_, r) => (
+        <div key={r} aria-hidden="true" className="flex items-center gap-[var(--spacing-control)] border-t border-border px-3 py-3">
+          {Array.from({ length: cols }, (_, c) => (
+            <Skeleton key={c} className="h-3 flex-1 rounded-sm" />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export interface DocSkeletonProps {
+  className?: string
+}
+
+/** 文档加载态：标题 + 段落骨架，尺寸对齐 WikiReader 的正文排版 */
+export function DocSkeleton({ className }: DocSkeletonProps) {
+  const widths = [92, 88, 95, 72, 84, 58]
+  return (
+    <div className={cn('px-[clamp(32px,6vw,88px)] py-[54px]', className)} role="status" aria-live="polite">
+      <span className="sr-only">正在加载知识页…</span>
+      <div aria-hidden="true" className="space-y-3">
+        <Skeleton className="h-3 w-16 rounded-sm" />
+        <Skeleton className="h-8 w-2/5 rounded-md" />
+        <Skeleton className="h-3 w-3/5 rounded-sm" />
+        <div className="space-y-2 pt-6">
+          {widths.map((w) => (
+            <Skeleton key={w} className="h-3 rounded-sm" style={{ width: `${w}%` }} />
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 

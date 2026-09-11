@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { staggerTransition } from '@/components/layout'
 import { api, errMsg } from '@/lib/api'
 import type { DetectionRule } from '@/lib/types'
@@ -49,18 +50,19 @@ function RuleRow({ rule, index, onToggle, onOverride, onRestore, onDelete }: {
     finally { setSaving(false) }
   }
   return <>
-    <motion.tr className="border-t border-border align-top text-caption first:border-t-0" layout initial={reduceMotion ? false : { opacity: 0, y: 'var(--spacing-compact)' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, x: 'var(--spacing-content)' }} transition={staggerTransition(reduceMotion, index)}>
-      <th scope="row" className="min-w-[170px] px-3 py-3 text-left font-medium">{rule.name}</th>
-      <td className="whitespace-nowrap px-3 py-3"><Badge variant="muted">{KIND_LABELS[rule.kind] ?? rule.kind}</Badge></td>
-      <td className="whitespace-nowrap px-3 py-3"><Badge variant={rule.source === 'custom' ? 'muted' : rule.source === 'override' ? 'warn' : 'accent'}>{SOURCE_LABELS[rule.source || 'builtin']}</Badge></td>
-      <td className="min-w-[300px] max-w-[560px] px-3 py-3 text-muted">
+    <TableRow asChild className="first:border-t-0">
+    <motion.tr layout initial={reduceMotion ? false : { opacity: 0, y: 'var(--spacing-compact)' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, x: 'var(--spacing-content)' }} transition={staggerTransition(reduceMotion, index)}>
+      <TableHead scope="row" className="min-w-[170px] whitespace-normal py-3">{rule.name}</TableHead>
+      <TableCell><Badge variant="muted">{KIND_LABELS[rule.kind] ?? rule.kind}</Badge></TableCell>
+      <TableCell><Badge variant={rule.source === 'custom' ? 'muted' : rule.source === 'override' ? 'warn' : 'accent'}>{SOURCE_LABELS[rule.source || 'builtin']}</Badge></TableCell>
+      <TableCell className="min-w-[300px] max-w-[560px] whitespace-normal text-muted">
         <p className="break-words">{rule.description || '自定义匹配规则'}</p>
         {!!rule.examples?.length && <p className="mt-1 text-meta">示例命中：{rule.examples.join('、')}</p>}
-      </td>
-      <td className="whitespace-nowrap px-3 py-3">
+      </TableCell>
+      <TableCell>
         <div className="flex items-center gap-2"><span className="text-meta text-muted">{rule.enabled ? '已启用' : '已停用'}</span><Switch checked={rule.enabled} onCheckedChange={onToggle} aria-label={`切换 ${rule.name}`} /></div>
-      </td>
-      <td className="whitespace-nowrap px-3 py-3">
+      </TableCell>
+      <TableCell>
         <div className="flex items-center gap-1">
           {rule.source !== 'custom' && <Button variant="compact" size="icon" onClick={() => setEditing(!editing)} aria-label={`覆盖修改 ${rule.name}`} title="覆盖修改"><Pencil className="h-3.5 w-3.5" /></Button>}
           <DropdownMenu>
@@ -75,11 +77,12 @@ function RuleRow({ rule, index, onToggle, onOverride, onRestore, onDelete }: {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </td>
+      </TableCell>
     </motion.tr>
+    </TableRow>
     <AnimatePresence initial={false}>
-    {advanced && <motion.tr initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="border-t border-border bg-bg"><td colSpan={6} className="px-3 py-2"><code className="block break-all font-mono text-meta text-muted">正则：{rule.pattern || '未提供'}</code></td></motion.tr>}
-    {editing && rule.source !== 'custom' && <motion.tr initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="border-t border-border bg-bg"><td colSpan={6} className="px-3 py-3">
+    {advanced && <TableRow asChild className="bg-bg"><motion.tr initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><TableCell colSpan={6} className="whitespace-normal py-2"><code className="block break-all font-mono text-meta text-muted">正则：{rule.pattern || '未提供'}</code></TableCell></motion.tr></TableRow>}
+    {editing && rule.source !== 'custom' && <TableRow asChild className="bg-bg"><motion.tr initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><TableCell colSpan={6} className="whitespace-normal">
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_170px_auto_auto]">
         <Input aria-label={`${rule.name} 正则`} value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="覆盖正则模式" />
         <Select value={kind} onValueChange={setKind}><SelectTrigger aria-label={`${rule.name} 类别`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select>
@@ -87,7 +90,7 @@ function RuleRow({ rule, index, onToggle, onOverride, onRestore, onDelete }: {
         <Button variant="compact" size="sm" onClick={() => setEditing(false)}>取消</Button>
       </div>
       {error && <p className="mt-2 text-caption text-danger">{error}</p>}
-    </td></motion.tr>}
+    </TableCell></motion.tr></TableRow>}
     </AnimatePresence>
   </>
 }
@@ -159,17 +162,17 @@ export function RegexRulesSection() {
       </div>
       {rules.length > 50 && <p className="mt-3 rounded-md bg-warn-soft px-3 py-2 text-caption text-warn">规则较多可能影响扫描性能，建议定期清理不再使用的规则</p>}
     </div>
-    <div className="overflow-x-auto">
-      <table className="min-w-[940px] w-full border-collapse text-left">
-        <thead className="bg-bg text-meta text-muted"><tr><th scope="col" className="px-3 py-2.5 font-medium">名称</th><th scope="col" className="px-3 py-2.5 font-medium">类型</th><th scope="col" className="px-3 py-2.5 font-medium">来源</th><th scope="col" className="px-3 py-2.5 font-medium">说明 / 示例命中</th><th scope="col" className="px-3 py-2.5 font-medium">状态</th><th scope="col" className="px-3 py-2.5 font-medium">操作</th></tr></thead>
-        <tbody>
-          <AnimatePresence initial={false}>
-          {pageRules.map((rule, index) => <RuleRow key={rule.name} rule={rule} index={index} onToggle={() => void toggle(rule)} onOverride={(body) => override(rule, body)} onRestore={() => restore(rule)} onDelete={() => remove(rule)} />)}
-          </AnimatePresence>
-          {pageRules.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-caption text-muted">暂无匹配规则</td></tr>}
-        </tbody>
-      </table>
-    </div>
+    <Table className="min-w-[940px]">
+      <TableHeader>
+        <TableRow><TableHead scope="col">名称</TableHead><TableHead scope="col">类型</TableHead><TableHead scope="col">来源</TableHead><TableHead scope="col">说明 / 示例命中</TableHead><TableHead scope="col">状态</TableHead><TableHead scope="col">操作</TableHead></TableRow>
+      </TableHeader>
+      <TableBody>
+        <AnimatePresence initial={false}>
+        {pageRules.map((rule, index) => <RuleRow key={rule.name} rule={rule} index={index} onToggle={() => void toggle(rule)} onOverride={(body) => override(rule, body)} onRestore={() => restore(rule)} onDelete={() => remove(rule)} />)}
+        </AnimatePresence>
+        {pageRules.length === 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted">暂无匹配规则</TableCell></TableRow>}
+      </TableBody>
+    </Table>
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-cell py-3">
       <span className="text-meta text-muted">共 {filtered.length} 条 · 每页 20 条</span>
       <div className="flex items-center gap-1.5"><span className="mr-1 font-mono text-meta text-muted">第 {currentPage} / {pageCount} 页</span><Button variant="compact" size="icon" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage === 1} aria-label="上一页"><ChevronLeft className="h-4 w-4" /></Button><Button variant="compact" size="icon" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={currentPage === pageCount} aria-label="下一页"><ChevronRight className="h-4 w-4" /></Button></div>
