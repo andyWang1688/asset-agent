@@ -126,8 +126,6 @@ pnpm dev                         # http://127.0.0.1:5173
 > 说明：本地前端开发时浏览器 Origin 为 `http://127.0.0.1:5173`，需通过 `ALLOWED_ORIGINS` 加入白名单；
 > 生产部署（Docker）无需该配置——浏览器始终同源访问 `http://127.0.0.1:8000`（Nginx 代理）。
 
-联调模型可先不起真实 Key：`uvicorn tools.mock_llm:app --port 9001`，在设置页把 API 地址填 `http://127.0.0.1:9001/v1`（Docker 内填 `http://host.docker.internal:9001/v1`）。Mock 服务同时支持知识库（编译/问答）与安全增强（对 `mocksecret` 报一条增强 Finding）两个角色。
-
 ## 前端工程命令
 
 ```bash
