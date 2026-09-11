@@ -26,6 +26,10 @@ interface ComposerProps {
   onFileChange: (f: File | null) => void
   showModeSwitch?: boolean
   onModeChange?: (m: ChatMode) => void
+  /** 首页大输入框 */
+  large?: boolean
+  /** 值变化时聚焦输入框（Cmd/Ctrl+K） */
+  focusToken?: number
 }
 
 /** 输入区：单层圆角容器；模式切换（仅新对话）在容器内，发送为圆形填充按钮。 */
@@ -40,6 +44,8 @@ export function Composer({
   onFileChange,
   showModeSwitch = false,
   onModeChange,
+  large = false,
+  focusToken = 0,
 }: ComposerProps) {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -56,6 +62,10 @@ export function Composer({
   useEffect(() => {
     autoGrow()
   }, [value])
+
+  useEffect(() => {
+    if (focusToken > 0) taRef.current?.focus()
+  }, [focusToken])
 
   return (
     <div className="rounded-2xl border bg-background p-1.5 shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/10">
@@ -75,7 +85,10 @@ export function Composer({
             if (!sendDisabled && !sending) onSend()
           }
         }}
-        className="min-h-16 resize-none border-0 bg-transparent px-3 pt-2.5 text-base leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent"
+        className={cn(
+          'resize-none border-0 bg-transparent px-3 pt-2.5 leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent',
+          large ? 'min-h-24 text-lg' : 'min-h-16 text-base',
+        )}
       />
       <div className="flex items-center gap-1 px-1 pb-0.5">
         {showModeSwitch ? (

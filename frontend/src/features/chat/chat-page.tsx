@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { CheckCircle2, CircleAlert, CircleDashed } from 'lucide-react'
+import { Wordmark } from '@/brand-wordmark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -14,6 +15,8 @@ import { fmtTime } from '@/lib/format'
 import { Composer, type ChatMode } from './composer'
 import { ConfirmSheet } from './confirm-sheet'
 import { MessageList } from './message-list'
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
 
 /** ingest 的待确认响应本身就是完整确认视图 */
 function viewFromIngest(r: IngestResult): SubmissionView {
@@ -95,6 +98,8 @@ function ChatEmpty({
   onFileChange,
   knowledgeMissing,
   onGoSettings,
+  error,
+  focusToken,
 }: {
   mode: ChatMode
   onModeChange: (m: ChatMode) => void
@@ -107,16 +112,19 @@ function ChatEmpty({
   onFileChange: (f: File | null) => void
   knowledgeMissing: boolean
   onGoSettings: () => void
+  error: string
+  focusToken: number
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4">
-      <h1 className="text-center text-3xl font-semibold tracking-tight">
+      <Wordmark className="h-10 w-auto text-foreground" />
+      <h1 className="mt-8 text-center text-4xl font-semibold tracking-tight">
         {mode === 'ask' ? '想问点什么？' : '今天想整理点什么？'}
       </h1>
-      <p className="mt-2.5 text-center text-sm text-muted-foreground">
+      <p className="mt-3 text-center text-base text-muted-foreground">
         {mode === 'ask' ? '问答只读知识库，不会修改任何内容。' : '粘贴资料或添加文件，安全处理后归档进知识库。'}
       </p>
-      <div className="mt-8 w-full max-w-2xl">
+      <div className="mt-10 w-full max-w-3xl">
         <Composer
           mode={mode}
           value={value}
@@ -128,8 +136,14 @@ function ChatEmpty({
           onFileChange={onFileChange}
           showModeSwitch
           onModeChange={onModeChange}
+          large
+          focusToken={focusToken}
         />
       </div>
+      <p className="mt-3 text-center text-xs text-muted-foreground">
+        Enter 发送 · Shift + Enter 换行 · {IS_MAC ? '⌘K' : 'Ctrl+K'} 聚焦输入框
+      </p>
+      {error && <p className="mt-3 text-center text-xs text-destructive">{error}</p>}
       {knowledgeMissing && (
         <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
           <span>请先配置知识库模型</span>
@@ -151,6 +165,7 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
   const [file, setFile] = useState<File | null>(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const [focusToken, setFocusToken] = useState(0)
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
 
@@ -164,6 +179,25 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
       consumeOpenSession()
     }
   }, [pendingSession, openSessionById, consumeOpenSession])
+
+  // 常用快捷键：⌘/Ctrl+K 聚焦输入框；⌘/Ctrl+Shift+O 新对话
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey
+      if (!mod) return
+      const key = e.key.toLowerCase()
+      if (key === 'k') {
+        e.preventDefault()
+        setFocusToken((n) => n + 1)
+      } else if (e.shiftKey && key === 'o') {
+        e.preventDefault()
+        chat.newChat()
+        setFocusToken((n) => n + 1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [chat])
 
   const knowledgeMissing = !health || !health.knowledge_model
   const activeMode: ChatMode = (mode ?? draftMode) as ChatMode
@@ -254,6 +288,8 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
           onFileChange={setFile}
           knowledgeMissing={knowledgeMissing}
           onGoSettings={() => navigateSettings('models')}
+          error={error}
+          focusToken={focusToken}
         />
       ) : (
         <>
@@ -303,6 +339,7 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
                 sendDisabled={sendDisabled}
                 fileName={file?.name ?? null}
                 onFileChange={setFile}
+                focusToken={focusToken}
               />
               {error && <p className="mt-2 text-center text-xs text-destructive">{error}</p>}
             </div>
