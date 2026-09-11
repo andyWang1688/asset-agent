@@ -1,4 +1,5 @@
 """HTTP API：输入、确认闸门、问答、Wiki、任务、凭证元数据、模型与安全策略配置、安全事件。"""
+import asyncio
 import json
 import sqlite3
 import uuid
@@ -6,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from . import crypto, db
@@ -484,6 +486,56 @@ async def query(request: Request, body: QueryBody):
         raise HTTPException(400, str(e)) from e
     except llm.LLMError as e:
         raise HTTPException(502, str(e)) from e
+
+
+@router.post("/api/query/stream")
+async def query_stream(request: Request, body: QueryBody):
+    """问答流：SSE 上抛模型推理增量与工具动作，结束后给最终（已脱敏）答案。
+    模型未配置、问题被凭证闸门拦截等错误也走流内 error 事件（前端按消息展示）。"""
+    ctx = _ctx(request)
+    provider = ctx.get_provider()
+    if provider is None:
+        raise HTTPException(400, "未配置知识库模型：问答已禁用。请先在「设置」页配置并激活一个知识库模型。")
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def run() -> None:
+        try:
+            result = await query_service.answer(
+                ctx.settings, provider, body.question,
+                security_provider=ctx.get_security_provider(), session_id=body.session_id,
+                engine=ctx.get_query_engine(), on_event=queue.put,
+            )
+            ctx.retrieval_semantic_enabled = result["semantic_retrieval_enabled"]
+            await queue.put({"type": "answer", "answer": result["answer"], "citations": result["citations"]})
+        except ValueError as e:
+            await queue.put({"type": "error", "message": str(e)})
+        except llm.LLMError as e:
+            await queue.put({"type": "error", "message": str(e)})
+        except Exception as e:  # 兜底：异常必须转成流内错误，不能让连接悬挂
+            await queue.put({"type": "error", "message": f"服务器错误：{type(e).__name__}"})
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(run())
+
+    async def events():
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                kind = event["type"]
+                payload = {k: v for k, v in event.items() if k != "type"}
+                yield f"event: {kind}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/api/chat/history")

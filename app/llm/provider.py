@@ -9,9 +9,10 @@
   无放开开关），扫描输入在 llm_detector 中等长掩码后才发送。
 """
 import ipaddress
+import json
 import socket
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Awaitable, Callable, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -95,6 +96,67 @@ class OpenAICompatProvider:
             raise LLMError("模型返回空内容")
         return content
 
+    async def stream_complete(
+        self,
+        system: str,
+        user: str,
+        *,
+        json_mode: bool = False,
+        max_tokens: int = 4000,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
+    ) -> str:
+        """流式调用：推理增量经 on_reasoning 实时回调，返回完整正文（动作 JSON）。
+        正文不出流——上层动作协议需要完整 JSON 才能解析。"""
+        url = self.cfg.base_url.rstrip("/") + "/chat/completions"
+        payload = {
+            "model": self.cfg.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        headers = {"Authorization": f"Bearer {self.cfg.api_key}"} if self.cfg.api_key else {}
+        content_parts: list[str] = []
+        reasoning_seen = False
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as r:
+                    r.raise_for_status()
+                    async for line in r.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if not data or data == "[DONE]":
+                            continue
+                        try:
+                            delta = json.loads(data)["choices"][0]["delta"]
+                        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                            continue
+                        piece = delta.get("reasoning_content")
+                        if piece:
+                            reasoning_seen = True
+                            if on_reasoning is not None:
+                                await on_reasoning(str(piece))
+                        text = delta.get("content")
+                        if text:
+                            content_parts.append(str(text))
+        except (httpx.HTTPError, ValueError, TypeError) as e:
+            raise LLMError(f"模型请求失败: {type(e).__name__}: {str(e)[:300]}") from e
+        content = "".join(content_parts).strip()
+        if not content:
+            if reasoning_seen:
+                raise LLMError(
+                    "模型未返回正文（仅输出推理内容）：推理模型可能把 max_tokens 全部花在思考上，"
+                    "请增大 max_tokens 或改用非推理模型"
+                )
+            raise LLMError("模型返回空内容")
+        return content
+
 
 class AnthropicProvider:
     """Anthropic 原生 Messages API（Claude）。"""
@@ -128,6 +190,18 @@ class AnthropicProvider:
         if not content:
             raise LLMError("模型返回空内容")
         return content.strip()
+
+    async def stream_complete(
+        self,
+        system: str,
+        user: str,
+        *,
+        json_mode: bool = False,
+        max_tokens: int = 4000,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
+    ) -> str:
+        # Anthropic 原生流式暂未接入：退化为一次性调用，不影响主流程。
+        return await self.complete(system, user, json_mode=json_mode, max_tokens=max_tokens)
 
 
 # ---- security 角色端点策略：仅允许 localhost/内网本地端点，禁止公网调用 ----

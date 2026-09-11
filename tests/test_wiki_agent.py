@@ -16,7 +16,7 @@ from app.wiki import compiler
 from app.wiki.tools import ToolError, WikiTools, _safe_page
 from app.worker import Worker
 from app.llm.provider import LLMError
-from tests.fakes import FakeCredentialStore, FakeProvider, SequenceProvider
+from tests.fakes import FakeCredentialStore, FakeProvider, SequenceProvider, StreamingSequenceProvider
 
 
 def _write_page(settings, path, title, content):
@@ -273,6 +273,27 @@ async def test_first_model_context_contains_actual_index(settings):
     m = SequenceModel({"action": "final", "answer": "No record", "citations": []})
     await WikiQuestionAnswerEngine(settings).answer(m, "Question")
     assert "索引中的项目入口" in m.calls[0]["user"]
+
+
+async def test_stream_events_forward_reasoning_and_tool_actions(settings):
+    """流式问答：推理增量与工具动作实时上抛，事件不含任何写入。"""
+    _write_page(settings, "projects/demo.md", "Demo", "订单服务。")
+    provider = StreamingSequenceProvider([
+        json.dumps({"action": "read", "path": "projects/demo.md"}),
+        _final("回答。", citations=["projects/demo.md"]),
+    ])
+    events: list[dict] = []
+
+    async def sink(event):
+        events.append(event)
+
+    r = await WikiQuestionAnswerEngine(settings).answer(provider, "订单服务是什么", on_event=sink)
+    assert r["answer"] == "回答。"
+    assert any(e["type"] == "reasoning" and e["text"] for e in events)
+    action = next(e for e in events if e["type"] == "action")
+    assert action["action"] == "read"
+    assert action["path"] == "projects/demo.md"
+    assert [e["type"] for e in events].index("action") > 0
 
 
 async def test_step_budget_forces_final_instead_of_abort(settings):

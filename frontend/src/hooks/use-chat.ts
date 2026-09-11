@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, errMsg } from '@/lib/api'
 import type { SessionMode } from '@/lib/types'
 
+export type TraceItem =
+  | { kind: 'reasoning'; text: string }
+  | { kind: 'action'; action: string; path?: string; query?: string }
+
 export interface ChatMessage {
   q: string
   a?: string
@@ -9,6 +13,9 @@ export interface ChatMessage {
   semantic?: boolean
   pending?: boolean
   error?: string
+  /** 流式思考轨迹：推理原文增量与工具动作按发生顺序排列 */
+  trace?: TraceItem[]
+  thinkingMs?: number
 }
 
 const SESSION_KEY = 'asset-agent.session-id'
@@ -109,18 +116,72 @@ export function useChat() {
   const ask = useCallback(
     async (question: string) => {
       const myGen = gen.current
+      const startedAt = Date.now()
       setAsking(true)
       setMessages((prev) => [...prev, { q: question, pending: true }])
+
+      const appendTrace = (item: TraceItem) => {
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (!last || !last.pending) return prev
+          const trace = [...(last.trace ?? [])]
+          const tail = trace[trace.length - 1]
+          if (item.kind === 'reasoning' && tail?.kind === 'reasoning') {
+            trace[trace.length - 1] = { kind: 'reasoning', text: tail.text + item.text }
+          } else {
+            trace.push(item)
+          }
+          next[next.length - 1] = { ...last, trace }
+          return next
+        })
+      }
+
+      let streamError = ''
+      let answered = false
       try {
         const { sessionId: sid } = await ensureSession('ask')
         if (myGen !== gen.current) return null
-        const r = await api.query(question, sid)
-        if (myGen !== gen.current) return null // 会话已切换/新建，丢弃过期响应
-        setMessages((prev) => {
-          const next = [...prev]
-          next[next.length - 1] = { q: question, a: r.answer, cites: r.citations || [] }
-          return next
+        await api.streamQuery(question, sid, {
+          onReasoning: (text) => {
+            if (myGen === gen.current) appendTrace({ kind: 'reasoning', text })
+          },
+          onAction: (action) => {
+            if (myGen === gen.current) appendTrace({ kind: 'action', ...action })
+          },
+          onRetry: () => {
+            if (myGen === gen.current) appendTrace({ kind: 'action', action: 'retry' })
+          },
+          onAnswer: (r) => {
+            answered = true
+            if (myGen !== gen.current) return
+            setMessages((prev) => {
+              const next = [...prev]
+              const last = next[next.length - 1]
+              if (!last || !last.pending) return prev
+              next[next.length - 1] = {
+                ...last,
+                pending: false,
+                a: r.answer,
+                cites: r.citations || [],
+                thinkingMs: Date.now() - startedAt,
+              }
+              return next
+            })
+          },
+          onError: (message) => {
+            streamError = message
+          },
         })
+        if (myGen !== gen.current) return null // 会话已切换/新建，丢弃过期响应
+        if (streamError) {
+          setMessages((prev) => prev.slice(0, -1))
+          return streamError
+        }
+        if (!answered) {
+          setMessages((prev) => prev.slice(0, -1))
+          return '回答中断，请重试'
+        }
         return null
       } catch (e) {
         if (myGen !== gen.current) return null

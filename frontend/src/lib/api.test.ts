@@ -12,6 +12,32 @@ describe('ApiError', () => {
   })
 })
 
+describe('问答流', () => {
+  it('跨分块解析推理、动作、重试与最终答案事件', async () => {
+    const encoder = new TextEncoder()
+    const chunks = [
+      'event: reasoning\ndata: {"text":"先读"}\n\nevent: reasoning\ndata: {"text":"页面"}\n\nevent: action',
+      '\ndata: {"action":"read","path":"projects/a.md"}\n\nevent: retry\ndata: {}\n\nevent: answer\ndata: {"answer":"结果","citations":["projects/a.md"]}\n\n',
+    ]
+    const body = new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+        controller.close()
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 200 })))
+
+    const events: string[] = []
+    await api.streamQuery('问题', 's-1', {
+      onReasoning: (t) => events.push('r:' + t),
+      onAction: (a) => events.push('a:' + a.action + ':' + a.path),
+      onRetry: () => events.push('retry'),
+      onAnswer: (r) => events.push('answer:' + r.answer),
+    })
+    expect(events).toEqual(['r:先读', 'r:页面', 'a:read:projects/a.md', 'retry', 'answer:结果'])
+  })
+})
+
 describe('规则设置 API', () => {
   it('读取统一规则列表并保存内置覆盖', async () => {
     const fetchMock = vi.fn()

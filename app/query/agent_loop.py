@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Awaitable, Callable
 
 from ..llm.provider import LLMError
 from ..wiki.tools import ToolBudgetExceeded, ToolError, WikiTools
+
+# 流式事件：{"type":"reasoning","text":...} / {"type":"action",...} / {"type":"retry"}
+EventSink = Callable[[dict], Awaitable[None]]
 
 TOOL_SYSTEM = (
     "你是一个受限的 Wiki 阅读助手。你只能通过 JSON 动作与系统交互，每个动作是一个 JSON 对象，"
@@ -80,6 +84,20 @@ def _build_user(task: str, context: list[str], final_hint: str, remaining: int |
     return "\n".join(parts)
 
 
+async def _complete(provider, system: str, user: str, *, max_tokens: int, on_event: EventSink | None) -> str:
+    """优先走流式（推理增量实时回调）；提供方不支持时退化为一次性调用。"""
+    stream = getattr(provider, "stream_complete", None)
+    if stream is None:
+        return await provider.complete(system, user, json_mode=True, max_tokens=max_tokens)
+    on_reasoning: Callable[[str], Awaitable[None]] | None = None
+    if on_event is not None:
+        async def forward(text: str) -> None:
+            await on_event({"type": "reasoning", "text": text})
+
+        on_reasoning = forward
+    return await stream(system, user, json_mode=True, max_tokens=max_tokens, on_reasoning=on_reasoning)
+
+
 async def run_tool_loop(
     provider,
     *,
@@ -89,8 +107,10 @@ async def run_tool_loop(
     max_steps: int = 8,
     max_tokens: int = 2200,
     system: str = TOOL_SYSTEM,
+    on_event: EventSink | None = None,
 ) -> dict:
-    """执行受限阅读循环，返回 {final, read_pages}。超步数/超预算抛 LLMError（不写任何内容）。"""
+    """执行受限阅读循环，返回 {final, read_pages}。超步数/超预算抛 LLMError（不写任何内容）。
+    on_event 存在时实时上抛推理增量与工具动作（只读轨迹，不含任何写入）。"""
     context: list[str] = []
     # 预载 index 作为初始阅读上下文（安全且预算内），再由模型决定 read/search；空库给真实空索引。
     try:
@@ -103,7 +123,7 @@ async def run_tool_loop(
     steps = 0
     while steps < max_steps:
         user = _build_user(task, context, final_hint, remaining=max_steps - steps)
-        resp = await provider.complete(system, user, json_mode=True, max_tokens=max_tokens)
+        resp = await _complete(provider, system, user, max_tokens=max_tokens, on_event=on_event)
         try:
             action = _parse_action(resp)
         except LLMError as e:
@@ -111,6 +131,8 @@ async def run_tool_loop(
             parse_failures += 1
             if parse_failures > 2:
                 raise
+            if on_event is not None:
+                await on_event({"type": "retry"})
             context.append(
                 json.dumps(
                     {
@@ -125,13 +147,20 @@ async def run_tool_loop(
         steps += 1
         if action.get("action") == "final":
             return {"final": action, "read_pages": sorted(tools.read_pages)}
+        if on_event is not None:
+            event = {"type": "action", "action": str(action.get("action") or "")}
+            if action.get("path"):
+                event["path"] = str(action["path"])
+            if action.get("query"):
+                event["query"] = str(action["query"])
+            await on_event(event)
         result = _execute(action, tools)
         context.append(json.dumps(result, ensure_ascii=False))
     # 步数用尽仍不收口：给一次只允许 final 的机会；模型仍不配合则失败（不静默降级、不返回残缺答案）。
     user = _build_user(task, context, final_hint, remaining=0)
     user += "\n【最后机会】动作步数已用尽，现在必须直接输出一个 final JSON 动作（字段：" + final_hint + "），不得再输出其他动作。"
     try:
-        action = _parse_action(await provider.complete(system, user, json_mode=True, max_tokens=max_tokens))
+        action = _parse_action(await _complete(provider, system, user, max_tokens=max_tokens, on_event=on_event))
     except LLMError:
         raise LLMError("工具循环超过步数上限，已中止") from None
     if action.get("action") == "final" and len(action) > 1:

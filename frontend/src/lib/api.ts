@@ -66,6 +66,41 @@ async function request<T>(url: string, opts: RequestInit = {}): Promise<T> {
   return data as T
 }
 
+export interface StreamAction {
+  action: string
+  path?: string
+  query?: string
+}
+
+export interface StreamHandlers {
+  onReasoning?: (text: string) => void
+  onAction?: (action: StreamAction) => void
+  onRetry?: () => void
+  onAnswer?: (result: QueryResult) => void
+  onError?: (message: string) => void
+}
+
+function handleSseEvent(chunk: string, handlers: StreamHandlers): void {
+  let event = 'message'
+  let data = ''
+  for (const line of chunk.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    else if (line.startsWith('data:')) data += line.slice(5).trim()
+  }
+  if (!data) return
+  let payload: Record<string, unknown>
+  try {
+    payload = JSON.parse(data) as Record<string, unknown>
+  } catch {
+    return
+  }
+  if (event === 'reasoning') handlers.onReasoning?.(String(payload.text ?? ''))
+  else if (event === 'action') handlers.onAction?.(payload as unknown as StreamAction)
+  else if (event === 'retry') handlers.onRetry?.()
+  else if (event === 'answer') handlers.onAnswer?.(payload as unknown as QueryResult)
+  else if (event === 'error') handlers.onError?.(String(payload.message ?? '问答失败'))
+}
+
 /** 全部后端调用集中于此；不在组件内散落原始 fetch；不记录密钥与原文 */
 export const api = {
   health: () => request<Health>('/api/health'),
@@ -91,6 +126,39 @@ export const api = {
 
   query: (question: string, sessionId?: string | null) =>
     request<QueryResult>('/api/query', { method: 'POST', body: JSON.stringify({ question, session_id: sessionId ?? null }) }),
+  /** SSE 问答流：推理增量 / 工具动作 / 重试实时回调，最后回调完整答案 */
+  streamQuery: async (question: string, sessionId: string | null, handlers: StreamHandlers): Promise<void> => {
+    const r = await fetch('/api/query/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, session_id: sessionId ?? null }),
+    })
+    if (!r.ok) {
+      let detail = `请求失败（${r.status}）`
+      try {
+        const d = (await r.json()) as { detail?: string; message?: string }
+        detail = d.detail || d.message || detail
+      } catch {
+        /* 非 JSON 错误体：保留状态码文案 */
+      }
+      throw new ApiError(r.status, detail)
+    }
+    if (!r.body) throw new Error('当前浏览器不支持流式响应')
+    const reader = r.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let sep = buffer.indexOf('\n\n')
+      while (sep !== -1) {
+        handleSseEvent(buffer.slice(0, sep), handlers)
+        buffer = buffer.slice(sep + 2)
+        sep = buffer.indexOf('\n\n')
+      }
+    }
+  },
   chatHistory: () => request<ChatEntry[]>('/api/chat/history'),
   createSession: (mode: SessionMode, sessionId?: string, title?: string) =>
     request<SessionInfo>('/api/chat/sessions', {

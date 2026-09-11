@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 import app.api as api_module
 import app.main as main
-from tests.fakes import FakeCredentialStore, FakeProvider
+from tests.fakes import FakeCredentialStore, FakeProvider, StreamingSequenceProvider
 
 PLAN = json.dumps(
     {
@@ -162,7 +162,7 @@ def test_query_engine_is_replaceable(tmp_path, monkeypatch):
         def __init__(self):
             self.calls = []
 
-        async def answer(self, provider, question, history=None):
+        async def answer(self, provider, question, history=None, on_event=None):
             self.calls.append((provider, question, history))
             return {"answer": "替身回答", "citations": ["fake.md"]}
 
@@ -190,7 +190,7 @@ def test_replacement_engine_stays_behind_security_gates(tmp_path, monkeypatch):
         def __init__(self):
             self.calls = []
 
-        async def answer(self, provider, question, history=None):
+        async def answer(self, provider, question, history=None, on_event=None):
             self.calls.append(question)
             return {
                 "answer": "密码是 sk-proj-abcdEFGH12345678901234567890",
@@ -212,6 +212,27 @@ def test_replacement_engine_stays_behind_security_gates(tmp_path, monkeypatch):
     assert len(engine.calls) == 1
     assert "user@example.com" not in engine.calls[0]
     assert "sk-proj" not in sanitized.json()["answer"]
+
+
+def test_query_stream_emits_reasoning_and_answer(tmp_path, monkeypatch):
+    """SSE 问答流：推理增量与最终答案按事件上抛，且会话记录照常落库。"""
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
+    monkeypatch.setenv("VAULTWARDEN_URL", "http://127.0.0.1:8081")
+    monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
+    provider = StreamingSequenceProvider([
+        json.dumps({"action": "final", "answer": "共有 2 份资料。", "citations": []}, ensure_ascii=False),
+    ])
+    monkeypatch.setattr(main, "get_active_provider", lambda settings: provider)
+
+    with TestClient(main.app) as client:
+        with client.stream("POST", "/api/query/stream", json={"question": "我有哪些资料？"}) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+    assert "event: reasoning" in body
+    assert "event: answer" in body
+    assert "共有 2 份资料。" in body
 
 
 def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):

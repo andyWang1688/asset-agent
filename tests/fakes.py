@@ -30,6 +30,23 @@ class SequenceProvider:
         return self.responses.pop(0)
 
 
+class StreamingSequenceProvider(SequenceProvider):
+    """带流式能力的脚本 Provider：正文按脚本返回，推理增量固定上抛。"""
+
+    def __init__(self, responses, reasoning=("思考片段",)):
+        super().__init__(responses)
+        self.reasoning = list(reasoning)
+
+    async def stream_complete(self, system, user, *, json_mode=False, max_tokens=4000, on_reasoning=None):
+        self.calls.append({"system": system, "user": user})
+        if on_reasoning is not None:
+            for piece in self.reasoning:
+                await on_reasoning(piece)
+        if not self.responses:
+            raise RuntimeError("SequenceProvider 响应耗尽")
+        return self.responses.pop(0)
+
+
 class FakeCredentialStore:
     def __init__(self, fail: bool = False):
         self.fail = fail

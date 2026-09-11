@@ -35,7 +35,7 @@ async def _scan_question(settings: Settings, question: str, security_provider=No
 
 async def answer(settings: Settings, provider: LLMProvider, question: str,
                  security_provider=None, session_id: str | None = None,
-                 engine: QuestionAnswerEngine | None = None) -> dict:
+                 engine: QuestionAnswerEngine | None = None, on_event=None) -> dict:
     question = question.strip()
     if not question:
         raise ValueError("问题为空")
@@ -49,7 +49,7 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
         history = db.list_chat_history(session_id, settings.chat_memory_rounds)
     # 默认 LLM Wiki 引擎：先读 index，再 read/search，不依赖向量/embedding/重排。
     engine = engine or WikiQuestionAnswerEngine(settings)
-    result = await engine.answer(provider, safe_question, history=history)
+    result = await engine.answer(provider, safe_question, history=history, on_event=on_event)
     # 只信任已确认来源登记的精确私密引用，合法长名称原样通过；伪造标签不豁免。
     valid = redactor.registered_refs(db.all_source_refs())
     # 回答里的链接目标只对真正读过的页面路径豁免；标签/正文仍完整扫描。

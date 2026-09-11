@@ -207,7 +207,7 @@ class HybridQuestionAnswerEngine:
     def retrieve(self, question: str) -> list[dict]:
         return self._retrieve(question)[0]
 
-    async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict:
+    async def answer(self, provider, question: str, history: list[dict] | None = None, on_event=None) -> dict:
         degraded = False
         try:
             await self._ensure_index()

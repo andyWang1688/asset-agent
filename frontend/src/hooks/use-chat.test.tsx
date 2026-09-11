@@ -3,7 +3,7 @@ import { vi } from 'vitest'
 
 const apiMock = vi.hoisted(() => ({
   createSession: vi.fn(),
-  query: vi.fn(),
+  streamQuery: vi.fn(),
   chatHistory: vi.fn(),
   listSessions: vi.fn(),
 }))
@@ -35,15 +35,25 @@ async function render() {
   await act(async () => { root!.render(createElement(Harness)) })
 }
 
+interface StreamHandlersStub {
+  onReasoning?: (text: string) => void
+  onAction?: (action: { action: string; path?: string; query?: string }) => void
+  onRetry?: () => void
+  onAnswer?: (r: { answer: string; citations: string[] }) => void
+  onError?: (message: string) => void
+}
+
 beforeEach(() => {
   apiMock.createSession.mockReset()
-  apiMock.query.mockReset()
+  apiMock.streamQuery.mockReset()
   apiMock.chatHistory.mockReset()
   apiMock.listSessions.mockReset()
   apiMock.listSessions.mockResolvedValue([])
   sessionStorage.clear()
   apiMock.createSession.mockImplementation(async (mode: string) => ({ session_id: 's-1', mode, title: null, pinned: false, created_at: '' }))
-  apiMock.query.mockResolvedValue({ answer: 'ok', citations: [] })
+  apiMock.streamQuery.mockImplementation(async (_q: string, _sid: string, h: StreamHandlersStub) => {
+    h.onAnswer?.({ answer: 'ok', citations: [] })
+  })
   apiMock.chatHistory.mockResolvedValue([])
 })
 
@@ -92,23 +102,39 @@ describe('会话模式锁定', () => {
 
   it('切走进行中的提问后清理 busy 状态', async () => {
     let resolveQuery!: (v: unknown) => void
-    apiMock.query.mockImplementation(() => new Promise((r) => { resolveQuery = r }))
+    let handlers: StreamHandlersStub | undefined
+    apiMock.streamQuery.mockImplementation((_q: string, _sid: string, h: StreamHandlersStub) => {
+      handlers = h
+      return new Promise((r) => { resolveQuery = r })
+    })
     await render()
     await act(async () => { await latest!.ensureSession('ask') })
     let old: Promise<unknown>
     await act(async () => { old = latest!.ask('question') })
     expect(latest!.asking).toBe(true)
     await act(async () => { latest!.newChat() })
-    await act(async () => { resolveQuery({ answer: 'old', citations: [] }); await old! })
+    await act(async () => {
+      handlers?.onAnswer?.({ answer: 'old', citations: [] })
+      resolveQuery(undefined)
+      await old!
+    })
     expect(latest!.asking).toBe(false)
   })
 
   it('旧提问结束不清掉更新的提问 busy 状态', async () => {
     let resolveA!: (v: unknown) => void
     let resolveB!: (v: unknown) => void
-    apiMock.query
-      .mockImplementationOnce(() => new Promise((r) => { resolveA = r }))
-      .mockImplementationOnce(() => new Promise((r) => { resolveB = r }))
+    let handlersA: StreamHandlersStub | undefined
+    let handlersB: StreamHandlersStub | undefined
+    apiMock.streamQuery
+      .mockImplementationOnce((_q: string, _sid: string, h: StreamHandlersStub) => {
+        handlersA = h
+        return new Promise((r) => { resolveA = r })
+      })
+      .mockImplementationOnce((_q: string, _sid: string, h: StreamHandlersStub) => {
+        handlersB = h
+        return new Promise((r) => { resolveB = r })
+      })
     await render()
     await act(async () => { await latest!.ensureSession('ask') })
     let old: Promise<unknown>
@@ -116,9 +142,37 @@ describe('会话模式锁定', () => {
     await act(async () => { old = latest!.ask('old question') })
     await act(async () => { latest!.openSession('new-ask', 'ask', []) })
     await act(async () => { current = latest!.ask('new question') })
-    await act(async () => { resolveA({ answer: 'old', citations: [] }); await old! })
+    await act(async () => {
+      handlersA?.onAnswer?.({ answer: 'old', citations: [] })
+      resolveA(undefined)
+      await old!
+    })
     expect(latest!.asking).toBe(true) // 新提问仍在进行
-    await act(async () => { resolveB({ answer: 'new', citations: [] }); await current! })
+    await act(async () => {
+      handlersB?.onAnswer?.({ answer: 'new', citations: [] })
+      resolveB(undefined)
+      await current!
+    })
     expect(latest!.asking).toBe(false)
+  })
+
+  it('流式推理与工具动作按顺序累积为思考轨迹', async () => {
+    apiMock.streamQuery.mockImplementation(async (_q: string, _sid: string, h: StreamHandlersStub) => {
+      h.onAction?.({ action: 'read', path: 'projects/demo.md' })
+      h.onReasoning?.('先读')
+      h.onReasoning?.('页面')
+      h.onRetry?.()
+      h.onAnswer?.({ answer: 'ok', citations: [] })
+    })
+    await render()
+    await act(async () => { const r = await latest!.ask('问题'); expect(r).toBeNull() })
+    const last = latest!.messages[latest!.messages.length - 1]
+    expect(last.pending).toBe(false)
+    expect(last.trace).toEqual([
+      { kind: 'action', action: 'read', path: 'projects/demo.md' },
+      { kind: 'reasoning', text: '先读页面' },
+      { kind: 'action', action: 'retry' },
+    ])
+    expect(last.thinkingMs).toBeTypeOf('number')
   })
 })

@@ -39,7 +39,9 @@ def _scrub_inline_links(text: str, allowed_paths: set[str]) -> str:
 
 
 class QuestionAnswerEngine(Protocol):
-    async def answer(self, provider, question: str, history: list[dict] | None = None) -> dict: ...
+    async def answer(
+        self, provider, question: str, history: list[dict] | None = None, on_event=None
+    ) -> dict: ...
 
 
 def history_block(history: list[dict] | None) -> str:
@@ -104,7 +106,9 @@ class WikiQuestionAnswerEngine:
         self.max_steps = max_steps
         self.max_read_chars = max_read_chars
 
-    async def answer(self, provider: LLMProvider, question: str, history: list[dict] | None = None) -> dict:
+    async def answer(
+        self, provider: LLMProvider, question: str, history: list[dict] | None = None, on_event=None
+    ) -> dict:
         tools = WikiTools(self.settings, max_read_chars=self.max_read_chars)
         result = await run_tool_loop(
             provider,
@@ -113,6 +117,7 @@ class WikiQuestionAnswerEngine:
             final_hint=QA_FINAL_HINT,
             max_steps=self.max_steps,
             system=QA_SYSTEM + "\n\n" + TOOL_SYSTEM,
+            on_event=on_event,
         )
         final = result["final"]
         answer = str(final.get("answer") or "")
