@@ -97,10 +97,30 @@ async def run_tool_loop(
         raise  # 索引预载超预算必须失败，不假成功
     except ToolError:
         pass  # 索引缺失/非法：不预载，模型仍可 list/read/search
-    for _ in range(max_steps):
+    parse_failures = 0
+    steps = 0
+    while steps < max_steps:
         user = _build_user(task, context, final_hint)
         resp = await provider.complete(system, user, json_mode=True, max_tokens=max_tokens)
-        action = _parse_action(resp)
+        try:
+            action = _parse_action(resp)
+        except LLMError as e:
+            # 模型偶尔不按 JSON 协议输出：回灌纠错提示重试（不占工具步数），超过上限才失败（不静默降级）
+            parse_failures += 1
+            if parse_failures > 2:
+                raise
+            context.append(
+                json.dumps(
+                    {
+                        "error": f"上一条输出不是有效 JSON 动作（{e}）。请只输出一个 JSON 对象，"
+                        "可用动作：index / list / read / search / final。"
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            continue
+        parse_failures = 0
+        steps += 1
         if action.get("action") == "final":
             return {"final": action, "read_pages": sorted(tools.read_pages)}
         result = _execute(action, tools)
