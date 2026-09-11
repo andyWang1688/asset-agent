@@ -20,7 +20,7 @@ import { errMsg } from '@/lib/api'
 import type { ModelRow as ModelRowType } from '@/lib/types'
 import { ModelRow, type ModelRowActions } from './model-row'
 import { ModelSheet } from './model-sheet'
-import { AboutSection } from './about-section'
+import { GeneralSection } from './general-section'
 import { RetrievalSection } from './retrieval-section'
 import { SecurityEventsSection } from './security-events-section'
 import { SecurityPolicySection } from './security-policy-section'
@@ -32,7 +32,7 @@ const MODULES: { id: SettingsModule; label: string }[] = [
   { id: 'retrieval', label: '检索配置' },
   { id: 'security', label: '安全策略' },
   { id: 'events', label: '安全事件' },
-  { id: 'about', label: '关于' },
+  { id: 'general', label: '通用' },
 ]
 
 function ModelsPanel({
@@ -161,7 +161,7 @@ export function SettingsPage() {
           <SecurityPolicySection securityModels={models.security} securityModelActions={groupProps('security')} />
         )}
         {activeModule === 'events' && <SecurityEventsSection />}
-        {activeModule === 'about' && <AboutSection />}
+        {activeModule === 'general' && <GeneralSection />}
       </div>
 
       <ModelSheet

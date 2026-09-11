@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { CheckCircle2, CircleAlert, CircleDashed, ClipboardPaste, FileSpreadsheet, FileText, FolderOpen, Link2, Pencil, Search, Upload } from 'lucide-react'
+import { CheckCircle2, CircleAlert, CircleDashed } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -33,21 +33,6 @@ const TASK_STATE_LABEL: Record<'processing' | 'done' | 'failed', string> = {
   processing: '处理中',
   done: '成功',
   failed: '失败',
-}
-
-const SUGGESTIONS: Record<ChatMode, { icon: typeof Search; title: string; desc: string }[]> = {
-  ask: [
-    { icon: FolderOpen, title: '资料盘点', desc: '我有哪些待归档的资料？' },
-    { icon: FileText, title: '最近收录', desc: '总结最近收录的内容' },
-    { icon: Search, title: '定位原件', desc: '某张保单在哪里？' },
-    { icon: Link2, title: '关联查询', desc: '招行卡关联了哪些资料？' },
-  ],
-  maintain: [
-    { icon: ClipboardPaste, title: '粘贴文本', desc: '整理一段投资记录' },
-    { icon: Upload, title: '上传合同', desc: '归档 PDF 或图片合同' },
-    { icon: FileSpreadsheet, title: '导入对账单', desc: '处理 CSV 银行流水' },
-    { icon: Pencil, title: '补充说明', desc: '给已有资料添加整理要求' },
-  ],
 }
 
 /** 维护轮次：来源/脱敏预览/报告摘要/任务状态/失败原因；待确认可打开确认闸门 */
@@ -153,22 +138,6 @@ function ChatEmpty({
           </Button>
         </div>
       )}
-      <div className="mt-5 grid w-full max-w-2xl gap-2 pb-10 sm:grid-cols-2">
-        {SUGGESTIONS[mode].map((s) => (
-          <button
-            key={s.title}
-            type="button"
-            onClick={() => onChange(s.desc)}
-            className="flex flex-col gap-1.5 rounded-xl border bg-card p-3.5 text-left transition-colors hover:bg-accent"
-          >
-            <span className="flex items-center gap-2 text-sm font-medium">
-              <s.icon className="size-4 shrink-0 text-muted-foreground" />
-              {s.title}
-            </span>
-            <span className="text-xs leading-relaxed text-muted-foreground">{s.desc}</span>
-          </button>
-        ))}
-      </div>
     </div>
   )
 }

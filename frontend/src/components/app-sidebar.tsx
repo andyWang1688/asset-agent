@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BookOpen, Check, ChevronDown, ListTodo, MessageSquare, Monitor, Moon, MoreHorizontal, Plus, Settings, Sun } from 'lucide-react'
+import { BookOpen, ChevronDown, ListTodo, MessageSquare, MoreHorizontal, Plus, Settings } from 'lucide-react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
+import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
 import { useSidebar } from '@/components/ui/sidebar'
 import { ShouMark, Wordmark } from '@/brand-wordmark'
 import { api } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
-import { readTheme, setTheme, type Theme } from '@/lib/theme'
 import type { ChatEntry, SessionInfo } from '@/lib/types'
 import { useApp, type Tab } from '@/store/app-state'
 import { useTasks } from '@/hooks/use-tasks'
@@ -23,8 +22,6 @@ const PRIMARY: { tab: Tab; label: string; icon: typeof MessageSquare }[] = [
   { tab: 'tasks', label: '任务', icon: ListTodo },
   { tab: 'settings', label: '设置', icon: Settings },
 ]
-
-const THEME_LABEL: Record<Theme, string> = { light: '浅色', dark: '深色', system: '跟随系统' }
 
 function Brand() {
   return (
@@ -276,32 +273,6 @@ function HistoryNav({ chat }: { chat: ReturnType<typeof useChat> }) {
   )
 }
 
-function ThemeSwitcher() {
-  const [theme, setThemeState] = useState<Theme>(() => readTheme())
-  const choose = (t: Theme) => {
-    setThemeState(t)
-    setTheme(t)
-  }
-  const Icon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <SidebarMenuButton tooltip={THEME_LABEL[theme]} className="group-data-[collapsible=icon]:mx-auto">
-          <Icon />
-          <span className="group-data-[collapsible=icon]:hidden">{THEME_LABEL[theme]}</span>
-        </SidebarMenuButton>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-32">
-        {(Object.keys(THEME_LABEL) as Theme[]).map((t) => (
-          <DropdownMenuItem key={t} onSelect={() => choose(t)}>
-            {THEME_LABEL[t]}
-            {theme === t && <Check className="ml-auto" />}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
 
 /** 应用侧栏：品牌 + 新对话 + 工作区导航 + 对话历史 + 主题；移动端由官方 Sidebar 渲染为抽屉。 */
 export function AppSidebar({ chat }: { chat: ReturnType<typeof useChat> }) {
@@ -366,13 +337,6 @@ export function AppSidebar({ chat }: { chat: ReturnType<typeof useChat> }) {
         </SidebarGroup>
         <HistoryNav chat={chat} />
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <ThemeSwitcher />
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
     </Sidebar>
   )
 }

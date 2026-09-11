@@ -1,4 +1,4 @@
-export type SettingsModule = 'models' | 'retrieval' | 'security' | 'events' | 'about'
+export type SettingsModule = 'models' | 'retrieval' | 'security' | 'events' | 'general'
 
 export type SecurityTab = 'regex' | 'keywords' | 'entropy' | 'security-model'
 
@@ -14,7 +14,8 @@ export function settingsModuleFromLocation(location: Pick<Location, 'pathname' |
   const hashModule = location.hash.match(/^#\/settings\/([^/]+)/)?.[1]
   const candidate = pathModule ?? hashModule
   if (candidate === 'rules' || candidate === 'policy') return 'security'
-  return candidate === 'retrieval' || candidate === 'security' || candidate === 'events' || candidate === 'about' ? candidate : 'models'
+  if (candidate === 'about') return 'general'
+  return candidate === 'retrieval' || candidate === 'security' || candidate === 'events' || candidate === 'general' ? candidate : 'models'
 }
 
 /** 安全策略页的二级标签来自 hash（如 #keywords），非法值回落到正则页 */

@@ -1,15 +1,35 @@
+import { useState } from 'react'
 import { CheckCircle2, CircleAlert } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { SegmentedTabs } from '@/components/segmented-tabs'
 import { Wordmark } from '@/brand-wordmark'
+import { readTheme, setTheme, type Theme } from '@/lib/theme'
 import { useApp } from '@/store/app-state'
 import { SettingsGroup, SettingsRow } from './settings-ui'
 
-/** 关于：版本、定位与数据位置；保险柜连接状态来自 health */
-export function AboutSection() {
+const THEME_OPTIONS: { value: Theme; label: string }[] = [
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+  { value: 'system', label: '跟随系统' },
+]
+
+/** 通用：外观（主题）、版本与定位、数据位置；保险柜连接状态来自 health */
+export function GeneralSection() {
   const { health } = useApp()
   const vaultReady = !!health?.vaultwarden_configured
+  const [theme, setThemeState] = useState<Theme>(() => readTheme())
+  const chooseTheme = (t: Theme) => {
+    setThemeState(t)
+    setTheme(t)
+  }
   return (
     <div className="flex flex-col gap-4">
+      <SettingsGroup title="外观" description="跟随系统时会随系统深浅色自动切换。">
+        <SettingsRow
+          label="主题"
+          control={<SegmentedTabs aria-label="主题" value={theme} onChange={chooseTheme} options={THEME_OPTIONS} />}
+        />
+      </SettingsGroup>
       <SettingsGroup
         title="知守 Memo"
         badge={<Badge variant="outline">v1.0.0</Badge>}
