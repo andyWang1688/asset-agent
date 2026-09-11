@@ -16,6 +16,20 @@ class FakeProvider:
         return self.response
 
 
+class SequenceProvider:
+    """按顺序返回响应（用于 LLM 工具循环测试）；耗尽后抛错。"""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    async def complete(self, system, user, *, json_mode=False, max_tokens=4000) -> str:
+        self.calls.append({"system": system, "user": user})
+        if not self.responses:
+            raise RuntimeError("SequenceProvider 响应耗尽")
+        return self.responses.pop(0)
+
+
 class FakeCredentialStore:
     def __init__(self, fail: bool = False):
         self.fail = fail

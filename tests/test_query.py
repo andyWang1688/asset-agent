@@ -1,8 +1,10 @@
-from app import db
-from app.query import service
-from tests.fakes import FakeProvider
+import json
 
 import pytest
+
+from app import db
+from app.query import service
+from tests.fakes import SequenceProvider
 
 
 def _write_page(settings, path, title, content):
@@ -11,9 +13,19 @@ def _write_page(settings, path, title, content):
     page.write_text(f"# {title}\n{content}\n", encoding="utf-8")
 
 
+def _qa_provider(answer: str, citations=(), reads=()):
+    actions = [json.dumps({"action": "read", "path": p}) for p in reads]
+    actions.append(json.dumps({"action": "final", "answer": answer, "citations": list(citations)}, ensure_ascii=False))
+    return SequenceProvider(actions)
+
+
 async def test_answer_with_citations_and_sanitize(settings):
     _write_page(settings, "projects/demo.md", "Demo", "Demo 项目介绍，包含订单服务。")
-    provider = FakeProvider("根据 [[projects/demo.md|Demo]]：密码是 sk-proj-abcdEFGH12345678901234567890")
+    provider = _qa_provider(
+        "根据 [[projects/demo.md|Demo]]：密码是 sk-proj-abcdEFGH12345678901234567890",
+        citations=["projects/demo.md"],
+        reads=["projects/demo.md"],
+    )
     r = await service.answer(settings, provider, "Demo 项目是什么")
     assert "[[projects/demo.md|Demo]]" in r["answer"]
     assert "sk-proj" not in r["answer"]
@@ -24,14 +36,14 @@ async def test_answer_with_citations_and_sanitize(settings):
 
 
 async def test_answer_empty_wiki(settings):
-    provider = FakeProvider("不应被调用")
+    provider = _qa_provider("Wiki 中未找到相关内容。")
     r = await service.answer(settings, provider, "没有内容的问题")
     assert "未找到" in r["answer"]
-    assert provider.calls == []
+    assert r["citations"] == []
 
 
 async def test_answer_blocks_credentials_in_question(settings):
-    provider = FakeProvider("不应被调用")
+    provider = _qa_provider("不应被调用")
     with pytest.raises(ValueError) as ei:
         await service.answer(settings, provider, "password=Sup3rSecret! 是什么")
     assert "阻止发送" in str(ei.value)
@@ -40,9 +52,9 @@ async def test_answer_blocks_credentials_in_question(settings):
 
 
 async def test_answer_redacts_pii_in_question(settings):
-    """PII 仅脱敏：身份证/银行卡进入云端与历史记录前被脱敏。"""
+    """PII 仅脱敏：身份证进入云端与历史记录前被脱敏。"""
     _write_page(settings, "projects/demo.md", "Demo", "Demo 项目介绍。")
-    provider = FakeProvider("根据 [[projects/demo.md|Demo]]：说明。")
+    provider = _qa_provider("根据 [[projects/demo.md|Demo]]：说明。", citations=["projects/demo.md"], reads=["projects/demo.md"])
     r = await service.answer(settings, provider, "Demo 项目 身份证 11010519491231002X 是什么格式")
     sent = str(provider.calls)
     assert "11010519491231002X" not in sent
@@ -54,7 +66,7 @@ async def test_answer_redacts_pii_in_question(settings):
 
 async def test_answer_redacts_email_and_mobile_in_question(settings):
     _write_page(settings, "projects/demo.md", "Demo", "Demo 项目介绍。")
-    provider = FakeProvider("根据 [[projects/demo.md|Demo]]：说明。")
+    provider = _qa_provider("根据 [[projects/demo.md|Demo]]：说明。", citations=["projects/demo.md"], reads=["projects/demo.md"])
     await service.answer(settings, provider, "Demo 联系 user@example.com 或 13812345678")
     sent = str(provider.calls)
     assert "user@example.com" not in sent

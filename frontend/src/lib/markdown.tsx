@@ -6,12 +6,13 @@ import { preprocessWikiLinks, safeImgUrl, safeUrl } from '@/lib/markdown-safety'
 interface MarkdownProps {
   content: string
   onWikiLink?: (path: string) => void
+  onPrivateRef?: (refId: string) => void
   className?: string
 }
 
 /** 安全 Markdown 渲染：不启用 rehype-raw / dangerouslySetInnerHTML；
     协议过滤、外链 rel、远程图片阻止都在这里统一处理。 */
-export function Markdown({ content, onWikiLink, className }: MarkdownProps) {
+export function Markdown({ content, onWikiLink, onPrivateRef, className }: MarkdownProps) {
   const src = preprocessWikiLinks(content)
   return (
     <div className={cn('md-body', className)}>
@@ -20,7 +21,8 @@ export function Markdown({ content, onWikiLink, className }: MarkdownProps) {
         urlTransform={(url) => safeUrl(url)}
         components={{
           a: ({ href, children, node: _node, ...props }) => {
-            if (href && href.startsWith('wiki:')) {
+            const lower = href?.toLowerCase()
+            if (href && lower?.startsWith('wiki:')) {
               const path = href.slice(5)
               return (
                 <a
@@ -34,6 +36,21 @@ export function Markdown({ content, onWikiLink, className }: MarkdownProps) {
                 >
                   {children}
                 </a>
+              )
+            }
+            if (href && lower?.startsWith('private:')) {
+              const refId = href.slice(8)
+              return (
+                <button
+                  type="button"
+                  className="private-ref"
+                  title="查看私密引用位置"
+                  onClick={() => {
+                    onPrivateRef?.(refId)
+                  }}
+                >
+                  {children}
+                </button>
               )
             }
             return (

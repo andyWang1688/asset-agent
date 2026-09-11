@@ -19,6 +19,10 @@ describe('safeUrl', () => {
     expect(safeUrl('vbscript:msgbox')).toBe('#')
     expect(safeUrl('file:///etc/passwd')).toBe('#')
   })
+  it('放行应用内部 wiki:/private: 链接（不变成 #）', () => {
+    expect(safeUrl('wiki:concepts/a.md')).toBe('wiki:concepts/a.md')
+    expect(safeUrl('private:pr_0000000000000000')).toBe('private:pr_0000000000000000')
+  })
 })
 
 describe('safeImgUrl', () => {

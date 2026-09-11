@@ -1,0 +1,108 @@
+"""共享的受限 Wiki 阅读工具循环：模型以结构化 JSON 动作 read/search/final 驱动，
+程序验证动作与路径、固定步数与内容预算；不做通用 Agent 平台。"""
+from __future__ import annotations
+
+import json
+import re
+
+from ..llm.provider import LLMError
+from ..wiki.tools import ToolBudgetExceeded, ToolError, WikiTools
+
+TOOL_SYSTEM = (
+    "你是一个受限的 Wiki 阅读助手。你只能通过 JSON 动作与系统交互，每个动作是一个 JSON 对象，"
+    "每次只输出一个 JSON 对象，不要输出任何其他文字。可用动作：\n"
+    '  {"action":"index"} —— 读取 index.md 导航入口。\n'
+    '  {"action":"list"} —— 列出所有页面路径与标题。\n'
+    '  {"action":"read","path":"<dir>/<slug>.md"} —— 读取一个已知页面。\n'
+    '  {"action":"search","query":"<关键词>"} —— 关键词搜索页面。\n'
+    '  {"action":"final", ...} —— 结束并给出最终结果（字段见任务说明）。\n'
+    "只能读 concepts/entities/projects/sources/analyses 目录下已存在的 .md 页面；"
+    "不得读取、写入任何其他文件、目录、网络或执行命令。"
+)
+
+
+def _strip_fences(text: str) -> str:
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        nl = text.find("\n")
+        if nl != -1 and text[:nl].strip().lower() in ("json",):
+            text = text[nl + 1 :]
+    return text.strip()
+
+
+def _parse_action(resp: str) -> dict:
+    text = _strip_fences(resp)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1:
+            raise LLMError("模型输出不是有效 JSON 动作")
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError as e:
+            raise LLMError("模型输出 JSON 无法解析") from e
+    if not isinstance(data, dict):
+        raise LLMError("模型动作必须是 JSON 对象")
+    return data
+
+
+def _execute(action: dict, tools: WikiTools) -> dict:
+    kind = action.get("action")
+    if kind == "index":
+        return tools.read_index()
+    if kind == "list":
+        return tools.list_pages()
+    if kind == "read":
+        try:
+            return tools.read_page(str(action.get("path") or ""))
+        except ToolBudgetExceeded:
+            raise
+        except ToolError as e:
+            return {"path": action.get("path"), "error": str(e)}
+    if kind == "search":
+        return tools.search(str(action.get("query") or ""), limit=5)
+    return {"error": "未知动作（只允许 list/read/search/final）"}
+
+
+def _build_user(task: str, context: list[str], final_hint: str) -> str:
+    parts = ["【任务】", task, "", "<已读内容>"]
+    if context:
+        parts.extend(context)
+    else:
+        parts.append("（尚未读取任何内容）")
+    parts.append("</已读内容>")
+    parts.append("")
+    parts.append("现在输出下一步 JSON 动作。最终动作字段：" + final_hint)
+    return "\n".join(parts)
+
+
+async def run_tool_loop(
+    provider,
+    *,
+    tools: WikiTools,
+    task: str,
+    final_hint: str,
+    max_steps: int = 8,
+    max_tokens: int = 2200,
+    system: str = TOOL_SYSTEM,
+) -> dict:
+    """执行受限阅读循环，返回 {final, read_pages}。超步数/超预算抛 LLMError（不写任何内容）。"""
+    context: list[str] = []
+    # 预载 index 作为初始阅读上下文（安全且预算内），再由模型决定 read/search；空库给真实空索引。
+    try:
+        context.append(json.dumps(tools.read_index(), ensure_ascii=False))
+    except ToolBudgetExceeded:
+        raise  # 索引预载超预算必须失败，不假成功
+    except ToolError:
+        pass  # 索引缺失/非法：不预载，模型仍可 list/read/search
+    for _ in range(max_steps):
+        user = _build_user(task, context, final_hint)
+        resp = await provider.complete(system, user, json_mode=True, max_tokens=max_tokens)
+        action = _parse_action(resp)
+        if action.get("action") == "final":
+            return {"final": action, "read_pages": sorted(tools.read_pages)}
+        result = _execute(action, tools)
+        context.append(json.dumps(result, ensure_ascii=False))
+    raise LLMError("工具循环超过步数上限，已中止")

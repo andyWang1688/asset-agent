@@ -4,10 +4,39 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 
 from ..config import Settings
 from .base import CredentialError, SecretMetadata, SecretPayload, SecretRef
+
+_APP_NOTE_MARKERS = ("由资产 Agent 自动保存", "由资产助手自动保存")
+_VALUE_HASH_RE = re.compile(r"值哈希:\s*([0-9a-f]{16})")
+_FIELD_NAME_RE = re.compile(r"字段:\s*([^\n;]{1,80})")
+
+
+def _app_managed_note(note: str) -> str | None:
+    """仅当 note 以应用管理标记开头时视为应用管理，返回去标记后的内容；否则 None。"""
+    stripped = (note or "").strip()
+    if not any(stripped.startswith(m) for m in _APP_NOTE_MARKERS):
+        return None
+    return stripped
+
+
+def _app_value_hash(note: str) -> str:
+    m = _app_managed_note(note)
+    if m is None:
+        return ""
+    vm = _VALUE_HASH_RE.search(m)
+    return vm.group(1) if vm else ""
+
+
+def _app_field_name(note: str) -> str:
+    m = _app_managed_note(note)
+    if m is None:
+        return ""
+    fm = _FIELD_NAME_RE.search(m)
+    return fm.group(1).strip() if fm else ""
 
 
 class VaultwardenAdapter:
@@ -115,10 +144,25 @@ class VaultwardenAdapter:
         await self._ensure_ready()
         tpl = await self._run("get", "template", "item")
         item = json.loads(tpl)
-        item["type"] = 1
         item["name"] = payload.name
         item["notes"] = payload.note or ""
-        item["login"] = {"username": None, "password": payload.value, "uris": [], "totp": None}
+        if payload.kind == "secure_note":
+            item["type"] = 2
+            item["secureNote"] = {"type": 0}
+            item["fields"] = [
+                {"name": name, "value": value, "type": 1} for name, value in payload.fields
+            ]
+            item.pop("login", None)
+        else:
+            item["type"] = 1
+            item["login"] = {
+                "username": payload.username,
+                "password": payload.value,
+                "uris": [{"uri": payload.uri, "match": None}] if payload.uri else [],
+                "totp": None,
+            }
+            item.pop("secureNote", None)
+            item.pop("fields", None)
         encoded = (await self._run("encode", stdin=json.dumps(item, ensure_ascii=False))).strip()
         created = await self._run("create", "item", encoded)
         data = json.loads(created)
@@ -144,15 +188,18 @@ class VaultwardenAdapter:
             raise CredentialError("Vaultwarden 返回异常") from e
         metas = []
         for it in items:
-            login = it.get("login") or {}
-            uris = login.get("uris") or []
-            uri = uris[0].get("uri", "") if uris else ""
+            itype = it.get("type")
+            kind = "secure_note" if itype == 2 else "login"
+            note = it.get("notes") or ""
             metas.append(
                 SecretMetadata(
                     name=it.get("name") or "",
                     item_id=it.get("id") or "",
-                    note=(login.get("username") or "") + (" · " + uri if uri else ""),
+                    note="",  # 不对外暴露笔记正文（用户 Secure Note 的 notes 即敏感正文）
                     updated_at=it.get("revisionDate") or "",
+                    kind=kind,
+                    value_hash=_app_value_hash(note),
+                    field_name=_app_field_name(note),
                 )
             )
         return metas

@@ -2,6 +2,7 @@ import type {
   ChatEntry,
   CustomRuleBody,
   DetectionRule,
+  FindingEdits,
   Health,
   IngestResult,
   ModelDownloadBody,
@@ -11,14 +12,18 @@ import type {
   ModelRow,
   PendingSubmission,
   PolicyResp,
+  PrivateRefMeta,
   Preset,
   QueryResult,
   RebuildStatus,
+  ReportSnapshot,
   RetrievalConfigBody,
   RetrievalConfigView,
   RetrievalTestResult,
   SecurityEvent,
   SecuritySettingsView,
+  SessionInfo,
+  SessionMode,
   SettingsStatus,
   SubmissionView,
   TaskRow,
@@ -70,10 +75,16 @@ export const api = {
 
   pendingSubmissions: () => request<PendingSubmission[]>('/api/pending/submissions'),
   submissionView: (id: number) => request<SubmissionView>(`/api/pending/submissions/${id}`),
-  confirmSubmission: (id: number, decisions: Record<string, string>, editedText?: string) =>
+  confirmSubmission: (
+    id: number,
+    decisions: Record<string, string>,
+    sessionId: string,
+    edits: FindingEdits,
+    editedText?: string,
+  ) =>
     request<IngestResult>(`/api/pending/submissions/${id}/confirm`, {
       method: 'POST',
-      body: JSON.stringify({ decisions, edited_text: editedText }),
+      body: JSON.stringify({ decisions, edits, edited_text: editedText, session_id: sessionId }),
     }),
   cancelSubmission: (id: number) =>
     request<{ cancelled: boolean }>(`/api/pending/submissions/${id}/cancel`, { method: 'POST' }),
@@ -81,6 +92,12 @@ export const api = {
   query: (question: string, sessionId?: string | null) =>
     request<QueryResult>('/api/query', { method: 'POST', body: JSON.stringify({ question, session_id: sessionId ?? null }) }),
   chatHistory: () => request<ChatEntry[]>('/api/chat/history'),
+  createSession: (mode: SessionMode, sessionId?: string, title?: string) =>
+    request<SessionInfo>('/api/chat/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ mode, session_id: sessionId ?? null, title: title ?? null }),
+    }),
+  listSessions: () => request<SessionInfo[]>('/api/chat/sessions'),
   setSessionTitle: (sessionId: string, title: string) =>
     request<{ ok: boolean }>('/api/chat/session/title', { method: 'POST', body: JSON.stringify({ session_id: sessionId, title }) }),
   setSessionPin: (sessionId: string, pinned: boolean) =>
@@ -95,7 +112,10 @@ export const api = {
   wikiRebuild: () => request<{ ok: boolean }>('/api/wiki/rebuild', { method: 'POST' }),
 
   tasks: () => request<TaskRow[]>('/api/tasks'),
-  retryTask: (id: number) => request<{ id: number; status: string }>(`/api/tasks/${id}/retry`, { method: 'POST' }),
+  reports: (sessionId?: string) =>
+    request<ReportSnapshot[]>(`/api/reports${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`),
+  reportView: (id: number) => request<ReportSnapshot>(`/api/reports/${id}`),
+  refMetadata: (refId: string) => request<PrivateRefMeta>(`/api/refs/${encodeURIComponent(refId)}`),
 
   presets: () => request<Preset[]>('/api/settings/presets'),
   models: () => request<ModelRow[]>('/api/settings/models'),

@@ -19,6 +19,26 @@ def workspace(tmp_path, monkeypatch):
     return ws
 
 
+@pytest.fixture
+def maintain_session(workspace):
+    """显式创建固定维护会话并返回 session_id（资料提交必须挂在维护会话下）。"""
+    import uuid
+
+    sid = uuid.uuid4().hex
+    db.create_session(sid, db.SESSION_MAINTAIN)
+    return sid
+
+
+@pytest.fixture
+def ask_session(workspace):
+    """显式创建固定问答会话并返回 session_id。"""
+    import uuid
+
+    sid = uuid.uuid4().hex
+    db.create_session(sid, db.SESSION_ASK)
+    return sid
+
+
 from app.config import Settings  # noqa: E402
 
 

@@ -7,6 +7,11 @@ from pathlib import Path
 _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
 
+# Session 固定模式：创建时一次选定，生命周期内不可切换。
+SESSION_ASK = "ask"
+SESSION_MAINTAIN = "maintain"
+SESSION_MODES = (SESSION_ASK, SESSION_MAINTAIN)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sources (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,13 +22,17 @@ CREATE TABLE IF NOT EXISTS sources (
   secret_refs TEXT DEFAULT '[]',
   confirmed INTEGER DEFAULT 1,
   allowed_spans TEXT DEFAULT '[]',
+  instruction TEXT DEFAULT '',
   created_at TEXT DEFAULT (datetime('now','localtime'))
 );
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_id INTEGER,
+  session_id TEXT,
+  report_id INTEGER,
   status TEXT DEFAULT 'pending',
   error TEXT,
+  result TEXT DEFAULT '{}',
   retries INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now','localtime')),
   updated_at TEXT DEFAULT (datetime('now','localtime'))
@@ -41,12 +50,14 @@ CREATE TABLE IF NOT EXISTS pending_secrets (
 );
 CREATE TABLE IF NOT EXISTS pending_submissions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  sha256 TEXT UNIQUE,
+  sha256 TEXT,
   kind TEXT,
   original_name TEXT,
   payload TEXT,
   status TEXT DEFAULT 'waiting',
   findings_summary TEXT DEFAULT '{}',
+  session_id TEXT,
+  report_id INTEGER,
   created_at TEXT DEFAULT (datetime('now','localtime')),
   resolved_at TEXT
 );
@@ -62,6 +73,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   session_id TEXT PRIMARY KEY,
   title TEXT,
   pinned INTEGER DEFAULT 0,
+  mode TEXT DEFAULT 'ask',
   created_at TEXT DEFAULT (datetime('now','localtime'))
 );
 CREATE TABLE IF NOT EXISTS security_events (
@@ -98,6 +110,22 @@ CREATE TABLE IF NOT EXISTS pages_data (
   title TEXT,
   content TEXT,
   updated_at TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT,
+  submission_id INTEGER,
+  status TEXT DEFAULT 'pending',
+  mode TEXT DEFAULT 'confirm',
+  kind TEXT,
+  original_name TEXT,
+  sha256 TEXT,
+  summary TEXT DEFAULT '{}',
+  entries TEXT DEFAULT '[]',
+  preview TEXT DEFAULT '',
+  instruction TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  confirmed_at TEXT
 );
 """
 
@@ -150,6 +178,8 @@ def _migrate() -> None:
         _c().execute("ALTER TABLE sources ADD COLUMN confirmed INTEGER DEFAULT 1")
     if "allowed_spans" not in cols:
         _c().execute("ALTER TABLE sources ADD COLUMN allowed_spans TEXT DEFAULT '[]'")
+    if "instruction" not in cols:
+        _c().execute("ALTER TABLE sources ADD COLUMN instruction TEXT DEFAULT ''")
     # FTS5 查询路径已退役：清理旧库遗留的虚拟表、触发器与开关位（派生索引，可随时从 Markdown 重建）。
     _c().executescript(
         "DROP TRIGGER IF EXISTS pages_ai;"
@@ -164,6 +194,26 @@ def _migrate() -> None:
     ccols = {r["name"] for r in _c().execute("PRAGMA table_info(chat_log)")}
     if "session_id" not in ccols:
         _c().execute("ALTER TABLE chat_log ADD COLUMN session_id TEXT")
+    # 1.0 重构：Session 固定模式、任务/待确认提交与报告关联、安全报告快照。
+    scols = {r["name"] for r in _c().execute("PRAGMA table_info(chat_sessions)")}
+    if "mode" not in scols:
+        # 旧会话无模式：默认 ask（只读，fail-closed；写操作必须显式建维护会话）。
+        _c().execute("ALTER TABLE chat_sessions ADD COLUMN mode TEXT DEFAULT 'ask'")
+    tcols = {r["name"] for r in _c().execute("PRAGMA table_info(tasks)")}
+    if "session_id" not in tcols:
+        _c().execute("ALTER TABLE tasks ADD COLUMN session_id TEXT")
+    if "report_id" not in tcols:
+        _c().execute("ALTER TABLE tasks ADD COLUMN report_id INTEGER")
+    if "result" not in tcols:
+        _c().execute("ALTER TABLE tasks ADD COLUMN result TEXT DEFAULT '{}'")
+    pcols = {r["name"] for r in _c().execute("PRAGMA table_info(pending_submissions)")}
+    if "session_id" not in pcols:
+        _c().execute("ALTER TABLE pending_submissions ADD COLUMN session_id TEXT")
+    if "report_id" not in pcols:
+        _c().execute("ALTER TABLE pending_submissions ADD COLUMN report_id INTEGER")
+    rcols = {r["name"] for r in _c().execute("PRAGMA table_info(reports)")}
+    if "instruction" not in rcols:
+        _c().execute("ALTER TABLE reports ADD COLUMN instruction TEXT DEFAULT ''")
     for role in ("knowledge", "security"):
         rows = _c().execute(
             "SELECT id FROM model_configs WHERE role=? AND is_active=1 ORDER BY id", (role,)
@@ -174,6 +224,12 @@ def _migrate() -> None:
     _c().execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_model_configs_active_role "
         "ON model_configs(role) WHERE is_active=1"
+    )
+    # 待确认提交按「会话 + 内容」唯一（waiting 态）：同一会话重复提交安全幂等，
+    # 不同会话各自拥有自己的提交与报告（Source 内容去重独立于会话）。
+    _c().execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_submission_session_sha "
+        "ON pending_submissions(session_id, sha256) WHERE status='waiting'"
     )
     _c().commit()
 
@@ -188,11 +244,11 @@ def kv_set(key: str, value: str) -> None:
 
 
 def insert_source(sha256: str, kind: str, original_name: str, path: str, secret_refs: str,
-                  confirmed: int = 1, allowed_spans: str = "[]") -> int:
+                  confirmed: int = 1, allowed_spans: str = "[]", instruction: str = "") -> int:
     return _w(
-        "INSERT INTO sources(sha256,kind,original_name,path,secret_refs,confirmed,allowed_spans) "
-        "VALUES(?,?,?,?,?,?,?)",
-        (sha256, kind, original_name, path, secret_refs, confirmed, allowed_spans),
+        "INSERT INTO sources(sha256,kind,original_name,path,secret_refs,confirmed,allowed_spans,instruction) "
+        "VALUES(?,?,?,?,?,?,?,?)",
+        (sha256, kind, original_name, path, secret_refs, confirmed, allowed_spans, instruction),
     ).lastrowid
 
 
@@ -200,8 +256,15 @@ def get_source_by_sha256(sha256: str):
     return _r1("SELECT * FROM sources WHERE sha256=?", (sha256,))
 
 
-def update_source_processed(source_id: int, path: str, secret_refs: str, allowed_spans: str) -> None:
+def update_source_processed(source_id: int, path: str, secret_refs: str, allowed_spans: str,
+                            instruction: str | None = None) -> None:
     """占位行完成落盘：写入路径/引用/放行区间并标记已通过确认闸门。"""
+    if instruction is not None:
+        _w(
+            "UPDATE sources SET path=?, secret_refs=?, allowed_spans=?, confirmed=1, instruction=? WHERE id=?",
+            (path, secret_refs, allowed_spans, instruction, source_id),
+        )
+        return
     _w(
         "UPDATE sources SET path=?, secret_refs=?, allowed_spans=?, confirmed=1 WHERE id=?",
         (path, secret_refs, allowed_spans, source_id),
@@ -216,16 +279,54 @@ def get_source(source_id: int):
     return _r1("SELECT * FROM sources WHERE id=?", (source_id,))
 
 
+def source_refs(source_id: int) -> list[dict]:
+    """只读返回来源的登记私密引用元数据（解析后的 ref 列表；不含任何秘密原文）。
+    来源不存在或未确认时返回空列表。"""
+    import json
+
+    row = _r1("SELECT secret_refs, confirmed FROM sources WHERE id=?", (source_id,))
+    if not row or not row["confirmed"]:
+        return []
+    try:
+        return json.loads(row["secret_refs"] or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def all_source_refs() -> list[dict]:
+    """只读汇总所有已确认来源的登记私密引用元数据（解析后的 ref 列表；不含秘密原文）。"""
+    import json
+
+    out: list[dict] = []
+    for row in _r("SELECT secret_refs FROM sources WHERE confirmed=1"):
+        try:
+            out.extend(json.loads(row["secret_refs"] or "[]"))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
 def list_sources(limit: int = 100):
     return _r("SELECT * FROM sources ORDER BY id DESC LIMIT ?", (limit,))
 
 
-def insert_task(source_id: int) -> int:
-    return _w("INSERT INTO tasks(source_id) VALUES(?)", (source_id,)).lastrowid
+def insert_task(source_id: int, session_id: str | None = None, report_id: int | None = None) -> int:
+    return _w(
+        "INSERT INTO tasks(source_id, session_id, report_id) VALUES(?,?,?)",
+        (source_id, session_id, report_id),
+    ).lastrowid
 
 
 def update_task_status(task_id: int, status: str, error: str | None = None) -> None:
     _w("UPDATE tasks SET status=?, error=?, updated_at=datetime('now','localtime') WHERE id=?", (status, error, task_id))
+
+
+def set_task_result(task_id: int, result: str) -> None:
+    _w("UPDATE tasks SET result=? WHERE id=?", (result, task_id))
+
+
+def set_task_report(task_id: int, report_id: int) -> None:
+    _w("UPDATE tasks SET report_id=? WHERE id=?", (report_id, task_id))
 
 
 def update_task_retries(task_id: int) -> None:
@@ -289,15 +390,23 @@ def pending_by_source_open(source_id: int) -> int:
 
 # ---- 待确认提交（确认闸门：原文以 AES-256-GCM 密文暂存，确认前不落盘、不进模型） ----
 
-def insert_submission(sha256: str, kind: str, original_name: str, payload: str, findings_summary: str) -> int:
+def insert_submission(sha256: str, kind: str, original_name: str, payload: str, findings_summary: str,
+                      session_id: str | None = None, report_id: int | None = None) -> int:
     return _w(
-        "INSERT INTO pending_submissions(sha256,kind,original_name,payload,findings_summary) VALUES(?,?,?,?,?)",
-        (sha256, kind, original_name, payload, findings_summary),
+        "INSERT INTO pending_submissions(sha256,kind,original_name,payload,findings_summary,session_id,report_id) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (sha256, kind, original_name, payload, findings_summary, session_id, report_id),
     ).lastrowid
 
 
-def delete_stale_submissions(sha256: str) -> int:
-    """清除同一内容的非等待态提交（取消/过期），避免 sha256 UNIQUE 冲突且不留旧密文。"""
+def delete_stale_submissions(sha256: str, session_id: str | None = None) -> int:
+    """清除同一会话内同一内容的非等待态提交（取消/过期），
+    避免 (session_id, sha256) 唯一冲突且不留旧密文；不影响其他会话的提交。"""
+    if session_id is not None:
+        return _w(
+            "DELETE FROM pending_submissions WHERE session_id=? AND sha256=? AND status!='waiting'",
+            (session_id, sha256),
+        ).rowcount
     return _w("DELETE FROM pending_submissions WHERE sha256=? AND status!='waiting'", (sha256,)).rowcount
 
 
@@ -305,7 +414,13 @@ def get_submission(submission_id: int):
     return _r1("SELECT * FROM pending_submissions WHERE id=?", (submission_id,))
 
 
-def submission_by_sha256(sha256: str):
+def submission_by_sha256(sha256: str, session_id: str | None = None):
+    """按会话查重：同一会话重复提交返回既有等待提交；跨会话不合并。"""
+    if session_id is not None:
+        return _r1(
+            "SELECT * FROM pending_submissions WHERE session_id=? AND sha256=? AND status='waiting'",
+            (session_id, sha256),
+        )
     return _r1("SELECT * FROM pending_submissions WHERE sha256=? AND status='waiting'", (sha256,))
 
 
@@ -356,6 +471,32 @@ def list_chat_history(session_id: str, limit: int) -> list:
 
 def ensure_session(session_id: str) -> None:
     _w("INSERT OR IGNORE INTO chat_sessions(session_id) VALUES(?)", (session_id,))
+
+
+def create_session(session_id: str, mode: str, title: str | None = None) -> None:
+    """显式创建固定模式会话。已存在且模式不同 → 拒绝（生命周期内不可切换）。
+    已存在且模式相同 → 幂等，仅补写标题。"""
+    if mode not in SESSION_MODES:
+        raise ValueError(f"会话模式必须是 {SESSION_MODES} 之一")
+    with _lock:
+        row = _c().execute("SELECT mode FROM chat_sessions WHERE session_id=?", (session_id,)).fetchone()
+        if row and row["mode"] != mode:
+            raise ValueError(f"会话 {session_id} 已固定为 {row['mode']} 模式，不能切换为 {mode}")
+        _c().execute(
+            "INSERT INTO chat_sessions(session_id, mode, title) VALUES(?,?,?) "
+            "ON CONFLICT(session_id) DO UPDATE SET title=COALESCE(excluded.title, chat_sessions.title)",
+            (session_id, mode, title),
+        )
+        _c().commit()
+
+
+def get_session(session_id: str):
+    return _r1("SELECT * FROM chat_sessions WHERE session_id=?", (session_id,))
+
+
+def session_mode(session_id: str) -> str | None:
+    row = get_session(session_id)
+    return row["mode"] if row else None
 
 
 def adopt_session(session_id: str, entry_ids) -> None:
@@ -489,3 +630,137 @@ def save_retrieval_config(provider: str, model: str, reranker_enabled: int, rera
 
 def delete_retrieval_config() -> None:
     _w("DELETE FROM retrieval_config WHERE id=1")
+
+
+# ---- 安全报告（固定格式快照，无明文持久化） ----
+
+def insert_report(session_id: str | None, submission_id: int | None, status: str, mode: str,
+                  kind: str, original_name: str, sha256: str, summary: str, entries: str,
+                  preview: str, instruction: str = "") -> int:
+    confirmed_at = "datetime('now','localtime')" if status in ("confirmed", "auto") else "NULL"
+    return _w(
+        "INSERT INTO reports(session_id,submission_id,status,mode,kind,original_name,sha256,"
+        "summary,entries,preview,instruction,confirmed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?," + confirmed_at + ")",
+        (session_id, submission_id, status, mode, kind, original_name, sha256, summary, entries, preview, instruction),
+    ).lastrowid
+
+
+def get_report(report_id: int):
+    return _r1("SELECT * FROM reports WHERE id=?", (report_id,))
+
+
+def update_report(report_id: int, *, status: str | None = None, submission_id: int | None = None,
+                  summary: str | None = None, entries: str | None = None,
+                  preview: str | None = None, instruction: str | None = None) -> None:
+    """报告字段更新；仅 pending 态可改。终态（confirmed/auto/rejected）原子锁定：
+    用条件更新 WHERE status='pending' 保证失败不改原值，锁定后任何字段/状态修改均被拒绝。"""
+    sets: list[str] = []
+    args: list = []
+    if status is not None:
+        sets.append("status=?")
+        args.append(status)
+        if status in ("confirmed", "auto"):
+            sets.append("confirmed_at=datetime('now','localtime')")
+    if submission_id is not None:
+        sets.append("submission_id=?")
+        args.append(submission_id)
+    if summary is not None:
+        sets.append("summary=?")
+        args.append(summary)
+    if entries is not None:
+        sets.append("entries=?")
+        args.append(entries)
+    if preview is not None:
+        sets.append("preview=?")
+        args.append(preview)
+    if instruction is not None:
+        sets.append("instruction=?")
+        args.append(instruction)
+    if not sets:
+        return
+    args.append(report_id)
+    with _lock:
+        cur = _c().execute(
+            f"UPDATE reports SET {', '.join(sets)} WHERE id=? AND status='pending'", args
+        )
+        if cur.rowcount == 0:
+            row = _c().execute("SELECT status FROM reports WHERE id=?", (report_id,)).fetchone()
+            if row is None:
+                raise ValueError("报告不存在")
+            raise ValueError(f"报告已锁定（{row['status']}），不可修改")
+        _c().commit()
+
+
+def list_reports_by_session(session_id: str):
+    return _r("SELECT * FROM reports WHERE session_id=? ORDER BY id DESC", (session_id,))
+
+
+def list_reports():
+    return _r("SELECT * FROM reports ORDER BY id DESC")
+
+
+def report_view(report_id: int) -> dict | None:
+    """报告只读视图：解析结构化字段（summary/entries），供前端展示。"""
+    import json
+
+    row = get_report(report_id)
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "session_id": row["session_id"],
+        "submission_id": row["submission_id"],
+        "status": row["status"],
+        "mode": row["mode"],
+        "kind": row["kind"],
+        "original_name": row["original_name"],
+        "sha256": (row["sha256"] or "")[:16],
+        "summary": _json_loads_default(row["summary"]),
+        "entries": _json_loads_default(row["entries"]),
+        "preview": row["preview"] or "",
+        "instruction": row["instruction"] or "",
+        "created_at": row["created_at"],
+        "confirmed_at": row["confirmed_at"],
+    }
+
+
+def _json_loads_default(s: str | None):
+    import json
+
+    try:
+        return json.loads(s or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+def find_ref_metadata(ref_id: str) -> dict | None:
+    """按私密引用 ID 定位安全元数据（来源/会话/保险柜条目与字段位置）。
+    只对「已确认/自动且已写入保险柜」的条目提供位置；拒绝/待确认/未保存返回 None。
+    同 ref_id 多份报告时返回最近已落库条目。绝不返回敏感原值、值哈希或笔记正文。"""
+    import json
+
+    for row in _r(
+        "SELECT id, session_id, original_name, kind, created_at, status, entries "
+        "FROM reports ORDER BY id DESC"
+    ):
+        if row["status"] not in ("confirmed", "auto"):
+            continue  # pending/rejected 尚未真正落库，不作为可用位置
+        for e in json.loads(row["entries"] or "[]"):
+            if e.get("ref_id") == ref_id:
+                vault = e.get("vault") or {}
+                if not vault.get("item_id"):
+                    continue  # 挂起未写入保险柜，不作为可用位置
+                return {
+                    "ref_id": ref_id,
+                    "name": e.get("name"),
+                    "source": e.get("source") or row["original_name"],
+                    "kind": row["kind"],
+                    "vault_kind": vault.get("kind"),
+                    "vault_name": vault.get("name"),
+                    "field_name": vault.get("field_name"),
+                    "item_id": vault.get("item_id"),
+                    "report_id": row["id"],
+                    "session_id": row["session_id"],
+                    "created_at": row["created_at"],
+                }
+    return None

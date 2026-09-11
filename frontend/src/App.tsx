@@ -4,6 +4,7 @@ import { useApp } from '@/store/app-state'
 import { AppShell } from '@/components/app-shell'
 import { useChat } from '@/hooks/use-chat'
 import { LoadingState, PageTransition } from '@/components/layout'
+import { PrivateRefCard } from '@/components/private-ref-card'
 
 /** 路由级懒加载：四个页面各自成 chunk，首包不再含全部页面代码 */
 const ChatPage = lazy(() => import('@/features/chat/chat-page').then((m) => ({ default: m.ChatPage })))
@@ -16,19 +17,18 @@ function Shell() {
   const chat = useChat()
   return (
     <AppShell
-      onNavigate={(t) => {
-        if (t === 'chat') chat.newChat()
-      }}
+      onNavigate={() => {}}
     >
       {/* 聊天页需要确定高度链（内部滚动）；其余页面按内容自然增高、外层滚动 */}
       <PageTransition pageKey={tab === 'settings' ? `settings-${settingsRoute}` : tab} className={tab === 'chat' ? 'h-full' : 'min-h-full'}>
         <Suspense fallback={<LoadingState label="正在加载页面…" className="min-h-full" />}>
-          {tab === 'chat' && <section aria-label="对话" className="h-full"><ChatPage active chat={chat} /></section>}
+          {tab === 'chat' && <section aria-label="对话" className="h-full"><ChatPage chat={chat} /></section>}
           {tab === 'wiki' && <section aria-label="知识库"><WikiPage /></section>}
           {tab === 'tasks' && <section aria-label="任务"><TasksPage /></section>}
           {tab === 'settings' && <section aria-label="设置"><SettingsPage /></section>}
         </Suspense>
       </PageTransition>
+      <PrivateRefCard />
     </AppShell>
   )
 }

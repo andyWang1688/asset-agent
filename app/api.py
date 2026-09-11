@@ -1,6 +1,7 @@
 """HTTP API：输入、确认闸门、问答、Wiki、任务、凭证元数据、模型与安全策略配置、安全事件。"""
 import json
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -11,7 +12,7 @@ from . import crypto, db
 from .credentials.base import CredentialError
 from .ingest import receiver
 from .llm import provider as llm
-from .query import model_download, rebuild, retrieval, retrieval_config, service as query_service
+from .query import service as query_service
 from .security import submissions
 from .security.policy import PolicyStore
 from .security.rules import VALIDATORS
@@ -31,9 +32,22 @@ class ModelBody(BaseModel):
     role: str = "knowledge"
 
 
+class FindingEditBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str | None = None
+    name: str | None = None
+    description: str | None = None
+    vault_kind: str | None = None
+    vault_name: str | None = None
+    field_name: str | None = None
+
+
 class ConfirmBody(BaseModel):
     decisions: dict[str, str] = {}
+    edits: dict[str, FindingEditBody] = {}
     edited_text: str | None = None
+    session_id: str
 
 
 class PolicyBody(BaseModel):
@@ -83,7 +97,7 @@ class CustomRuleToggleBody(BaseModel):
 
 
 class RetrievalConfigBody(BaseModel):
-    provider: str = retrieval_config.PROVIDER_ST
+    provider: str = "sentence-transformers"
     model: str
     reranker_enabled: bool = True
     reranker_model: str = ""
@@ -93,7 +107,7 @@ class RetrievalConfigBody(BaseModel):
 
 
 class ModelDownloadBody(BaseModel):
-    provider: str = retrieval_config.PROVIDER_ST
+    provider: str = "sentence-transformers"
     model: str
 
 
@@ -142,6 +156,7 @@ async def ingest(
     request: Request,
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
+    session_id: str | None = Form(None),
 ):
     ctx = _ctx(request)
     # knowledge 模型必配闸门（fail-closed）：未配置/激活时禁止提交编译任务，UI 明确提示
@@ -155,12 +170,14 @@ async def ingest(
                 policy_store=_policy_store(request),
                 knowledge_provider_getter=lambda: ctx.get_provider(),
                 security_provider=ctx.get_security_provider(),
+                session_id=session_id, instruction=text,
             )
         elif text:
             result = await receiver.ingest(
                 ctx.settings, ctx.creds, text=text, policy_store=_policy_store(request),
                 knowledge_provider_getter=lambda: ctx.get_provider(),
                 security_provider=ctx.get_security_provider(),
+                session_id=session_id,
             )
         else:
             raise HTTPException(400, "请粘贴文本或选择文件")
@@ -187,6 +204,8 @@ def pending_submissions(request: Request):
             "status": r["status"],
             "sha256": r["sha256"][:16],
             "original_name": r["original_name"],
+            "session_id": r["session_id"],
+            "report_id": r["report_id"],
             "summary": _json_loads_default(r["findings_summary"]),
             "created_at": r["created_at"],
             "resolved_at": r["resolved_at"],
@@ -215,6 +234,8 @@ async def pending_submission_confirm(request: Request, submission_id: int, body:
             ctx.settings, ctx.creds, _policy_store(request), submission_id, body.decisions,
             edited_text=body.edited_text, security_provider=ctx.get_security_provider(),
             knowledge_provider_getter=lambda: ctx.get_provider(),
+            edits={k: v.model_dump(exclude_none=True) for k, v in body.edits.items()},
+            session_id=body.session_id,
         )
     except submissions.SubmissionError as e:
         raise HTTPException(400, str(e)) from e
@@ -373,8 +394,11 @@ def tasks(request: Request, limit: int = 100):
         {
             "id": r["id"],
             "source_id": r["source_id"],
+            "session_id": r["session_id"],
+            "report_id": r["report_id"],
             "status": r["status"],
             "error": r["error"],
+            "result": _json_loads_default(r["result"]),
             "retries": r["retries"],
             "original_name": r["original_name"],
             "created_at": r["created_at"],
@@ -384,20 +408,62 @@ def tasks(request: Request, limit: int = 100):
     ]
 
 
-@router.post("/api/tasks/{task_id}/retry")
-def retry_task(request: Request, task_id: int):
-    t = db.get_task(task_id)
-    if not t:
-        raise HTTPException(404, "任务不存在")
-    if t["status"] not in ("failed", "credential_pending"):
-        raise HTTPException(400, f"状态 {t['status']} 不可重试")
-    db.update_task_status(task_id, "pending")
-    return {"id": task_id, "status": "pending"}
+@router.get("/api/reports")
+def reports(request: Request, session_id: str | None = None):
+    """安全报告快照列表；可按会话过滤，供前端查看维护记录与结果。"""
+    if session_id:
+        rows = db.list_reports_by_session(session_id)
+    else:
+        rows = db.list_reports()
+    return [_report_row(r) for r in rows]
+
+
+def _report_row(r) -> dict:
+    return {
+        "id": r["id"],
+        "session_id": r["session_id"],
+        "submission_id": r["submission_id"],
+        "status": r["status"],
+        "mode": r["mode"],
+        "kind": r["kind"],
+        "original_name": r["original_name"],
+        "sha256": (r["sha256"] or "")[:16],
+        "summary": _json_loads_default(r["summary"]),
+        "entries": _json_loads_default(r["entries"]),
+        "preview": r["preview"] or "",
+        "instruction": r["instruction"] or "",
+        "created_at": r["created_at"],
+        "confirmed_at": r["confirmed_at"],
+    }
+
+
+@router.get("/api/reports/{report_id}")
+def report_view(request: Request, report_id: int):
+    view = db.report_view(report_id)
+    if view is None:
+        raise HTTPException(404, "报告不存在")
+    return view
+
+
+@router.get("/api/refs/{ref_id}")
+def ref_metadata(ref_id: str):
+    """私密引用的安全元数据：来源/会话/保险柜条目与字段位置。
+    绝不返回敏感原值、值哈希或笔记正文；未登记引用返回 404。"""
+    meta = db.find_ref_metadata(ref_id)
+    if meta is None:
+        raise HTTPException(404, "引用不存在")
+    return meta
 
 
 class QueryBody(BaseModel):
     question: str
     session_id: str | None = None
+
+
+class SessionCreateBody(BaseModel):
+    mode: Literal["ask", "maintain"]
+    session_id: str | None = None
+    title: str | None = None
 
 
 @router.post("/api/query")
@@ -439,6 +505,7 @@ def chat_history(limit: int = 50):
                 "session_id": r["session_id"],
                 "title": s["title"] if s else None,
                 "pinned": bool(s["pinned"]) if s else False,
+                "mode": s["mode"] if s else "ask",
                 "created_at": r["created_at"],
             }
         )
@@ -458,6 +525,40 @@ class SessionPinBody(BaseModel):
 class SessionAdoptBody(BaseModel):
     session_id: str
     entry_ids: list[int]
+
+
+@router.post("/api/chat/sessions")
+def create_chat_session(body: SessionCreateBody):
+    """显式创建固定模式会话：ask（只读问答）或 maintain（资料维护）。
+    一次选定后不可切换；相同 session_id 且模式一致则幂等。"""
+    sid = (body.session_id or "").strip() or uuid.uuid4().hex
+    try:
+        db.create_session(sid, body.mode, (body.title or "").strip() or None)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    row = db.get_session(sid)
+    return {
+        "session_id": sid,
+        "mode": row["mode"],
+        "title": row["title"],
+        "pinned": bool(row["pinned"]),
+        "created_at": row["created_at"],
+    }
+
+
+@router.get("/api/chat/sessions")
+def list_chat_sessions():
+    """会话列表（含固定模式），供前端恢复历史与维护会话。"""
+    return [
+        {
+            "session_id": s["session_id"],
+            "title": s["title"],
+            "pinned": bool(s["pinned"]),
+            "mode": s["mode"],
+            "created_at": s["created_at"],
+        }
+        for s in db.list_sessions()
+    ]
 
 
 @router.post("/api/chat/session/adopt")
@@ -638,6 +739,7 @@ def delete_model(cfg_id: int):
 def _retrieval_view(request: Request) -> dict:
     """返回当前生效配置的只读视图：API Key 只给 set 布尔值，不回显。"""
     from .query.hybrid import DEFAULT_RERANK_MODEL
+    from .query import retrieval_config
 
     ctx = _ctx(request)
     page = retrieval_config.page_config()
@@ -679,6 +781,8 @@ def get_retrieval(request: Request):
 
 @router.post("/api/settings/retrieval")
 def save_retrieval(request: Request, body: RetrievalConfigBody):
+    from .query import rebuild, retrieval, retrieval_config
+
     ctx = _ctx(request)
     if body.provider not in retrieval_config.PROVIDERS:
         raise HTTPException(400, f"后端路线必须是 {retrieval_config.PROVIDERS} 之一")
@@ -721,6 +825,7 @@ async def test_retrieval(request: Request, body: RetrievalConfigBody):
     import asyncio
 
     from .query.embeddings import EmbeddingError
+    from .query import retrieval_config
 
     ctx = _ctx(request)
     if body.provider not in retrieval_config.PROVIDERS:
@@ -756,6 +861,8 @@ async def test_retrieval(request: Request, body: RetrievalConfigBody):
 @router.delete("/api/settings/retrieval")
 def reset_retrieval(request: Request):
     """清除页面配置，恢复环境变量语义（环境变量继续有效）。"""
+    from .query import rebuild, retrieval, retrieval_config
+
     ctx = _ctx(request)
     old_signature = retrieval_config.embedding_signature(ctx.settings)
     db.delete_retrieval_config()
@@ -771,6 +878,8 @@ def reset_retrieval(request: Request):
 def start_model_download(request: Request, body: ModelDownloadBody):
     """启动模型下载（幂等）。仅 sentence-transformers 路线需要下载 HF 权重；
     Ollama 指引 `ollama pull`，云端无需下载。返回任务快照，不等待完成。"""
+    from .query import model_download, retrieval_config
+
     ctx = _ctx(request)
     if body.provider == retrieval_config.PROVIDER_OLLAMA:
         raise HTTPException(400, "Ollama 路线无需走模型下载：请在 Ollama 中执行 `ollama pull <模型名>` 拉取。")
@@ -789,6 +898,8 @@ def start_model_download(request: Request, body: ModelDownloadBody):
 @router.get("/api/settings/retrieval/download/status")
 def model_download_status(request: Request, model: str):
     """查询下载进度：状态（queued/downloading/done/failed/unknown）+ 百分比 + 字节/文件计数。"""
+    from .query import model_download
+
     ctx = _ctx(request)
     return model_download.manager.status_view(model, ctx.settings.data_dir)
 
@@ -796,6 +907,8 @@ def model_download_status(request: Request, model: str):
 @router.get("/api/settings/retrieval/rebuild/status")
 def retrieval_rebuild_status():
     """查询索引重建进度：状态（idle/queued/running/done/failed）+ 页面数 + 错误。"""
+    from .query import rebuild
+
     return rebuild.manager.status()
 
 

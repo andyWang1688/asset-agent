@@ -1,14 +1,31 @@
 """脱敏：把识别出的 Finding 替换为引用/占位符。
 
-- credential → [SECRET_REF:name]（存入 Vaultwarden 的引用）
-- pii / unknown_suspect → [REDACTED:rule]（仅脱敏，不存凭证库）
-- 相同值只生成一个凭证引用；refs 只保留哈希，不保留秘密原文。
+- 存保险柜 → [🔒 可读名称](private:REF_ID)（值只存 Vaultwarden，引用 ID 与值无可逆关系）
+- 仅脱敏 → [REDACTED:rule]（原值销毁）
+- 旧格式 [SECRET_REF:name] 作为兼容格式继续可读/可掩码
 LLM 输出再扫描时，命中片段直接删除。
 """
+import json
 import re
 
 from ..crypto import sha256_hex
 from .rules import Finding, KIND_CREDENTIAL, scan_text
+
+
+def ref_id_for(f: Finding, namespace: str = "") -> str:
+    """稳定的私密引用 ID：由 (命名空间 + Finding.id) 派生。命名空间按来源/资料隔离，
+    保证不同资料/条目间唯一；与敏感值无可逆关系；同一 Finding 生命周期内恒定。"""
+    return "pr_" + sha256_hex(namespace + "\x00" + f.id)[:16]
+
+
+def private_ref(name: str, ref_id: str) -> str:
+    """私密引用占位符（值只在 Vaultwarden）。"""
+    return f"[🔒 {name}](private:{ref_id})"
+
+
+def redact_ref(rule: str) -> str:
+    """仅脱敏占位符（原值销毁）。"""
+    return f"[REDACTED:{rule}]"
 
 
 def _ref_name(f: Finding) -> str:
@@ -20,10 +37,10 @@ def _ref_name(f: Finding) -> str:
 
 
 def placeholder(f: Finding, ref_name: str | None = None) -> str:
-    """Finding 的脱敏占位符（仅包含规则名/引用名，绝不含值）。"""
-    if f.kind == KIND_CREDENTIAL and ref_name:
-        return f"[SECRET_REF:{ref_name}]"
-    return f"[REDACTED:{f.rule}]"
+    """Finding 的脱敏占位符（仅包含引用名/规则名，绝不含值）。"""
+    if ref_name:
+        return private_ref(ref_name, ref_id_for(f))
+    return redact_ref(f.rule)
 
 
 def _dedupe_names(findings: list[Finding]) -> dict[str, str]:
@@ -63,13 +80,81 @@ def should_mask_value(value: str) -> bool:
     return False
 
 
-_PLACEHOLDER_RE = re.compile(r"\[(?:SECRET_REF|REDACTED):[^\]]+\]")
+# 严格占位符识别：只信任结构合法（可读名称无 "="/"]"、引用 ID 为 pr_hex、规则为安全标识）的占位符，
+# 防止伪造标签把秘密塞进名称/引用而免检。
+_SAFE_NAME = r"[A-Za-z0-9_\-\u4e00-\u9fff ]{1,60}"
+_PRIVATE_REF_STRICT = rf"\[🔒\s*{_SAFE_NAME}\]\(private:pr_[0-9a-f]{{16}}\)"
+_REDACTED_STRICT = r"\[REDACTED:[A-Za-z0-9_]{1,40}\]"
+_LEGACY_SECRET_REF_STRICT = rf"\[SECRET_REF:{_SAFE_NAME}\]"
+_PLACEHOLDER_RE = re.compile(
+    rf"({_PRIVATE_REF_STRICT}|{_REDACTED_STRICT}|{_LEGACY_SECRET_REF_STRICT})"
+)
 
 
-def mask_placeholders(text: str) -> str:
-    """复扫前屏蔽系统生成的占位符（占位符不是数据，避免引用名被误判）。
-    用等长的 '#' 填充：长度不变，spans/放行区间偏移保持有效；'#' 不构成任何 token。"""
-    return _PLACEHOLDER_RE.sub(lambda m: "[" + "#" * (len(m.group(0)) - 2) + "]", text)
+def registered_refs(secret_refs) -> set[str]:
+    """从已安全处理的来源元数据重建精确登记的私密引用占位符集合。
+
+    secret_refs 可为 sources.secret_refs 的 JSON 字符串或已解析的 ref 列表
+    （每项含 name/ref_id）。只取引用名与引用 ID，绝不读取任何秘密原文。
+    """
+    if isinstance(secret_refs, str):
+        try:
+            secret_refs = json.loads(secret_refs or "[]")
+        except json.JSONDecodeError:
+            secret_refs = []
+    out: set[str] = set()
+    for r in secret_refs or []:
+        if not isinstance(r, dict):
+            continue
+        name, ref_id = r.get("name"), r.get("ref_id")
+        if name and ref_id:
+            out.add(private_ref(str(name), str(ref_id)))
+    return out
+
+
+def mask_placeholders(text: str, valid: set | None = None) -> str:
+    """复扫前屏蔽系统生成的占位符。用等长 '#' 填充（spans/放行区间偏移保持有效）。
+
+    valid 提供时（含空集合）只屏蔽这些精确登记的引用，绝不凭语法形状豁免其余引用；
+    未提供可信集合时不作任何形状豁免，原文本直接交给扫描，伪造标签不会被免检。"""
+    if valid is None:
+        return text
+    for ph in sorted(set(valid), key=len, reverse=True):
+        text = text.replace(ph, "[" + "#" * max(0, len(ph) - 2) + "]")
+    return text
+
+
+_WIKI_LINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)\s]+)([^)]*)\)")
+
+
+def mask_wiki_link_targets(text: str, safe_paths: set[str] | None) -> str:
+    """对 Wiki/Markdown 链接的“目标位置”做等长掩码（标签/正文仍完整保留）。
+
+    只豁免 safe_paths 中精确登记的、已程序验证为真实 Wiki 文件或本轮已验证待写页面的路径；
+    未知路径、链接标签、正文一律不改。等长掩码保持偏移有效，后续检测可映射回原文，
+    因此合法目的地即便配了 password=... 的敏感标签，标签部分仍会被正常检出。"""
+    if not safe_paths:
+        return text
+
+    def _masked(target: str) -> str:
+        return "#" * len(target)
+
+    def _wiki(m: re.Match) -> str:
+        target = m.group(1)
+        if target.strip() not in safe_paths:
+            return m.group(0)
+        label = m.group(2)
+        return "[[" + _masked(target) + (f"|{label}" if label is not None else "") + "]]"
+
+    def _md(m: re.Match) -> str:
+        target = m.group(2)
+        if target not in safe_paths:
+            return m.group(0)
+        return "[" + m.group(1) + "](" + _masked(target) + m.group(3) + ")"
+
+    text = _WIKI_LINK_RE.sub(_wiki, text)
+    return _MD_LINK_RE.sub(_md, text)
 
 
 def mask_for_security_model(text: str, findings: list[Finding]) -> str:
@@ -126,9 +211,17 @@ def build_refs(text: str, policy: dict | None = None) -> tuple[str, list[dict]]:
     return sanitized, refs
 
 
-def sanitize_llm_output(text: str, policy: dict | None = None) -> tuple[str, list[str]]:
-    """扫描 LLM 输出；命中片段删除并返回命中规则名，用于安全事件记录。"""
-    findings = scan_text(text, policy)
+def sanitize_llm_output(text: str, policy: dict | None = None,
+                        valid: set | None = None,
+                        safe_wiki_paths: set | None = None) -> tuple[str, list[str]]:
+    """扫描 LLM 输出；命中片段删除并返回命中规则名，用于安全事件记录。
+
+    valid 提供时（含空集合）只屏蔽精确登记的私密引用；未提供时不作任何形状豁免，
+    引用名与普通正文完整执行安全检测。
+    safe_wiki_paths 提供时只对链接目标位置的已验证路径做掩码；标签/正文仍扫描。"""
+    masked = mask_placeholders(text, valid)
+    masked = mask_wiki_link_targets(masked, safe_wiki_paths)
+    findings = scan_text(masked, policy)
     out = text
     for f in sorted(findings, key=lambda x: -x.span[0]):
         out = out[: f.span[0]] + "［已删除疑似秘密片段］" + out[f.span[1] :]

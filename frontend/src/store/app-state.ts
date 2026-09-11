@@ -10,6 +10,14 @@ export interface AppState {
   setTab: (t: Tab) => void
   openWikiDoc: (path: string) => void
   wikiPath: string | null
+  /** 私密引用安全元数据卡 */
+  privateRefId: string | null
+  openPrivateRef: (refId: string) => void
+  closePrivateRef: () => void
+  /** 从任务详情等入口回到原会话 */
+  pendingSession: string | null
+  requestOpenSession: (sessionId: string) => void
+  consumeOpenSession: () => void
   health: Health | null
   refreshHealth: () => Promise<void>
   navigateSettings: (route: SettingsRoute) => void

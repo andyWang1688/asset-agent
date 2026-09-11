@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-export type ChatMode = 'collect' | 'ask'
+export type ChatMode = 'ask' | 'maintain'
 
 const MODE_META: Record<ChatMode, { label: string; placeholder: string }> = {
-  collect: { label: '添加资料', placeholder: '粘贴想要整理的资产资料，或描述需要收集的内容…' },
-  ask: { label: '添加附件', placeholder: '问问你的资产知识库…' },
+  ask: { label: '问答 · 只读', placeholder: '询问你的资产知识库…' },
+  maintain: { label: '维护', placeholder: '粘贴要整理的资料，或添加单个 TXT/Markdown 文件…' },
 }
 
 const MAX_HEIGHT = 180
@@ -40,10 +41,13 @@ export function Composer({ mode, value, onChange, onSend, sending, sendDisabled,
     autoGrow()
   }, [value])
 
-  const collect = mode === 'collect'
+  const maintain = mode === 'maintain'
 
   return (
     <div className="motion-interactive rounded-lg border border-border bg-surface p-content shadow-pop transition-[border-color,box-shadow] focus-within:border-fg/45 focus-within:ring-[3px] focus-within:ring-soft">
+      <div className="mb-1.5">
+        <Badge variant={maintain ? 'accent' : 'muted'}>{MODE_META[mode].label}</Badge>
+      </div>
       <textarea
         ref={taRef}
         value={value}
@@ -64,12 +68,12 @@ export function Composer({ mode, value, onChange, onSend, sending, sendDisabled,
       />
       <div className="mt-1.5 flex items-center justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-1">
-          {collect && (
+          {maintain && (
             <>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".md,.txt,.text,.pdf"
+                accept=".md,.txt,.text"
                 className="hidden"
                 onChange={(e) => {
                   onFileChange(e.target.files?.[0] ?? null)
@@ -85,7 +89,7 @@ export function Composer({ mode, value, onChange, onSend, sending, sendDisabled,
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
                   <path d="m20.5 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-2.8-2.8l7.7-7.7" />
                 </svg>
-                {MODE_META[mode].label}
+                添加附件
               </button>
               {fileName && (
                 <span className="inline-flex max-w-[200px] items-center gap-1.5 rounded-sm bg-soft px-2 py-0.5 text-caption text-fg">

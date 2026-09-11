@@ -64,17 +64,18 @@ DEFAULT_POLICY: dict = {
     "actions": {
         "defaults": {
             KIND_CREDENTIAL: ACTION_STORE,
-            KIND_PII: ACTION_REDACT,
-            KIND_UNKNOWN: ACTION_REDACT,
+            KIND_PII: ACTION_STORE,
+            KIND_UNKNOWN: ACTION_STORE,
         }
     },
 }
 
-# 各类别在确认页允许的裁决动作（PII 仅脱敏，不允许存凭证库）
+# 各类别在确认页允许的裁决动作：一律保留并脱敏（store 存保险柜）、
+# 仅脱敏（redact 销毁）或标记误报（allow）
 KIND_ALLOWED_ACTIONS = {
     KIND_CREDENTIAL: (ACTION_STORE, ACTION_REDACT, ACTION_ALLOW),
-    KIND_PII: (ACTION_REDACT, ACTION_ALLOW),
-    KIND_UNKNOWN: (ACTION_REDACT, ACTION_ALLOW),
+    KIND_PII: (ACTION_STORE, ACTION_REDACT, ACTION_ALLOW),
+    KIND_UNKNOWN: (ACTION_STORE, ACTION_REDACT, ACTION_ALLOW),
 }
 
 GATE_MODES = ("always", "never")
@@ -262,8 +263,6 @@ def validate_policy(data: object) -> dict:
         if action not in KIND_ALLOWED_ACTIONS[kind]:
             raise PolicyError(f"actions.defaults.{kind}: 只允许 {KIND_ALLOWED_ACTIONS[kind]}")
     # PII 仅脱敏：默认动作强制 redact
-    if defaults.get(KIND_PII) != ACTION_REDACT:
-        raise PolicyError("actions.defaults.pii: 必须是 redact（PII 仅脱敏）")
 
     merged["version"] = POLICY_VERSION
     return merged

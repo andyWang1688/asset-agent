@@ -29,7 +29,7 @@ import type { SettingsModule } from './settings-navigation'
 
 const MODULES: { id: SettingsModule; title: string; description: string; icon: ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
   { id: 'models', title: '模型配置', description: '管理知识库模型', icon: Bot },
-  { id: 'retrieval', title: '检索配置', description: '配置语义召回与重排模型', icon: Search },
+  { id: 'retrieval', title: '检索配置', description: '历史向量检索（当前问答已用 LLM Wiki 主链路）', icon: Search },
   { id: 'security', title: '安全策略', description: '管理检测规则与高级安全策略', icon: ShieldCheck },
   { id: 'events', title: '安全事件', description: '查看检测与处理记录', icon: Siren },
 ]

@@ -10,11 +10,11 @@ from app.security.policy import PolicyStore
 from app.worker import Worker
 from tests.fakes import FakeCredentialStore, FakeProvider
 
-PLAN = (
+PLAN = '{"action":"final","plan":' + (
     '{"source_summary": {"title": "s", "path": "sources/s.md", "content": "# s\\n内容"}, '
     '"pages": [{"action": "create", "path": "projects/p.md", "title": "p", "content": "# p\\n内容"}], '
     '"conflicts": []}'
-)
+) + '}'
 
 
 def _store(settings):
@@ -27,12 +27,21 @@ def _knowledge_model_configured(workspace):
     db.upsert_model_config(None, "test-knowledge", "custom", "http://127.0.0.1:9001/v1", "", "m", True, "knowledge")
 
 
-async def _submit(settings, creds, text):
+def _new_session() -> str:
+    import uuid
+
+    sid = uuid.uuid4().hex
+    db.create_session(sid, db.SESSION_MAINTAIN)
+    return sid
+
+
+async def _submit(settings, creds, text, session_id=None):
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
     return await receiver.ingest(
         settings, creds, text=text, policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN),
+        session_id=session_id or _new_session(),
     )
 
 
@@ -69,7 +78,7 @@ async def test_confirm_store_redact_allow(settings):
     assert result["secrets_count"] == 1 and result["secrets"][0]["saved"] is True
     raw = next(settings.inbox_dir.glob("*")).read_text(encoding="utf-8")
     assert "Sup3rSecret!" not in raw
-    assert "[SECRET_REF:password]" in raw
+    assert "[🔒 password](private:pr_" in raw
     assert "11010519491231002X" not in raw
     assert "[REDACTED:id_card]" in raw
     assert "X9kQm2vR7pT3sL8wN4" in raw  # 误报放行保留原文
@@ -114,16 +123,18 @@ async def test_confirm_unknown_finding_id_rejected(settings):
         )
 
 
-async def test_pii_store_action_rejected(settings):
+async def test_pii_store_action_allowed(settings):
+    """1.0：PII 默认保留并脱敏；显式 store 时按 Secure Note 字段保存。"""
     creds = FakeCredentialStore()
     r = await _submit(settings, creds, "身份证 11010519491231002X")
     view = submissions.view(settings, db.get_submission(r["submission_id"]))
     fid = view["findings"][0]["id"]
     assert view["findings"][0]["kind"] == "pii"
-    with pytest.raises(submissions.SubmissionError) as ei:
-        await submissions.confirm(settings, creds, _store(settings), r["submission_id"], {fid: "store"})
-    assert "不允许动作" in str(ei.value)
-    assert creds.created == []
+    assert view["findings"][0]["suggested_action"] == "store"
+    result = await submissions.confirm(settings, creds, _store(settings), r["submission_id"], {fid: "store"})
+    assert result["secrets"][0]["saved"] is True
+    assert creds.created[0].kind == "secure_note"
+    assert creds.created[0].value == "11010519491231002X"
 
 
 async def test_view_masked_context_never_leaks_plaintext(settings):
@@ -305,6 +316,7 @@ async def test_confirm_mode_no_findings_can_accept_in_one_action(settings):
     r = await receiver.ingest(
         settings, FakeCredentialStore(), text="没有任何敏感信息的普通资料",
         policy_store=store, knowledge_provider_getter=lambda: FakeProvider(PLAN),
+        session_id=_new_session(),
     )
     assert r["pending_confirmation"] is True and r["findings"] == []
 
@@ -396,8 +408,9 @@ async def test_expire_submission_ttl(settings):
 
 async def test_duplicate_submission_idempotent(settings):
     creds = FakeCredentialStore()
-    r1 = await _submit(settings, creds, "password=Sup3rSecret! 内容")
-    r2 = await _submit(settings, creds, "password=Sup3rSecret! 内容")
+    sid = _new_session()
+    r1 = await _submit(settings, creds, "password=Sup3rSecret! 内容", session_id=sid)
+    r2 = await _submit(settings, creds, "password=Sup3rSecret! 内容", session_id=sid)
     assert r2["submission_id"] == r1["submission_id"]
     assert len(db.list_submissions("waiting")) == 1
     view = submissions.view(settings, db.get_submission(r1["submission_id"]))
@@ -405,7 +418,7 @@ async def test_duplicate_submission_idempotent(settings):
     await submissions.confirm(settings, creds, _store(settings), r1["submission_id"], {fid: "store"})
     assert len(creds.created) == 1
     # 已确认后再提交相同内容 → 来源重复，不重复创建凭证/Wiki
-    r3 = await _submit(settings, creds, "password=Sup3rSecret! 内容")
+    r3 = await _submit(settings, creds, "password=Sup3rSecret! 内容", session_id=sid)
     assert r3["duplicate"] is True
     assert len(creds.created) == 1
     assert len(db.list_tasks()) == 1
@@ -414,14 +427,15 @@ async def test_duplicate_submission_idempotent(settings):
 async def test_resubmit_same_text_after_cancel(settings):
     """取消后重新提交相同内容：允许新建提交（sha256 UNIQUE 冲突已清理），且幂等去重等待态。"""
     creds = FakeCredentialStore()
-    r1 = await _submit(settings, creds, "password=Sup3rSecret!")
+    sid = _new_session()
+    r1 = await _submit(settings, creds, "password=Sup3rSecret!", session_id=sid)
     submissions.cancel(settings, r1["submission_id"])
-    r2 = await _submit(settings, creds, "password=Sup3rSecret!")
+    r2 = await _submit(settings, creds, "password=Sup3rSecret!", session_id=sid)
     assert r2["pending_confirmation"] is True
     assert r2["submission_id"] != r1["submission_id"]
     assert len(db.list_submissions("waiting")) == 1
     # 重复提交同一等待态内容 → 幂等返回同一提交
-    r3 = await _submit(settings, creds, "password=Sup3rSecret!")
+    r3 = await _submit(settings, creds, "password=Sup3rSecret!", session_id=sid)
     assert r3["submission_id"] == r2["submission_id"]
 
 
@@ -518,6 +532,7 @@ async def test_gate_never_direct_flow(settings):
     r = await receiver.ingest(
         settings, creds, text="password=Sup3rSecret!", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN),
+        session_id=_new_session(),
     )
     assert "pending_confirmation" not in r
     assert r["secrets"][0]["saved"] is True
@@ -532,6 +547,7 @@ async def test_gate_always_plain_text_requires_confirm(settings):
     r = await receiver.ingest(
         settings, creds, text="没有任何敏感信息的普通文本", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN),
+        session_id=_new_session(),
     )
     assert r["pending_confirmation"] is True
     assert r["summary"] == {"credential": 0, "pii": 0, "unknown_suspect": 0}

@@ -8,9 +8,12 @@ from tests.fakes import FakeCredentialStore, FakeProvider
 
 PLAN = json.dumps(
     {
-        "source_summary": {"title": "s", "path": "sources/s.md", "content": "# s\n内容"},
-        "pages": [{"action": "create", "path": "projects/p.md", "title": "p", "content": "# p\n订单服务与缓存介绍"}],
-        "conflicts": [],
+        "action": "final",
+        "plan": {
+            "source_summary": {"title": "s", "path": "sources/s.md", "content": "# s\n内容"},
+            "pages": [{"action": "create", "path": "projects/p.md", "title": "p", "content": "# p\n订单服务与缓存介绍"}],
+            "conflicts": [],
+        },
     },
     ensure_ascii=False,
 )
@@ -93,9 +96,10 @@ def test_api_flow(tmp_path, monkeypatch):
         assert set(security) == {"mode", "keywords", "entropy"}
         changed = client.patch("/api/settings/security", json={"mode": "confirm"}).json()
         assert changed["ok"] is True and changed["mode"] == "confirm"
+        maintain_sid = client.post("/api/chat/sessions", json={"mode": "maintain"}).json()["session_id"]
 
         # 输入（含秘密）：先进入确认闸门，未经确认不写 Vaultwarden、不建任务
-        r = client.post("/api/ingest", data={"text": "password=Sup3rSecret! 订单服务"}).json()
+        r = client.post("/api/ingest", data={"text": "password=Sup3rSecret! 订单服务", "session_id": maintain_sid}).json()
         assert r["pending_confirmation"] is True
         sid = r["submission_id"]
         assert r["summary"]["credential"] == 1
@@ -107,7 +111,8 @@ def test_api_flow(tmp_path, monkeypatch):
         assert "Sup3rSecret!" not in json.dumps(view)
 
         confirmed = client.post(
-            f"/api/pending/submissions/{sid}/confirm", json={"decisions": {fid: "store"}}
+            f"/api/pending/submissions/{sid}/confirm",
+            json={"decisions": {fid: "store"}, "session_id": maintain_sid},
         ).json()
         assert confirmed["secrets_count"] == 1 and confirmed["secrets"][0]["saved"] is True
         assert creds.created[0].value == "Sup3rSecret!"
@@ -128,9 +133,12 @@ def test_api_flow(tmp_path, monkeypatch):
         assert "订单服务" in content["content"]
 
         # 问答（fake provider 换用问答响应）
-        provider.response = "根据 [[projects/p.md|p]]：订单服务说明。"
+        provider.response = json.dumps(
+            {"action": "final", "answer": "订单服务说明。", "citations": []},
+            ensure_ascii=False,
+        )
         q = client.post("/api/query", json={"question": "订单服务是什么"}).json()
-        assert "projects/p.md" in q["answer"]
+        assert "订单服务" in q["answer"]
         status = client.get("/api/settings/status").json()
         assert status["retrieval_checked"] is True
         assert status["retrieval_degraded"] is (not q["semantic_retrieval_enabled"])
@@ -218,6 +226,7 @@ def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):
 
     with TestClient(main.app) as client:
         client.patch("/api/settings/security", json={"mode": "confirm"})
+        maintain_sid = client.post("/api/chat/sessions", json={"mode": "maintain"}).json()["session_id"]
         # 统一规则列表：内置规则带描述/示例/来源
         rules = client.get("/api/settings/policy/rules").json()["rules"]
         by_name = {r["name"]: r for r in rules}
@@ -226,7 +235,7 @@ def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):
         assert "pattern" in by_name["email"]
 
         # 覆盖前：138 手机号命中内置规则，进入确认闸门
-        before = client.post("/api/ingest", data={"text": "联系 13800138000 谢谢"}).json()
+        before = client.post("/api/ingest", data={"text": "联系 13800138000 谢谢", "session_id": maintain_sid}).json()
         assert before["pending_confirmation"] is True and before["summary"]["pii"] == 1
 
         # 覆盖内置规则：返回来源=override，策略文件持久化
@@ -238,9 +247,9 @@ def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):
         policy = client.get("/api/settings/policy").json()["policy"]
         assert policy["detection"]["builtin_rules"]["overrides"]["mobile_phone_cn"]["pattern"]
         # 覆盖即时生效（同一 policy_store 供 ingest 使用）：138 无命中、139 命中
-        after = client.post("/api/ingest", data={"text": "联系 13800138001 谢谢"}).json()
+        after = client.post("/api/ingest", data={"text": "联系 13800138001 谢谢", "session_id": maintain_sid}).json()
         assert after["pending_confirmation"] is True and after["summary"]["pii"] == 0
-        hit139 = client.post("/api/ingest", data={"text": "联系 13900139000 谢谢"}).json()
+        hit139 = client.post("/api/ingest", data={"text": "联系 13900139000 谢谢", "session_id": maintain_sid}).json()
         assert hit139["pending_confirmation"] is True and hit139["summary"]["pii"] == 1
         # 审计记录不含覆盖正则原文（既有不变量：策略与审计不含秘密/配置内容）
         from app import db
@@ -276,7 +285,7 @@ def test_policy_rules_detail_and_override_api(tmp_path, monkeypatch):
         policy = client.get("/api/settings/policy").json()["policy"]
         assert policy["detection"]["builtin_rules"]["overrides"] == {}
         # 恢复默认后 138 重新命中
-        back = client.post("/api/ingest", data={"text": "联系 13800138002 谢谢"}).json()
+        back = client.post("/api/ingest", data={"text": "联系 13800138002 谢谢", "session_id": maintain_sid}).json()
         assert back["pending_confirmation"] is True
 
         # 恢复未覆盖规则 → 400
@@ -293,7 +302,8 @@ def test_reject_submission_api_never_returns_plaintext(tmp_path, monkeypatch):
 
     with TestClient(main.app) as client:
         client.patch("/api/settings/security", json={"mode": "confirm"})
-        submitted = client.post("/api/ingest", data={"text": "password=RejectApiSecret!"}).json()
+        maintain_sid = client.post("/api/chat/sessions", json={"mode": "maintain"}).json()["session_id"]
+        submitted = client.post("/api/ingest", data={"text": "password=RejectApiSecret!", "session_id": maintain_sid}).json()
         response = client.post(f"/api/pending/submissions/{submitted['submission_id']}/cancel")
 
     assert response.status_code == 200

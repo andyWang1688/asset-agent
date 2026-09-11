@@ -10,15 +10,23 @@ from app.security.policy import PolicyStore
 from app.worker import Worker
 from tests.fakes import FakeCredentialStore, FakeProvider
 
-PLAN = (
+PLAN = '{"action":"final","plan":' + (
     '{"source_summary": {"title": "s", "path": "sources/s.md", "content": "# s\\n内容"}, '
     '"pages": [{"action": "create", "path": "projects/p.md", "title": "p", "content": "# p\\n内容"}], '
     '"conflicts": []}'
-)
+) + '}'
 
 
 def _store(settings):
     return PolicyStore(settings.policy_file)
+
+
+def _new_session() -> str:
+    import uuid
+
+    sid = uuid.uuid4().hex
+    db.create_session(sid, db.SESSION_MAINTAIN)
+    return sid
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +40,8 @@ async def test_ingest_secret_flow_with_confirmation(settings):
     creds = FakeCredentialStore()
     text = "生产数据库 password=Sup3rSecret! 用于订单服务。"
     provider = FakeProvider(PLAN)
-    r = await receiver.ingest(settings, creds, text=text, knowledge_provider_getter=lambda: provider)
+    r = await receiver.ingest(settings, creds, text=text, knowledge_provider_getter=lambda: provider,
+                              session_id=_new_session())
     assert r["pending_confirmation"] is True
     assert r["summary"]["credential"] == 1
     # 确认前：不落盘、不建任务、不写凭证库、不调模型
@@ -53,7 +62,7 @@ async def test_ingest_secret_flow_with_confirmation(settings):
     assert creds.created[0].value == "Sup3rSecret!"
     raw = next(settings.inbox_dir.glob("*")).read_text(encoding="utf-8")
     assert "Sup3rSecret!" not in raw
-    assert "[SECRET_REF:password]" in raw
+    assert "[🔒 password](private:pr_" in raw
 
     worker = Worker(settings, creds, lambda: provider)
     await worker.run_task(result["task_id"])
@@ -69,19 +78,23 @@ async def test_ingest_pii_enters_confirmation_gate(settings):
         FakeCredentialStore(),
         text="联系人 user@example.com，手机 13812345678。",
         knowledge_provider_getter=lambda: FakeProvider(PLAN),
+        session_id=_new_session(),
     )
     assert r["pending_confirmation"] is True
     assert r["summary"]["pii"] == 2
     assert {f["rule"] for f in r["findings"]} == {"email", "mobile_phone_cn"}
-    assert all(f["suggested_action"] == "redact" for f in r["findings"])
+    assert all(f["suggested_action"] == "store" for f in r["findings"])
 
 
 async def test_ingest_duplicate(settings):
     creds = FakeCredentialStore()
     provider = FakeProvider(PLAN)
     _store(settings).update_security_settings({"mode": "default"})
-    r1 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider)
-    r2 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider)
+    sid = _new_session()
+    r1 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider,
+                               session_id=sid)
+    r2 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider,
+                               session_id=sid)
     assert r2["duplicate"] is True
     assert r2["source_id"] == r1["source_id"]
     assert len(db.list_tasks()) == 1
@@ -90,7 +103,8 @@ async def test_ingest_duplicate(settings):
 async def test_ingest_vault_down_pending_queue(settings):
     creds = FakeCredentialStore(fail=True)
     r = await receiver.ingest(
-        settings, creds, text="password=Sup3rSecret!", knowledge_provider_getter=lambda: FakeProvider(PLAN)
+        settings, creds, text="password=Sup3rSecret!", knowledge_provider_getter=lambda: FakeProvider(PLAN),
+        session_id=_new_session(),
     )
     assert r["pending_confirmation"] is True
     view = submissions.view(settings, db.get_submission(r["submission_id"]))

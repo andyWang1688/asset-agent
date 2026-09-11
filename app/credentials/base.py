@@ -13,6 +13,10 @@ class SecretPayload:
     value: str
     kind: str = "login"
     note: str = ""
+    username: str | None = None
+    uri: str | None = None
+    # Secure Note 的字段：[(字段名, 字段值)]；kind == "secure_note" 时使用
+    fields: list = field(default_factory=list)
 
 
 @dataclass
@@ -20,6 +24,7 @@ class SecretRef:
     provider: str = "vaultwarden"
     name: str = ""
     item_id: str = ""
+    field_name: str = ""
 
 
 @dataclass
@@ -29,6 +34,10 @@ class SecretMetadata:
     note: str = ""
     updated_at: str = ""
     provider: str = "vaultwarden"
+    kind: str = "login"
+    # 内部幂等匹配用（从应用管理的 note 中提取），不作为对外公开元数据
+    value_hash: str = ""
+    field_name: str = ""
 
 
 class CredentialStore(Protocol):

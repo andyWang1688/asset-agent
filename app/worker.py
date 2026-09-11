@@ -81,8 +81,13 @@ class Worker:
                 db.update_pending(row["id"], "failed")
                 continue
             try:
+                kind = payload.get("kind", "login")
+                fields = [(payload["field_name"], payload["value"])] if kind == "secure_note" else []
                 await self.creds.create_secret(
-                    SecretPayload(name=payload["name"], value=payload["value"], note=payload.get("note", ""))
+                    SecretPayload(
+                        name=payload["name"], value=payload["value"],
+                        note=payload.get("note", ""), kind=kind, fields=fields,
+                    )
                 )
             except CredentialError:
                 db.update_pending_retry(row["id"])
@@ -138,17 +143,20 @@ class Worker:
             return
         db.update_task_status(task_id, "processing")
         try:
-            await compiler.compile_source(self.settings, provider, src, text)
+            result = await compiler.compile_source(self.settings, provider, src, text)
+            db.set_task_result(task_id, json.dumps(result, ensure_ascii=False))
             db.update_task_status(task_id, "done")
         except Exception as e:
-            db.update_task_retries(task_id)
-            db.update_task_status(task_id, "failed", error=f"{type(e).__name__}: {str(e)[:300]}")
+            # 终态失败，不自动重试、不挂处理中；错误信息只给安全原因，不回显模型错误正文。
+            db.update_task_status(task_id, "failed", error=f"{type(e).__name__}")
+            db.log_security("compile_failed", f"任务 #{task_id} 编译失败: {type(e).__name__}")
 
     async def _leftover_findings(self, src, text: str) -> list:
         """复扫（等长屏蔽占位符与文件头）；放行区间（相对落盘原文）之外命中即残留。"""
         policy = PolicyStore(self.settings.policy_file).load()
         engine = ScanEngine(policy, security_provider=self.get_security_provider())
-        masked = redactor.mask_placeholders(text)
+        # 只屏蔽来源登记（sources.secret_refs）的精确私密引用，不按语法形状豁免伪造标签。
+        masked = redactor.mask_placeholders(text, redactor.registered_refs(src["secret_refs"]))
         # 文件头（来源/哈希注释）不是资料内容：等长屏蔽，避免长文件名/哈希被误判为敏感内容
         idx = masked.find("-->")
         if idx != -1:

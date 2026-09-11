@@ -26,6 +26,8 @@ const routeFromLocation = () => ({
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [wikiPath, setWikiPath] = useState<string | null>(null)
+  const [privateRefId, setPrivateRefId] = useState<string | null>(null)
+  const [pendingSession, setPendingSession] = useState<string | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [tab, setTabState] = useState<Tab>(() => routeFromLocation().tab)
   const [settingsRoute, setSettingsRoute] = useState<SettingsRoute>(() => routeFromLocation().settingsRoute)
@@ -88,9 +90,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTab('wiki')
   }, [setTab])
 
+  const openPrivateRef = useCallback((refId: string) => setPrivateRefId(refId), [])
+  const closePrivateRef = useCallback(() => setPrivateRefId(null), [])
+  const requestOpenSession = useCallback((sessionId: string) => {
+    setPendingSession(sessionId)
+    setTab('chat')
+  }, [setTab])
+  const consumeOpenSession = useCallback(() => setPendingSession(null), [])
+
   const value = useMemo(
-    () => ({ tab, setTab, openWikiDoc, wikiPath, health, refreshHealth, navigateSettings, settingsRoute, securityTab, setSecurityTab }),
-    [tab, setTab, openWikiDoc, wikiPath, health, refreshHealth, navigateSettings, settingsRoute, securityTab, setSecurityTab],
+    () => ({ tab, setTab, openWikiDoc, wikiPath, privateRefId, openPrivateRef, closePrivateRef, pendingSession, requestOpenSession, consumeOpenSession, health, refreshHealth, navigateSettings, settingsRoute, securityTab, setSecurityTab }),
+    [tab, setTab, openWikiDoc, wikiPath, privateRefId, openPrivateRef, closePrivateRef, pendingSession, requestOpenSession, consumeOpenSession, health, refreshHealth, navigateSettings, settingsRoute, securityTab, setSecurityTab],
   )
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

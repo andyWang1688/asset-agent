@@ -14,7 +14,7 @@ from .api import router
 from .config import Settings
 from .credentials.vaultwarden import VaultwardenAdapter
 from .llm.provider import get_active_provider, get_security_provider
-from .query.hybrid import HybridQuestionAnswerEngine
+from .query.engine import WikiQuestionAnswerEngine
 from .security.policy import PolicyStore
 from .worker import Worker
 
@@ -50,9 +50,8 @@ async def lifespan(app: FastAPI):
 
     worker = Worker(settings, creds, get_provider, get_sec_provider)
     worker.start()
-    # 问答引擎：LlamaIndex 混合召回（BM25+向量）+ 可配置重排；
-    # embedding/重排模型均惰性加载，索引缺失时从 Markdown 自动重建。
-    query_engine = HybridQuestionAnswerEngine(settings, reranker_from_settings=True)
+    # 问答引擎：LLM Wiki 工具循环（index → read/search → 回答），不使用向量/embedding/重排。
+    query_engine = WikiQuestionAnswerEngine(settings)
     app.state.ctx = SimpleNamespace(
         settings=settings, creds=creds, worker=worker, get_provider=get_provider,
         get_security_provider=get_sec_provider, get_query_engine=lambda: query_engine,

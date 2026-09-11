@@ -42,7 +42,7 @@ async function render(node: React.ReactNode) {
 }
 function Harness() {
   const chat = useChat()
-  return <ChatPage active chat={chat} />
+  return <ChatPage chat={chat} />
 }
 afterEach(() => {
   while (roots.length) {

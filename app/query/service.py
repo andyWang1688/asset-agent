@@ -8,8 +8,7 @@ from ..security import redactor
 from ..security.detectors import ScanEngine
 from ..security.policy import PolicyStore
 from ..security.rules import KIND_CREDENTIAL
-from .engine import QuestionAnswerEngine
-from .hybrid import HybridQuestionAnswerEngine
+from .engine import QuestionAnswerEngine, WikiQuestionAnswerEngine
 
 
 async def _scan_question(settings: Settings, question: str, security_provider=None):
@@ -48,10 +47,17 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
     history = []
     if session_id and settings.chat_memory_rounds > 0:
         history = db.list_chat_history(session_id, settings.chat_memory_rounds)
-    # 未显式传入引擎时装配默认的单一混合引擎（LlamaIndex：BM25+向量+重排）。
-    engine = engine or HybridQuestionAnswerEngine(settings)
+    # 默认 LLM Wiki 引擎：先读 index，再 read/search，不依赖向量/embedding/重排。
+    engine = engine or WikiQuestionAnswerEngine(settings)
     result = await engine.answer(provider, safe_question, history=history)
-    clean, hits_found = redactor.sanitize_llm_output(result["answer"])
+    # 只信任已确认来源登记的精确私密引用，合法长名称原样通过；伪造标签不豁免。
+    valid = redactor.registered_refs(db.all_source_refs())
+    # 回答里的链接目标只对真正读过的页面路径豁免；标签/正文仍完整扫描。
+    safe_wiki_paths = set(result.get("read_pages") or [])
+    policy = PolicyStore(settings.policy_file).load()
+    clean, hits_found = redactor.sanitize_llm_output(
+        result["answer"], policy=policy, valid=valid, safe_wiki_paths=safe_wiki_paths
+    )
     if hits_found:
         db.log_security("llm_output_secret", f"问答响应命中规则 {hits_found}，片段已删除")
     citations = result["citations"]

@@ -17,30 +17,52 @@ def index_path(settings) -> Path:
     return settings.data_dir / INDEX_FILENAME
 
 
-def _pages(settings) -> list[dict]:
-    pages = []
+def real_page_paths(settings) -> set[str]:
+    """返回知识根目录内真实存在的页面相对路径集合（`dir/slug.md`）。
+
+    只包含磁盘上确实存在、resolve 后仍位于知识根目录内的 .md 页面；
+    符号链接越界/目录外/缺失文件一律排除。供链接目标免检白名单使用。"""
+    root = settings.wiki_dir.resolve()
+    paths: set[str] = set()
     for directory in ALLOWED_DIRS:
         for path in sorted((settings.wiki_dir / directory).glob("*.md")):
-            rel = f"{directory}/{path.name}"
             try:
-                raw = path.read_text(encoding="utf-8", errors="ignore")
+                if not path.resolve().is_relative_to(root):
+                    continue
             except OSError:
                 continue
-            title = path.stem
-            for line in raw.splitlines():
-                if line.startswith("# "):
-                    title = line[2:].strip() or title
-                    break
-            # Wiki 内容应已脱敏；这里再做一次边界防护，确保派生索引不保存秘密原文。
-            content, _ = redactor.sanitize_llm_output(raw)
-            title, _ = redactor.sanitize_llm_output(title)
-            pages.append({"path": rel, "title": title, "content": content})
+            if not path.is_file():
+                continue
+            paths.add(f"{directory}/{path.name}")
+    return paths
+
+
+def _pages(settings, policy: dict | None = None) -> list[dict]:
+    safe_paths = real_page_paths(settings)
+    pages = []
+    for rel in sorted(safe_paths):
+        path = settings.wiki_dir / rel
+        try:
+            raw = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        title = path.stem
+        for line in raw.splitlines():
+            if line.startswith("# "):
+                title = line[2:].strip() or title
+                break
+        # Wiki 内容应已脱敏；只信任已确认来源登记的精确私密引用（跨来源更新保留），
+        # 未登记引用仍按安全策略扫描，确保派生索引不保存秘密原文。
+        valid = redactor.registered_refs(db.all_source_refs())
+        content, _ = redactor.sanitize_llm_output(raw, policy=policy, valid=valid, safe_wiki_paths=safe_paths)
+        title, _ = redactor.sanitize_llm_output(title)
+        pages.append({"path": rel, "title": title, "content": content})
     return pages
 
 
-def build(settings) -> dict:
+def build(settings, policy: dict | None = None) -> dict:
     """从 Markdown 全量构建索引，并同步 SQLite 派生页表。"""
-    pages = _pages(settings)
+    pages = _pages(settings, policy)
     target = index_path(settings)
     target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_suffix(target.suffix + ".tmp")

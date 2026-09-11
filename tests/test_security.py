@@ -18,7 +18,7 @@ def test_build_refs_replaces_and_keeps_rest():
     text = "生产数据库 host=10.0.0.8，user=app，password=Sup3rSecret!，用于订单服务。"
     sanitized, refs = redactor.build_refs(text)
     assert SECRET not in sanitized
-    assert "[SECRET_REF:password]" in sanitized
+    assert "[🔒 password](private:pr_" in sanitized
     assert "10.0.0.8" in sanitized
     assert refs[0]["value"] == SECRET
 

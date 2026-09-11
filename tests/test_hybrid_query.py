@@ -12,6 +12,7 @@ from llama_index.core.schema import QueryBundle
 from app import db, main
 from app.config import Settings
 from app.query import hybrid, retrieval, service
+from app.query.engine import WikiQuestionAnswerEngine
 from app.query.embeddings import EmbeddingError, LazyHuggingFaceEmbedding
 from tests.fakes import FakeCredentialStore, FakeProvider
 
@@ -228,15 +229,18 @@ def test_default_embedding_is_lazy_local_bge(settings):
     assert embedder.is_local is True
 
 
-def test_hybrid_engine_selected_by_config(tmp_path, monkeypatch):
+def test_default_engine_is_wiki_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
     monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
-    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider("回答"))
+    monkeypatch.setattr(
+        main, "get_active_provider",
+        lambda settings: FakeProvider(json.dumps({"action": "final", "answer": "Wiki 中未找到相关内容。", "citations": []}, ensure_ascii=False)),
+    )
 
     with TestClient(main.app) as client:
         engine = main.app.state.ctx.get_query_engine()
-        assert isinstance(engine, hybrid.HybridQuestionAnswerEngine)
+        assert isinstance(engine, WikiQuestionAnswerEngine)
         response = client.post("/api/query", json={"question": "测试问题"})
 
     assert response.status_code == 200
@@ -247,14 +251,14 @@ def test_hybrid_engine_selected_by_config(tmp_path, monkeypatch):
     }
 
 
-def test_default_engine_is_hybrid(tmp_path, monkeypatch):
+def test_default_engine_is_wiki_tools_type(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "ws"))
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "ws" / ".asset-assistant"))
     monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: FakeCredentialStore())
     monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider("回答"))
 
     with TestClient(main.app) as client:
-        assert isinstance(main.app.state.ctx.get_query_engine(), hybrid.HybridQuestionAnswerEngine)
+        assert isinstance(main.app.state.ctx.get_query_engine(), WikiQuestionAnswerEngine)
 
 
 class BrokenEmbedding(ConceptEmbedding):
@@ -300,7 +304,9 @@ async def test_service_answer_degrades_when_index_build_fails(settings, monkeypa
     monkeypatch.setattr(retrieval_mod, "build_embedding_provider", lambda s: broken)
     provider = FakeProvider("根据 [[projects/demo.md|Demo]]：说明。")
 
-    result = await service.answer(settings, provider, "订单服务是什么")
+    # 旧混合引擎独立保留：显式注入引擎验证其降级路径（默认引擎已改为 LLM Wiki）。
+    engine = hybrid.HybridQuestionAnswerEngine(settings, auto_build=False)
+    result = await service.answer(settings, provider, "订单服务是什么", engine=engine)
 
     assert result["semantic_retrieval_enabled"] is False
     assert result["citations"] == ["projects/demo.md"]

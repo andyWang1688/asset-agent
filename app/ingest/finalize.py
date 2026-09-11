@@ -15,12 +15,10 @@ from .. import crypto, db
 from ..config import Settings
 from ..credentials.base import CredentialError, CredentialStore, SecretPayload
 from ..security import redactor
+from ..security import entries as entries_mod
 from ..security.detectors import ScanEngine, overlaps
 from ..security.rules import ACTION_ALLOW, ACTION_STORE, KIND_CREDENTIAL
 from ..security.policy import KIND_ALLOWED_ACTIONS
-
-_VALUE_SENTINEL = "\x00ref\x00"
-_PLACEHOLDER_SPLIT = re.compile(r"(\[SECRET_REF:[^\]]+\]|\[REDACTED:[^\]]+\])")
 
 # 单进程内的落盘互斥：查重→凭证写入→insert_source 是一个原子窗口，
 # 防止并发确认竞态重复创建 Vaultwarden 条目。按事件循环取锁（测试/运行各用各的循环）。
@@ -75,41 +73,11 @@ def validate_decisions(findings, decisions: dict | None) -> dict:
 
 
 def apply_decisions(text: str, findings, decisions: dict) -> tuple[str, list[tuple[int, int]]]:
-    """应用裁决：store → [SECRET_REF:name]；redact → [REDACTED:rule]；allow → 保留原文。
-    返回 (最终文本, 放行区间列表（相对最终文本）)。"""
-    names = redactor.ref_names(findings)
-
-    def _placeholder(f, action):
-        if action == ACTION_STORE and f.kind == KIND_CREDENTIAL:
-            return f"[SECRET_REF:{names.get(f.value, f.rule)}]"
-        return f"[REDACTED:{f.rule}]"
-
-    # 1) 全部 Finding 按 span 替换（自右向左，偏移稳定；key=value 连键名一并替换）
-    for f in sorted(findings, key=lambda x: -x.span[0]):
-        action = decisions.get(f.id, f.suggested_action)
-        if action == ACTION_ALLOW:
-            continue
-        text = text[: f.span[0]] + _placeholder(f, action) + text[f.span[1] :]
-    # 2) 值兜底全量替换（同一值在其他位置重复出现，阈值与确认视图一致）；
-    #    仅在非占位符段内执行，避免占位符自嵌套
-    for f in sorted(
-        [x for x in findings if x.value and redactor.should_mask_value(x.value)],
-        key=lambda x: -len(x.value),
-    ):
-        action = decisions.get(f.id, f.suggested_action)
-        if action == ACTION_ALLOW:
-            continue
-        ph = _placeholder(f, action)
-        if f.value in ph or f.value not in text:
-            continue
-        sentinel = _VALUE_SENTINEL + crypto.sha256_hex(f.value)[:16] + "\x00"
-        parts = _PLACEHOLDER_SPLIT.split(text)
-        for i, part in enumerate(parts):
-            if i % 2 == 0:
-                parts[i] = part.replace(f.value, sentinel)
-        text = "".join(parts).replace(sentinel, ph)
-    # 3) 放行区间：在最终文本中按值定位
-    return text, locate_allow_spans(text, findings, decisions)
+    """应用裁决生成脱敏文本（store → 私密引用；redact → 占位符；allow → 保留）。
+    兼容旧签名；新代码优先使用 entries.apply_entries 以携带用户编辑的名称。"""
+    dec = validate_decisions(findings, decisions)
+    entries = entries_mod.build_entries(findings, dec)
+    return entries_mod.apply_entries(text, entries)
 
 
 def locate_allow_spans(text: str, findings, decisions: dict) -> list[tuple[int, int]]:
@@ -127,11 +95,16 @@ def locate_allow_spans(text: str, findings, decisions: dict) -> list[tuple[int, 
     return allowed
 
 
-async def rescan_guard(engine: ScanEngine, sanitized: str, allowed_spans: list[tuple[int, int]]) -> None:
+async def rescan_guard(engine: ScanEngine, sanitized: str, allowed_spans: list[tuple[int, int]],
+                       entries=None) -> None:
     """复扫校验：除“误报放行”区间外，脱敏结果不得残留任何 Finding。
     mask_placeholders 保持等长，放行区间偏移仍然有效。security 增强层失败时回退本地结果。
-    命中即阻断（不落盘、不发送），错误信息只含规则名，不含原文。"""
-    masked = redactor.mask_placeholders(sanitized)
+    命中即阻断（不落盘、不发送），错误信息只含规则名，不含原文。
+    只屏蔽本报告登记的精确私密引用，伪造标签不得免检。"""
+    valid = None
+    if entries is not None:
+        valid = {ph for e in entries if (ph := entries_mod._placeholder(e)) is not None}
+    masked = redactor.mask_placeholders(sanitized, valid)
     post = await engine.scan_async(masked)
     leftover = [f for f in post if not any(overlaps(f.span, s) for s in allowed_spans)]
     if leftover:
@@ -142,42 +115,62 @@ async def rescan_guard(engine: ScanEngine, sanitized: str, allowed_spans: list[t
 async def _store_credentials(
     settings: Settings,
     creds: CredentialStore,
-    findings,
-    decisions: dict,
+    entries,
     sha: str,
     kind: str,
     original_name: str,
     source_id: int | None = None,
 ) -> tuple[list[dict], list[tuple[int, str]]]:
-    """把 store 裁决写入凭证库。Vaultwarden 失败时进入 AES-GCM 加密队列（任务挂起）。
-    幂等：凭证库已有 note 以“由资产 Agent 自动保存”（或旧版“由资产助手自动保存”）开头的同名条目时复用，不重复创建。"""
-    names = redactor.ref_names(findings)
-    known: dict[str, dict] = {}
+    """按解析后的条目写入凭证库：严格使用条目选定的 vault_kind/vault_name/field_name。
+    Vaultwarden 失败时进入 AES-GCM 加密队列（任务挂起），队列记录保留条目类型与字段名。
+    幂等：按 (值哈希 + 条目类型 + 条目名称 + 字段名) 全量匹配目标身份，
+    绝不用「同名条目」吞掉不同秘密，也不复用与报告目标不一致的既有条目。"""
+    known: dict[tuple, dict] = {}
     try:
         for m in await creds.list_items():
-            if (m.note or "").startswith(("由资产 Agent 自动保存", "由资产助手自动保存")):
-                known.setdefault(m.name, {"name": m.name, "item_id": m.item_id})
+            if m.value_hash:
+                key = (m.value_hash, m.kind, m.name, m.field_name)
+                known.setdefault(key, {"item_id": m.item_id})
     except CredentialError:
         known = {}  # 元数据不可用不阻断：写入时按失败入队
 
     refs_out: list[dict] = []
     pending_pairs: list[tuple[int, str]] = []
-    done_values: set[str] = set()
-    for f in findings:
-        if decisions.get(f.id, f.suggested_action) != ACTION_STORE or f.kind != KIND_CREDENTIAL:
+    # 目标身份 → 共享条目映射：去重的是保险柜写操作，不是 Finding→引用→保险柜 的映射。
+    done_targets: dict[tuple, dict] = {}
+    for e in entries:
+        if e.action != ACTION_STORE:
             continue
-        if f.value in done_values:
-            continue
-        done_values.add(f.value)
-        name = names.get(f.value, f.rule)
-        entry = {"name": name, "kind": f.kind, "rule": f.rule, "value_hash": crypto.sha256_hex(f.value)[:16]}
-        if name in known:
-            entry["saved"] = True
-            entry["item_id"] = known[name]["item_id"]
+        key = (e.value_hash, e.vault_kind, e.vault_name, e.field_name)
+        note = _note(e, original_name, kind, sha)
+        entry = {
+            "finding_id": e.finding.id,
+            "name": e.name,
+            "vault_name": e.vault_name,
+            "vault_kind": e.vault_kind,
+            "field_name": e.field_name,
+            "ref_id": e.ref_id,
+            "kind": e.finding.kind,
+            "rule": e.finding.rule,
+            "value_hash": e.value_hash,
+        }
+        shared = done_targets.get(key)
+        if shared is not None:
+            # 相同目标共享已创建/挂起的条目：每个 Finding 都返回完整映射，但不再重复写保险柜。
+            entry["saved"] = shared.get("saved", False)
+            entry["item_id"] = shared.get("item_id")
+            if shared.get("pending_id") is not None:
+                entry["pending_id"] = shared["pending_id"]
             refs_out.append(entry)
             continue
-        note = f"由资产 Agent 自动保存。来源: {original_name}（{kind}）; 来源哈希: {sha[:16]}; 规则: {f.rule}"
-        payload = SecretPayload(name=name, value=f.value, kind="login", note=note)
+        matched = known.get(key)
+        if matched:
+            entry["saved"] = True
+            entry["item_id"] = matched["item_id"]
+            done_targets[key] = entry
+            refs_out.append(entry)
+            continue
+        payload = _secret_payload(e, note)
         try:
             item = await creds.create_secret(payload)
             entry["saved"] = True
@@ -185,15 +178,38 @@ async def _store_credentials(
         except CredentialError:
             blob = crypto.seal(
                 settings.local_key(),
-                json.dumps({"name": name, "value": f.value, "note": note}, ensure_ascii=False).encode(),
+                json.dumps(
+                    {
+                        "name": e.vault_name, "value": e.value, "note": note,
+                        "kind": e.vault_kind, "field_name": e.field_name,
+                    },
+                    ensure_ascii=False,
+                ).encode(),
             )
-            pid = db.insert_pending(source_id, name, sha, blob)
+            pid = db.insert_pending(source_id, e.vault_name, sha, blob)
             entry["saved"] = False
             entry["pending_id"] = pid
-            pending_pairs.append((pid, f.value))
+            pending_pairs.append((pid, e.value))
+        done_targets[key] = entry
         refs_out.append(entry)
-        known[name] = {"name": name, "item_id": entry.get("item_id", "")}
     return refs_out, pending_pairs
+
+
+def _note(e, original_name: str, kind: str, sha: str) -> str:
+    return (
+        f"由资产 Agent 自动保存。来源: {original_name}（{kind}）; 来源哈希: {sha[:16]}; "
+        f"规则: {e.finding.rule}; 值哈希: {e.value_hash}; 引用: {e.ref_id}; "
+        f"类型: {e.vault_kind}; 字段: {e.field_name}"
+    )
+
+
+def _secret_payload(e, note: str) -> SecretPayload:
+    if e.vault_kind == entries_mod.VAULT_SECURE_NOTE:
+        return SecretPayload(
+            name=e.vault_name, value=e.value, kind="secure_note", note=note,
+            fields=[(e.field_name, e.value)],
+        )
+    return SecretPayload(name=e.vault_name, value=e.value, kind="login", note=note)
 
 
 async def finalize(
@@ -210,6 +226,11 @@ async def finalize(
     policy: dict | None = None,
     edited_text: str | None = None,
     security_provider=None,
+    session_id: str | None = None,
+    edits: dict | None = None,
+    instruction: str | None = None,
+    instruction_findings: list | None = None,
+    sources: dict | None = None,
 ) -> dict:
     """裁决 → 复扫 → 凭证 → 落盘 → 任务。重复内容幂等（由调用方先查重）。
     edited_text：用户在确认页修改过的脱敏预览——必须重新扫描，
@@ -220,6 +241,8 @@ async def finalize(
             settings, creds, text=text, sha=sha, kind=kind, original_name=original_name,
             findings=findings, decisions=decisions, engine=engine, policy=policy,
             edited_text=edited_text, security_provider=security_provider,
+            session_id=session_id, edits=edits, instruction=instruction,
+            instruction_findings=instruction_findings, sources=sources,
         )
 
 
@@ -273,8 +296,20 @@ async def _finalize_locked(
     policy: dict | None,
     edited_text: str | None,
     security_provider=None,
+    session_id: str | None = None,
+    edits: dict | None = None,
+    instruction: str | None = None,
+    instruction_findings: list | None = None,
+    sources: dict | None = None,
 ) -> dict:
-    dec = validate_decisions(findings, decisions)
+    instruction_findings = instruction_findings or []
+    combined = list(findings) + list(instruction_findings)
+    dec = validate_decisions(combined, decisions)
+    file_entries, instr_entries = entries_mod.build_all_entries(
+        findings, instruction_findings, dec, edits,
+        namespace=sha, policy=policy, sources=sources,
+    )
+    all_entries = file_entries + instr_entries
 
     # 两阶段落库：占位（confirmed=0，sha UNIQUE 互斥）先于凭证写入
     source_id, claimed = _claim_source(sha, kind, original_name)
@@ -287,16 +322,25 @@ async def _finalize_locked(
             allowed_san = locate_allow_spans(edited_text, findings, dec)
             if engine is None:
                 engine = ScanEngine(policy or {}, security_provider=security_provider)
-            await rescan_guard(engine, sanitized, allowed_san)
+            await rescan_guard(engine, sanitized, allowed_san, entries=all_entries)
         else:
-            sanitized, allowed_san = apply_decisions(text, findings, dec)
-            if findings:
+            sanitized, allowed_san = entries_mod.apply_entries(text, file_entries)
+            if file_entries:
                 if engine is None:
                     engine = ScanEngine(policy or {}, security_provider=security_provider)
-                await rescan_guard(engine, sanitized, allowed_san)
+                await rescan_guard(engine, sanitized, allowed_san, entries=all_entries)
+
+        # 整理要求（附件附带文字）单独脱敏：不混入文件 Raw，但按同一决定链保存。
+        instruction_redacted = ""
+        if instruction is not None:
+            instruction_redacted, _ = entries_mod.apply_entries(instruction, instr_entries)
+            if instr_entries:
+                if engine is None:
+                    engine = ScanEngine(policy or {}, security_provider=security_provider)
+                await rescan_guard(engine, instruction_redacted, [], entries=all_entries)
 
         refs_out, pending_pairs = await _store_credentials(
-            settings, creds, findings, dec, sha, kind, original_name, source_id=source_id
+            settings, creds, all_entries, sha, kind, original_name, source_id=source_id
         )
 
         rel = f"{sha[:12]}-{_safe_filename(original_name)}"
@@ -311,11 +355,11 @@ async def _finalize_locked(
         # 放行区间以最终落盘内容为基准（含文件头偏移）
         allowed_spans: list[tuple[int, int]] = []
         cursor = 0
-        for f in sorted([x for x in findings if dec.get(x.id) == ACTION_ALLOW], key=lambda x: x.span[0]):
-            i = raw_content.find(f.value, cursor)
+        for e in sorted([x for x in file_entries if x.action == ACTION_ALLOW], key=lambda x: x.finding.span[0]):
+            i = raw_content.find(e.value, cursor)
             if i >= 0:
-                allowed_spans.append((i, i + len(f.value)))
-                cursor = i + len(f.value)
+                allowed_spans.append((i, i + len(e.value)))
+                cursor = i + len(e.value)
 
         # 两阶段落库第二步：写入路径/引用/放行区间并标记已通过闸门
         db.update_source_processed(
@@ -323,12 +367,13 @@ async def _finalize_locked(
             str(raw_path),
             json.dumps(refs_out, ensure_ascii=False),
             json.dumps([list(s) for s in allowed_spans]),
+            instruction=instruction_redacted or "",
         )
     except Exception:
         _rollback_claim(sha, source_id, claimed)
         raise
 
-    task_id = db.insert_task(source_id)
+    task_id = db.insert_task(source_id, session_id=session_id)
     db.update_task_status(task_id, "credential_pending" if pending_pairs else "pending")
 
     return {
@@ -336,4 +381,6 @@ async def _finalize_locked(
         "task_id": task_id,
         "secrets": [{"name": r["name"], "saved": r.get("saved", False)} for r in refs_out],
         "secrets_count": len(refs_out),
+        "refs": refs_out,
+        "instruction": instruction_redacted,
     }

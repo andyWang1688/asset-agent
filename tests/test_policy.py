@@ -22,7 +22,7 @@ def test_default_policy_values():
     p = default_policy()
     assert p["gate"]["confirm_before_llm"] == "never"
     assert p["detection"]["entropy"]["min_length"] >= 8
-    assert p["actions"]["defaults"]["pii"] == "redact"
+    assert p["actions"]["defaults"]["pii"] == "store"
     assert p["actions"]["defaults"]["credential"] == "store"
 
 
@@ -227,10 +227,12 @@ def test_entropy_params_out_of_range_rejected(tmp_path):
     assert errors and "min_shannon" in errors[0]
 
 
-def test_pii_default_store_rejected(tmp_path):
+def test_pii_default_store_allowed(tmp_path):
+    """1.0：PII/unknown 默认保留并脱敏（store 存 Secure Note），不再默认销毁。"""
     store = _store(tmp_path)
     _, errors = store.save("actions:\n  defaults:\n    pii: store\n")
-    assert errors and "pii" in errors[0]
+    assert errors == []
+    assert store.load()["actions"]["defaults"]["pii"] == "store"
 
 
 def test_yaml_python_tag_rejected(tmp_path):

@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { staggerTransition } from '@/components/layout'
 import { api } from '@/lib/api'
 import { useIsMobile } from '@/hooks/use-is-mobile'
-import type { ChatEntry } from '@/lib/types'
+import type { ChatEntry, SessionInfo, SessionMode } from '@/lib/types'
 import { fmtTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { ChatMessage } from '@/hooks/use-chat'
@@ -11,7 +11,7 @@ import type { ChatMessage } from '@/hooks/use-chat'
 interface HistoryPanelProps {
   open: boolean
   onClose: () => void
-  onOpenSession: (sessionId: string, messages: ChatMessage[], title?: string | null) => void
+  onOpenSession: (sessionId: string, mode: SessionMode, messages: ChatMessage[], title?: string | null) => void
   onNewChat: () => void
   /** 当前正在查看的会话：列表中高亮，保持抽屉与内容区的层级关系 */
   activeSessionId?: string | null
@@ -23,6 +23,7 @@ interface SessionGroup {
   time: string
   count: number
   pinned: boolean
+  mode: SessionMode
   ids: number[]
   messages: ChatMessage[]
 }
@@ -38,8 +39,9 @@ function dayLabel(time: string): string {
   return `${d.getMonth() + 1} 月 ${d.getDate()} 日`
 }
 
-/** 按 session_id 分组（旧数据无 session_id 时每条独立成会话），置顶优先、其余按最近活跃倒序 */
-function groupSessions(rows: ChatEntry[]): SessionGroup[] {
+/** 按 chat_sessions + chat_log 合并分组：维护会话即使没有问答记录也出现在列表中，
+ *  置顶优先、其余按最近活跃倒序。 */
+function groupSessions(sessions: SessionInfo[], rows: ChatEntry[]): SessionGroup[] {
   const map = new Map<string, ChatEntry[]>()
   for (const r of rows) {
     const key = r.session_id || `legacy-${r.id}`
@@ -48,7 +50,27 @@ function groupSessions(rows: ChatEntry[]): SessionGroup[] {
     else map.set(key, [r])
   }
   const groups: SessionGroup[] = []
+  const seen = new Set<string>()
+  for (const s of sessions) {
+    const list = map.get(s.session_id) || []
+    list.sort((a, b) => a.id - b.id)
+    const first = list[0]
+    const last = list[list.length - 1] || { created_at: s.created_at }
+    const derived = first ? (first.question.length > 22 ? first.question.slice(0, 22) + '…' : first.question) : (s.mode === 'maintain' ? '资料维护' : '对话')
+    groups.push({
+      id: s.session_id,
+      title: s.title || derived,
+      time: last.created_at,
+      count: list.length,
+      pinned: s.pinned,
+      mode: s.mode,
+      ids: list.map((r) => r.id),
+      messages: list.map((r) => ({ q: r.question, a: r.answer, cites: r.citations || [] })),
+    })
+    seen.add(s.session_id)
+  }
   for (const [id, list] of map) {
+    if (seen.has(id)) continue
     list.sort((a, b) => a.id - b.id)
     const first = list[0]
     const last = list[list.length - 1]
@@ -58,7 +80,8 @@ function groupSessions(rows: ChatEntry[]): SessionGroup[] {
       title: first.title || derived,
       time: last.created_at,
       count: list.length,
-      pinned: list[0].pinned,
+      pinned: first.pinned,
+      mode: 'ask',
       ids: list.map((r) => r.id),
       messages: list.map((r) => ({ q: r.question, a: r.answer, cites: r.citations || [] })),
     })
@@ -81,7 +104,8 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat, activeSe
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setGroups(groupSessions(await api.chatHistory()))
+      const [sessions, chats] = await Promise.all([api.listSessions(), api.chatHistory()])
+      setGroups(groupSessions(sessions, chats))
     } catch {
       setGroups([])
     } finally {
@@ -198,12 +222,17 @@ export function HistoryPanel({ open, onClose, onOpenSession, onNewChat, activeSe
                       type="button"
                       onClick={() => {
                         if (g.id.startsWith('legacy-')) void api.adoptSession(g.id, g.ids).catch(() => {})
-                        onOpenSession(g.id, g.messages, g.title)
+                        onOpenSession(g.id, g.mode, g.messages, g.title)
                         if (isMobile) onClose()
                       }}
                       className={cn('motion-interactive block w-full rounded-md px-2.5 py-2.5 pr-8 text-left transition-colors hover:bg-soft active:scale-[0.97]', g.id === activeSessionId && 'bg-soft')}
                     >
-                      <b className="block truncate text-caption font-semibold text-fg">{g.title}</b>
+                      <b className="flex items-center gap-1.5 truncate text-caption font-semibold text-fg">
+                        <span className="truncate">{g.title}</span>
+                        <span className={cn('shrink-0 rounded-pill px-1.5 py-px font-mono text-meta font-normal', g.mode === 'maintain' ? 'bg-soft text-fg' : 'text-muted')}>
+                          {g.mode === 'maintain' ? '维护' : '问答'}
+                        </span>
+                      </b>
                       <small className="mt-0.5 block font-mono text-meta leading-[1.6] text-muted">
                         {fmtTime(g.time)} · {g.count} 条
                       </small>

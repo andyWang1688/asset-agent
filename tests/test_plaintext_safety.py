@@ -14,11 +14,11 @@ from app.worker import Worker
 from tests.fakes import FakeCredentialStore, FakeProvider
 
 SECRET = "Sup3rSecret!"
-PLAN = (
+PLAN = '{"action":"final","plan":' + (
     '{"source_summary": {"title": "s", "path": "sources/s.md", "content": "# s\\n内容"}, '
     '"pages": [{"action": "create", "path": "projects/p.md", "title": "p", "content": "# p\\n内容"}], '
     '"conflicts": []}'
-)
+) + '}'
 
 
 def _store(settings):
@@ -34,13 +34,21 @@ def _knowledge_model_configured(workspace):
 async def _ingest_and_confirm(settings, creds, text, decisions_override=None):
     r = await receiver.ingest(
         settings, creds, text=text, policy_store=_store(settings),
-        knowledge_provider_getter=lambda: FakeProvider(PLAN),
+        knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=_new_session(),
     )
     if "pending_confirmation" not in r:
         return r
     view = submissions.view(settings, db.get_submission(r["submission_id"]))
     decisions = {f["id"]: (decisions_override or {}).get(f["rule"], f["suggested_action"]) for f in view["findings"]}
     return await submissions.confirm(settings, creds, _store(settings), r["submission_id"], decisions)
+
+
+def _new_session() -> str:
+    import uuid
+
+    sid = uuid.uuid4().hex
+    db.create_session(sid, db.SESSION_MAINTAIN)
+    return sid
 
 
 async def test_mock_llm_never_receives_plaintext(settings):
@@ -60,7 +68,7 @@ async def test_mock_llm_never_receives_plaintext(settings):
     assert "11010519491231002X" not in sent
     assert "4111111111111111" not in sent
     # 脱敏占位符进入了请求
-    assert "[SECRET_REF:password]" in sent
+    assert "[🔒 password](private:pr_" in sent
 
 
 async def test_plaintext_not_in_raw_sqlite_audit_wiki(settings):
@@ -113,7 +121,7 @@ async def test_detector_failure_blocks_and_leaks_nothing(settings, monkeypatch):
     with pytest.raises(ValueError) as ei:
         await receiver.ingest(
             settings, creds, text=f"password={SECRET}", policy_store=_store(settings),
-            knowledge_provider_getter=lambda: FakeProvider(PLAN),
+            knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=_new_session(),
         )
     assert SECRET not in str(ei.value)  # 错误信息不含原文
     assert "检测器失败" in str(ei.value)
@@ -143,7 +151,7 @@ async def test_confirm_error_messages_hide_plaintext(settings):
     store.update_security_settings({"mode": "confirm"})
     r = await receiver.ingest(
         settings, creds, text=f"password={SECRET}", policy_store=store,
-        knowledge_provider_getter=lambda: FakeProvider(PLAN),
+        knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=_new_session(),
     )
     with pytest.raises(submissions.SubmissionError) as ei:
         await submissions.confirm(settings, creds, _store(settings), r["submission_id"], {})

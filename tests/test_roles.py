@@ -202,7 +202,7 @@ async def test_receiver_blocks_without_knowledge_model(settings):
     assert db.list_tasks() == []
 
 
-async def test_confirm_blocked_without_knowledge_model(settings):
+async def test_confirm_blocked_without_knowledge_model(settings, maintain_session):
     """先提交、再删除知识模型、最后确认：确认必须在创建任务前被拒绝，待确认记录保留。"""
     from app.security import submissions
     from app.security.policy import PolicyStore
@@ -213,6 +213,7 @@ async def test_confirm_blocked_without_knowledge_model(settings):
     r = await receiver.ingest(
         settings, creds, text="password=Sup3rSecret!",
         policy_store=store, knowledge_provider_getter=lambda: FakeProvider("{}"),
+        session_id=maintain_session,
     )
     view = submissions.view(settings, db.get_submission(r["submission_id"]))
     fid = view["findings"][0]["id"]
@@ -302,20 +303,21 @@ def test_api_confirm_blocked_without_knowledge_model(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "get_active_provider", lambda settings: holder["p"])
     with TestClient(main.app) as client:
         client.patch("/api/settings/security", json={"mode": "confirm"})
-        ing = client.post("/api/ingest", data={"text": "password=Sup3rSecret!"})
+        sid0 = client.post("/api/chat/sessions", json={"mode": "maintain"}).json()["session_id"]
+        ing = client.post("/api/ingest", data={"text": "password=Sup3rSecret!", "session_id": sid0})
         j = ing.json()
         assert j["pending_confirmation"] is True
         sid = j["submission_id"]
         fid = j["findings"][0]["id"]
         holder["p"] = None  # 模拟删除知识库模型
         conf = client.post(f"/api/pending/submissions/{sid}/confirm",
-                           json={"decisions": {fid: "store"}})
+                           json={"decisions": {fid: "store"}, "session_id": sid0})
         assert conf.status_code == 400 and "知识库模型" in conf.json()["detail"]
         assert db.get_submission(sid)["status"] == "waiting"  # 待确认记录保留
         assert db.list_tasks() == []
         # 恢复知识库模型后重试成功
         holder["p"] = FakeProvider("OK")
         conf2 = client.post(f"/api/pending/submissions/{sid}/confirm",
-                            json={"decisions": {fid: "store"}})
+                            json={"decisions": {fid: "store"}, "session_id": sid0})
         assert conf2.status_code == 200 and "task_id" in conf2.json()
         assert db.list_tasks() != []

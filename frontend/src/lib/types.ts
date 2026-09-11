@@ -11,6 +11,16 @@ export type ConfirmBody = components['schemas']['ConfirmBody']
 export type QueryBody = components['schemas']['QueryBody']
 export type PolicyBody = components['schemas']['PolicyBody']
 
+export type SessionMode = 'ask' | 'maintain'
+
+export interface SessionInfo {
+  session_id: string
+  mode: SessionMode
+  title: string | null
+  pinned: boolean
+  created_at: string
+}
+
 /** 后端未声明 response_model，health 响应无 OpenAPI 模式，按实际形状显式声明 */
 export interface Health {
   status: string
@@ -42,11 +52,19 @@ export interface Finding {
   allowed_actions: string[]
   detector: string
   context: string
+  name: string
+  description: string
+  source: string
+  ref_id: string
+  private_ref: string | null
+  vault: { kind: string; name: string; field_name: string }
 }
 
 export interface SubmissionView {
   submission_id: number
   status: string
+  session_id: string | null
+  report_id: number | null
   original_name: string
   created_at: string
   summary: Record<string, number>
@@ -59,14 +77,27 @@ export interface PendingSubmission {
   status: string
   sha256: string
   original_name: string | null
+  session_id: string | null
+  report_id: number | null
   summary: Record<string, number>
   created_at: string
   resolved_at: string | null
 }
 
+/** 确认请求中每个 Finding 的可编辑字段（后端 FindingEditBody） */
+export type FindingEdits = Record<string, {
+  type?: string
+  name?: string
+  description?: string
+  vault_kind?: string
+  vault_name?: string
+  field_name?: string
+}>
+
 export interface IngestResult {
   source_id: number
   task_id: number
+  report_id?: number
   secrets: { name: string; saved: boolean }[]
   secrets_count: number
   duplicate?: boolean
@@ -88,6 +119,7 @@ export interface ChatEntry {
   session_id: string | null
   title: string | null
   pinned: boolean
+  mode: SessionMode
   created_at: string
 }
 
@@ -104,12 +136,70 @@ export interface WikiDoc {
 export interface TaskRow {
   id: number
   source_id: number
+  session_id: string | null
+  report_id: number | null
   status: string
   error: string | null
+  result?: { changes?: string[]; conflicts?: { between?: string[]; note?: string }[] }
   retries: number
   original_name: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ReportEntry {
+  finding_id: string
+  type: string
+  name: string
+  description: string
+  source: string
+  action: string
+  rule: string
+  confidence: number
+  detector: string
+  value_hash?: string
+  span?: [number, number]
+  ref_id: string
+  private_ref: string | null
+  vault: {
+    kind: string
+    name: string
+    field_name: string
+    item_id: string | null
+    saved: boolean
+    pending_id?: number | null
+  }
+}
+
+export interface ReportSnapshot {
+  id: number
+  session_id: string | null
+  submission_id: number | null
+  status: 'pending' | 'confirmed' | 'auto' | 'rejected'
+  mode: 'confirm' | 'auto'
+  kind: string
+  original_name: string
+  sha256: string
+  summary: Record<string, number>
+  entries: ReportEntry[]
+  preview: string
+  instruction: string
+  created_at: string
+  confirmed_at: string | null
+}
+
+export interface PrivateRefMeta {
+  ref_id: string
+  name: string | null
+  source: string
+  kind: string
+  vault_kind: string | null
+  vault_name: string | null
+  field_name: string | null
+  item_id: string | null
+  report_id: number
+  session_id: string | null
+  created_at: string
 }
 
 export interface Preset {

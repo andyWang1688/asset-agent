@@ -23,7 +23,8 @@ def test_foreign_origin_rejected(tmp_path, monkeypatch):
 
 def test_same_origin_allowed(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as client:
-        r = client.post("/api/ingest", data={"text": "普通内容"},
+        sid = client.post("/api/chat/sessions", json={"mode": "maintain"}).json()["session_id"]
+        r = client.post("/api/ingest", data={"text": "普通内容", "session_id": sid},
                         headers={"Origin": "http://127.0.0.1:8000"})
         assert r.status_code == 200
 
@@ -31,7 +32,8 @@ def test_same_origin_allowed(tmp_path, monkeypatch):
 def test_no_origin_allowed_for_cli_tools(tmp_path, monkeypatch):
     # 无 Origin/Referer（curl、脚本、TestClient 场景）视为本机调用放行
     with _client(tmp_path, monkeypatch) as client:
-        r = client.post("/api/ingest", data={"text": "普通内容"})
+        sid = client.post("/api/chat/sessions", json={"mode": "maintain"}).json()["session_id"]
+        r = client.post("/api/ingest", data={"text": "普通内容", "session_id": sid})
         assert r.status_code == 200
 
 
@@ -52,7 +54,8 @@ def test_referer_prefix_spoof_rejected(tmp_path, monkeypatch):
 
 def test_localhost_referer_allowed(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as client:
-        r = client.post("/api/ingest", data={"text": "普通内容"},
+        sid = client.post("/api/chat/sessions", json={"mode": "maintain"}).json()["session_id"]
+        r = client.post("/api/ingest", data={"text": "普通内容", "session_id": sid},
                         headers={"Referer": "http://localhost:8000/"})
         assert r.status_code == 200
 

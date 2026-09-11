@@ -1,6 +1,7 @@
-/** 链接仅允许 http(s)、协议相对、相对路径与锚点。 */
+/** 链接仅允许 http(s)、协议相对、相对路径、锚点，以及应用内部 wiki:/private: 链接。 */
 export function safeUrl(u: string): string {
   const s = String(u ?? '').trim()
+  if (/^(wiki|private):/i.test(s)) return s // 内部链接：交给组件处理为应用动作
   if (/^(https?:)?\/\//i.test(s)) return s
   if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return '#'
   return s
