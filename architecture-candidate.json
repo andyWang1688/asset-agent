@@ -2,473 +2,59 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "AssetAgent：本地安全知识编译架构",
+    "title": "AssetAgent：个人资产资料如何变成可问答知识",
     "output": "assetagent-architecture.html",
     "quality_profile": "showcase",
-    "viewBox": [
-      2100,
-      1000
-    ],
+    "viewBox": [2100, 1120],
+    "repository": {
+      "url": "https://github.com/andyWang1688/asset-agent",
+      "revision": "e0f6c7d441341053e4ae777ceb8157f46911bfcb"
+    },
     "views": [
-      {
-        "id": "ingest_path",
-        "label": "资料进入 Wiki",
-        "focus": [
-          "browser",
-          "web_api",
-          "ingest_scan",
-          "confirm_gate",
-          "finalize",
-          "worker",
-          "wiki_compiler",
-          "llm_cloud",
-          "workspace",
-          "sqlite"
-        ],
-        "note": "本机资料经检测、人工裁决、复扫与模型编译，成为结构化 Markdown Wiki，并同步建立 SQLite FTS5 检索索引。"
-      },
-      {
-        "id": "secret_boundary",
-        "label": "秘密隔离边界",
-        "focus": [
-          "ingest_scan",
-          "confirm_gate",
-          "finalize",
-          "vaultwarden",
-          "sqlite"
-        ],
-        "note": "credential 原文仅短暂在内存、加密队列或 Vaultwarden 中存在，不进入模型与知识资产。"
-      },
-      {
-        "id": "query_path",
-        "label": "知识检索问答",
-        "focus": [
-          "browser",
-          "web_api",
-          "query_service",
-          "sqlite",
-          "llm_cloud"
-        ],
-        "note": "问题先扫描，FTS5 召回页面，模型依据脱敏内容回答，输出再次扫描并保留引用。"
-      },
-      {
-        "id": "failure_path",
-        "label": "故障恢复与幂等",
-        "focus": [
-          "finalize",
-          "worker",
-          "vaultwarden",
-          "sqlite"
-        ],
-        "note": "凭证写入失败时加密暂存并挂起任务；Worker 重试成功后恢复编译。"
-      }
+      {"id": "collect", "label": "资料入库主链路", "focus": ["local_user", "web_frontend", "api_core", "safety_gate", "source_finalizer", "task_compiler", "file_knowledge", "app_state", "knowledge_llm"], "note": "资料先在本机检测和裁决，只有脱敏后的 Source 才会交给模型编译为 Markdown Wiki。"},
+      {"id": "secrets", "label": "秘密隔离链路", "focus": ["safety_gate", "source_finalizer", "credential_vault", "app_state"], "note": "凭证原文只进入 Vaultwarden；等待裁决或重试时只保存 AES-GCM 密文。"},
+      {"id": "ask", "label": "知识问答链路", "focus": ["local_user", "web_frontend", "api_core", "rag_engine", "file_knowledge", "knowledge_llm", "app_state"], "note": "问题经安全扫描后做 BM25 与本地向量混合召回，模型仅依据脱敏 Wiki 作答。"},
+      {"id": "failclosed", "label": "安全失效关闭", "focus": ["api_core", "safety_gate", "task_compiler", "knowledge_llm", "security_llm"], "note": "知识模型缺失时禁止入库与问答；可选安全模型失败时退回本地检测，而不是放行内容。"}
     ]
   },
   "components": [
-    {
-      "id": "browser",
-      "type": "external",
-      "label": "本机用户与浏览器",
-      "sublabel": "单页 UI · 127.0.0.1",
-      "tag": "单用户 / 无登录",
-      "pos": [
-        30,
-        220
-      ],
-      "size": [
-        170,
-        76
-      ]
-    },
-    {
-      "id": "web_api",
-      "type": "frontend",
-      "label": "FastAPI Web/API",
-      "sublabel": "静态页面 + /api/*",
-      "tag": "Origin / Referer / CSRF",
-      "pos": [
-        265,
-        220
-      ],
-      "size": [
-        175,
-        76
-      ]
-    },
-    {
-      "id": "ingest_scan",
-      "type": "security",
-      "label": "输入解析与本地检测",
-      "sublabel": "Text / MD / TXT / PDF",
-      "tag": "Regex → Context → Entropy",
-      "pos": [
-        505,
-        220
-      ],
-      "size": [
-        180,
-        76
-      ]
-    },
-    {
-      "id": "confirm_gate",
-      "type": "security",
-      "label": "统一确认闸门",
-      "sublabel": "逐项裁决每个 Finding",
-      "tag": "store / redact / allow",
-      "pos": [
-        750,
-        220
-      ],
-      "size": [
-        180,
-        76
-      ]
-    },
-    {
-      "id": "finalize",
-      "type": "backend",
-      "label": "脱敏与两阶段落库",
-      "sublabel": "裁决应用 · 编辑后复扫",
-      "tag": "sha256 UNIQUE 抢占",
-      "pos": [
-        995,
-        220
-      ],
-      "size": [
-        180,
-        76
-      ]
-    },
-    {
-      "id": "worker",
-      "type": "backend",
-      "label": "后台 Worker",
-      "sublabel": "TTL · 凭证重试 · 任务轮询",
-      "tag": "单进程异步循环",
-      "pos": [
-        1240,
-        220
-      ],
-      "size": [
-        180,
-        76
-      ]
-    },
-    {
-      "id": "wiki_compiler",
-      "type": "backend",
-      "label": "Wiki 编译器",
-      "sublabel": "JSON 计划 · 路径校验 · 双写",
-      "tag": "index / log 确定性维护",
-      "pos": [
-        1485,
-        220
-      ],
-      "size": [
-        180,
-        76
-      ]
-    },
-    {
-      "id": "vaultwarden",
-      "type": "security",
-      "label": "Vaultwarden",
-      "sublabel": "credential 原文长期归宿",
-      "tag": "bw CLI · 自签 HTTPS",
-      "pos": [
-        995,
-        25
-      ],
-      "size": [
-        180,
-        76
-      ]
-    },
-    {
-      "id": "sqlite",
-      "type": "database",
-      "label": "SQLite + FTS5",
-      "sublabel": "任务 / 配置 / 审计 / 页面镜像",
-      "tag": "WAL · AES-GCM 密文队列",
-      "pos": [
-        995,
-        510
-      ],
-      "size": [
-        200,
-        80
-      ]
-    },
-    {
-      "id": "workspace",
-      "type": "database",
-      "label": "Workspace 文件事实源",
-      "sublabel": "脱敏 Raw + Markdown Wiki",
-      "tag": "可编辑 / 可版本化 / 可重建",
-      "pos": [
-        1485,
-        510
-      ],
-      "size": [
-        200,
-        80
-      ]
-    },
-    {
-      "id": "query_service",
-      "type": "backend",
-      "label": "检索问答服务",
-      "sublabel": "问题扫描 · 召回 · 引用",
-      "tag": "模型输出再次扫描",
-      "pos": [
-        1240,
-        790
-      ],
-      "size": [
-        190,
-        80
-      ]
-    },
-    {
-      "id": "llm_cloud",
-      "type": "cloud",
-      "label": "可配置云端模型",
-      "sublabel": "OpenAI 兼容 / Anthropic",
-      "tag": "仅接收脱敏内容",
-      "pos": [
-        1810,
-        510
-      ],
-      "size": [
-        200,
-        80
-      ]
-    }
+    {"id": "local_user", "type": "external", "label": "本机用户与浏览器", "sublabel": "收集资料 · 确认裁决 · 查询资产", "tag": "单用户实例", "pos": [30, 300], "size": [190, 86]},
+    {"id": "web_frontend", "type": "frontend", "label": "React 前端 + Nginx", "sublabel": "SPA 与 /api 同源反向代理", "tag": "127.0.0.1:8000", "sources": [{"path": "frontend/src/App.tsx"}, {"path": "frontend/nginx.conf"}, {"path": "docker-compose.yml"}], "pos": [280, 300], "size": [205, 86]},
+    {"id": "api_core", "type": "backend", "label": "FastAPI 控制层", "sublabel": "ingest · confirm · query · settings", "tag": "Origin / Referer 防护", "sources": [{"path": "app/main.py"}, {"path": "app/api.py"}], "pos": [545, 300], "size": [210, 86]},
+    {"id": "safety_gate", "type": "security", "label": "本地检测与确认闸门", "sublabel": "正则 → 关键词联想 → 熵 → 裁决", "tag": "store / redact / allow", "sources": [{"path": "app/security/detectors.py"}, {"path": "app/security/submissions.py"}, {"path": "app/security/redactor.py"}], "pos": [815, 300], "size": [230, 86]},
+    {"id": "source_finalizer", "type": "backend", "label": "Source 定稿器", "sublabel": "应用裁决 · 复扫 · 两阶段落库", "tag": "sha256 幂等抢占", "sources": [{"path": "app/ingest/receiver.py"}, {"path": "app/ingest/finalize.py"}], "pos": [1110, 300], "size": [220, 86]},
+    {"id": "task_compiler", "type": "backend", "label": "后台 Worker + Wiki 编译器", "sublabel": "轮询任务 · 编译计划 · 更新页面", "tag": "单进程 / 单副本", "sources": [{"path": "app/worker.py"}, {"path": "app/wiki/compiler.py"}], "pos": [1395, 300], "size": [240, 86]},
+    {"id": "credential_vault", "type": "security", "label": "Vaultwarden", "sublabel": "凭证原文的唯一长期归宿", "tag": "bw CLI · 自签 HTTPS", "sources": [{"path": "app/credentials/vaultwarden.py"}, {"path": "docker-compose.yml"}], "pos": [1110, 70], "size": [220, 86]},
+    {"id": "app_state", "type": "database", "label": "SQLite 应用状态", "sublabel": "任务 · 会话 · 配置 · 安全事件", "tag": "WAL · 密文待处理队列", "sources": [{"path": "app/db.py"}], "pos": [1110, 585], "size": [220, 88]},
+    {"id": "file_knowledge", "type": "database", "label": "Workspace 知识资产", "sublabel": "脱敏 Raw · Markdown Wiki · 派生索引", "tag": "Wiki 是事实源", "sources": [{"path": "app/wiki/compiler.py"}, {"path": "app/query/retrieval.py"}, {"path": "app/query/index.py"}], "pos": [1395, 585], "size": [240, 88]},
+    {"id": "rag_engine", "type": "backend", "label": "LlamaIndex 混合问答", "sublabel": "BM25 + 本地向量 + 可选重排", "tag": "引用 · 对话记忆 · 输出复扫", "sources": [{"path": "app/query/hybrid.py"}, {"path": "app/query/service.py"}, {"path": "app/query/engine.py"}], "pos": [1730, 825], "size": [235, 88]},
+    {"id": "knowledge_llm", "type": "cloud", "label": "知识库模型", "sublabel": "Wiki 编译与知识问答", "tag": "必配 · 只见脱敏文本", "sources": [{"path": "app/llm/provider.py"}], "pos": [1730, 300], "size": [225, 88]},
+    {"id": "security_llm", "type": "security", "label": "安全增强模型", "sublabel": "仅本地或内网端点", "tag": "可选 · 只能新增或加严", "sources": [{"path": "app/security/llm_detector.py"}, {"path": "app/llm/provider.py"}], "pos": [815, 70], "size": [230, 86]}
   ],
   "boundaries": [
-    {
-      "kind": "region",
-      "label": "本机 Docker / 文件系统边界 · 仅绑定 127.0.0.1",
-      "wraps": [
-        "web_api",
-        "ingest_scan",
-        "confirm_gate",
-        "finalize",
-        "worker",
-        "wiki_compiler",
-        "vaultwarden",
-        "sqlite",
-        "workspace",
-        "query_service"
-      ],
-      "pad": 20
-    },
-    {
-      "kind": "security-group",
-      "label": "敏感内容受控处理区",
-      "wraps": [
-        "confirm_gate",
-        "finalize",
-        "vaultwarden"
-      ],
-      "pad": 12
-    }
+    {"kind": "region", "label": "本机 AssetAgent 实例 · Docker 与 Workspace · 服务只绑定 127.0.0.1", "wraps": ["web_frontend", "api_core", "safety_gate", "source_finalizer", "task_compiler", "credential_vault", "app_state", "file_knowledge", "rag_engine"], "pad": 24},
+    {"kind": "security-group", "label": "敏感原文受控区", "wraps": ["safety_gate", "source_finalizer", "credential_vault"], "pad": 14}
   ],
   "connections": [
-    {
-      "id": "browser_api",
-      "from": "browser",
-      "to": "web_api",
-      "label": "同源 HTTP",
-      "variant": "emphasis"
-    },
-    {
-      "id": "api_ingest",
-      "from": "web_api",
-      "to": "ingest_scan",
-      "label": "/api/ingest",
-      "variant": "emphasis"
-    },
-    {
-      "id": "ingest_gate",
-      "from": "ingest_scan",
-      "to": "confirm_gate",
-      "label": "Finding",
-      "variant": "security"
-    },
-    {
-      "id": "gate_finalize",
-      "from": "confirm_gate",
-      "to": "finalize",
-      "label": "完整裁决",
-      "variant": "security"
-    },
-    {
-      "id": "finalize_worker",
-      "from": "finalize",
-      "to": "worker",
-      "label": "创建任务",
-      "variant": "emphasis"
-    },
-    {
-      "id": "worker_compiler",
-      "from": "worker",
-      "to": "wiki_compiler",
-      "label": "安全 Raw",
-      "variant": "emphasis"
-    },
-    {
-      "id": "finalize_vault",
-      "from": "finalize",
-      "to": "vaultwarden",
-      "label": "保存 credential",
-      "variant": "security"
-    },
-    {
-      "id": "finalize_sqlite",
-      "from": "finalize",
-      "to": "sqlite",
-      "label": "状态与密文",
-      "variant": "dashed",
-      "fromSide": "bottom",
-      "toSide": "top"
-    },
-    {
-      "id": "worker_sqlite",
-      "from": "worker",
-      "to": "sqlite",
-      "label": "轮询 / 重试",
-      "variant": "dashed"
-    },
-    {
-      "id": "worker_vault",
-      "from": "worker",
-      "to": "vaultwarden",
-      "label": "失败凭证重试",
-      "variant": "dashed",
-      "fromSide": "top",
-      "toSide": "right",
-      "via": [
-        [
-          1330,
-          125
-        ],
-        [
-          1215,
-          125
-        ],
-        [
-          1215,
-          63
-        ]
-      ]
-    },
-    {
-      "id": "compiler_workspace",
-      "from": "wiki_compiler",
-      "to": "workspace",
-      "label": "写 Markdown",
-      "variant": "emphasis",
-      "fromSide": "bottom",
-      "toSide": "top"
-    },
-    {
-      "id": "workspace_sqlite",
-      "from": "workspace",
-      "to": "sqlite",
-      "label": "页面镜像 / FTS5",
-      "variant": "default",
-      "labelAt": [
-        1340,
-        500
-      ]
-    },
-    {
-      "id": "api_query",
-      "from": "web_api",
-      "to": "query_service",
-      "label": "/api/query",
-      "fromSide": "bottom",
-      "toSide": "left",
-      "via": [
-        [
-          352.5,
-          690
-        ],
-        [
-          1165,
-          690
-        ],
-        [
-          1165,
-          830
-        ]
-      ]
-    },
-    {
-      "id": "query_sqlite",
-      "from": "query_service",
-      "to": "sqlite",
-      "label": "FTS5 召回",
-      "variant": "default"
-    },
-    {
-      "id": "compiler_llm",
-      "from": "wiki_compiler",
-      "to": "llm_cloud",
-      "label": "编译请求 ↔ JSON 计划",
-      "variant": "dashed"
-    },
-    {
-      "id": "query_llm",
-      "from": "query_service",
-      "to": "llm_cloud",
-      "label": "安全问题 ↔ 引用回答",
-      "variant": "dashed",
-      "fromSide": "bottom",
-      "toSide": "bottom",
-      "via": [
-        [
-          1335,
-          920
-        ],
-        [
-          1910,
-          920
-        ]
-      ]
-    }
+    {"id": "open_app", "from": "local_user", "to": "web_frontend", "label": "本机 HTTP", "variant": "emphasis"},
+    {"id": "same_origin_api", "from": "web_frontend", "to": "api_core", "label": "同源 /api/*", "variant": "emphasis"},
+    {"id": "submit_material", "from": "api_core", "to": "safety_gate", "label": "文本 / 文件", "variant": "security"},
+    {"id": "optional_enhance", "from": "safety_gate", "to": "security_llm", "label": "等长掩码检测 · 只加严", "variant": "dashed"},
+    {"id": "approved_content", "from": "safety_gate", "to": "source_finalizer", "label": "完整裁决", "variant": "security"},
+    {"id": "pending_cipher", "from": "safety_gate", "to": "app_state", "label": "待确认 AES-GCM 密文", "variant": "security"},
+    {"id": "vault_secret", "from": "source_finalizer", "to": "credential_vault", "label": "credential 原文", "variant": "security"},
+    {"id": "enqueue_compile", "from": "source_finalizer", "to": "task_compiler", "label": "脱敏 Source + 编译任务", "labelAt": [1363, 282], "variant": "emphasis"},
+    {"id": "save_state", "from": "source_finalizer", "to": "app_state", "label": "来源与任务状态", "labelAt": [1220, 400]},
+    {"id": "poll_tasks", "from": "app_state", "to": "task_compiler", "label": "轮询与重试"},
+    {"id": "update_wiki", "from": "task_compiler", "to": "file_knowledge", "label": "读脱敏 Raw · 写 Wiki 与索引", "labelAt": [1515, 400], "variant": "emphasis"},
+    {"id": "compile_prompt", "from": "task_compiler", "to": "knowledge_llm", "label": "脱敏编译上下文 · JSON 计划", "labelAt": [1683, 400], "variant": "emphasis"},
+    {"id": "ask_question", "from": "api_core", "to": "rag_engine", "label": "安全扫描后的问题", "variant": "emphasis"},
+    {"id": "retrieve_pages", "from": "file_knowledge", "to": "rag_engine", "label": "混合召回页面"},
+    {"id": "answer_prompt", "from": "rag_engine", "to": "knowledge_llm", "label": "问题 + 脱敏页面 · 复扫答案", "variant": "emphasis", "fromSide": "top", "toSide": "bottom"}
   ],
   "cards": [
-    {
-      "dot": "rose",
-      "title": "安全不变量",
-      "items": [
-        "credential 原文不进入模型流量、Raw、Wiki、对话、日志或异常",
-        "Finding 未逐项处置则拒绝确认；Worker 编译前按当前策略复扫",
-        "模型 API Key 与两类待处理队列均以 AES-256-GCM 加密"
-      ]
-    },
-    {
-      "dot": "cyan",
-      "title": "知识编译主链",
-      "items": [
-        "内存解析与检测 → 一次性确认 → 秘密分流 → 异步编译",
-        "模型只返回受目录白名单约束的 JSON 维护计划",
-        "Markdown Wiki 是事实源；SQLite 保存派生索引和运行状态"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "一致性与恢复",
-      "items": [
-        "sources.sha256 UNIQUE + confirmed=0 占位实现来源幂等抢占",
-        "Vaultwarden 故障时任务挂起，AES-GCM 密文最多保留 7 天并自动重试",
-        "必须保持 uvicorn 单进程/单副本；进程锁不提供分布式写入保护"
-      ]
-    }
-  ],
-  "title": "AssetAgent：本地安全知识编译架构",
-  "output": "assetagent-architecture.html"
+    {"dot": "emerald", "title": "它真正管理的不是余额，而是资产知识", "items": ["把合同、账号说明、保单、设备与项目资料整理成可编辑 Wiki", "当前没有银行自动同步、交易执行或投资决策模块"]},
+    {"dot": "rose", "title": "安全核心", "items": ["秘密原文不进 LLM、Wiki、对话记录或日志", "Vaultwarden 保存凭证；PII 只留下脱敏占位符"]},
+    {"dot": "cyan", "title": "运行边界", "items": ["React/Nginx、FastAPI、Worker、Vaultwarden 组成单机 Docker 服务", "知识模型可远程，但只能收到脱敏内容；安全增强模型必须是本地或内网端点"]}
+  ]
 }
