@@ -1,14 +1,16 @@
 import { useEffect, useRef } from 'react'
-import { X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ArrowUp, Paperclip, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { SegmentedTabs } from '@/components/segmented-tabs'
 import { cn } from '@/lib/utils'
 
 export type ChatMode = 'ask' | 'maintain'
 
-const MODE_META: Record<ChatMode, { label: string; placeholder: string }> = {
-  ask: { label: '问答 · 只读', placeholder: '询问你的资产知识库…' },
-  maintain: { label: '维护', placeholder: '粘贴要整理的资料，或添加单个 TXT/Markdown 文件…' },
+const PLACEHOLDER: Record<ChatMode, string> = {
+  ask: '询问你的资产知识库…',
+  maintain: '粘贴要整理的资料，或添加 TXT / Markdown 文件…',
 }
 
 const MAX_HEIGHT = 180
@@ -22,12 +24,26 @@ interface ComposerProps {
   sendDisabled: boolean
   fileName: string | null
   onFileChange: (f: File | null) => void
+  showModeSwitch?: boolean
+  onModeChange?: (m: ChatMode) => void
 }
 
-/** 输入区：统一面板边框/圆角/阴影，textarea 无边框，底部附件工具与发送按钮 */
-export function Composer({ mode, value, onChange, onSend, sending, sendDisabled, fileName, onFileChange }: ComposerProps) {
+/** 输入区：单层圆角容器；模式切换（仅新对话）在容器内，发送为圆形填充按钮。 */
+export function Composer({
+  mode,
+  value,
+  onChange,
+  onSend,
+  sending,
+  sendDisabled,
+  fileName,
+  onFileChange,
+  showModeSwitch = false,
+  onModeChange,
+}: ComposerProps) {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const maintain = mode === 'maintain'
 
   const autoGrow = () => {
     const ta = taRef.current
@@ -41,18 +57,13 @@ export function Composer({ mode, value, onChange, onSend, sending, sendDisabled,
     autoGrow()
   }, [value])
 
-  const maintain = mode === 'maintain'
-
   return (
-    <div className="motion-interactive rounded-lg border border-border bg-surface p-content shadow-pop transition-[border-color,box-shadow] focus-within:border-fg/45 focus-within:ring-[3px] focus-within:ring-soft">
-      <div className="mb-1.5">
-        <Badge variant={maintain ? 'accent' : 'muted'}>{MODE_META[mode].label}</Badge>
-      </div>
-      <textarea
+    <div className="rounded-2xl border bg-background p-1.5 shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/10">
+      <Textarea
         ref={taRef}
         value={value}
         spellCheck
-        placeholder={MODE_META[mode].placeholder}
+        placeholder={PLACEHOLDER[mode]}
         aria-label="输入内容"
         onChange={(e) => {
           onChange(e.target.value)
@@ -64,52 +75,65 @@ export function Composer({ mode, value, onChange, onSend, sending, sendDisabled,
             if (!sendDisabled && !sending) onSend()
           }
         }}
-        className="w-full resize-none border-0 bg-transparent text-input leading-[1.6] outline-none placeholder:text-muted"
+        className="min-h-16 resize-none border-0 bg-transparent px-3 pt-2.5 text-base leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent"
       />
-      <div className="mt-1.5 flex items-center justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          {maintain && (
-            <>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".md,.txt,.text"
-                className="hidden"
-                onChange={(e) => {
-                  onFileChange(e.target.files?.[0] ?? null)
-                  e.target.value = ''
-                }}
-              />
-              <button
-                type="button"
-                aria-label="添加附件"
-                onClick={() => fileRef.current?.click()}
-                className="motion-interactive inline-flex items-center gap-compact rounded-sm px-compact py-compact text-caption text-muted transition-colors hover:bg-soft hover:text-fg active:scale-[0.97]"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
-                  <path d="m20.5 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-2.8-2.8l7.7-7.7" />
-                </svg>
-                添加附件
-              </button>
-              {fileName && (
-                <span className="inline-flex max-w-[200px] items-center gap-1.5 rounded-sm bg-soft px-2 py-0.5 text-caption text-fg">
-                  <span className="truncate">{fileName}</span>
-                  <button type="button" aria-label="移除附件" onClick={() => onFileChange(null)} className="text-fg">
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              )}
-            </>
-          )}
-        </div>
+      <div className="flex items-center gap-1 px-1 pb-0.5">
+        {showModeSwitch ? (
+          <SegmentedTabs
+            value={mode}
+            onChange={(m) => onModeChange?.(m)}
+            size="sm"
+            aria-label="对话模式"
+            options={[
+              { value: 'ask', label: '问答' },
+              { value: 'maintain', label: '维护' },
+            ]}
+          />
+        ) : (
+          <Badge variant="secondary">{maintain ? '维护' : '问答 · 只读'}</Badge>
+        )}
+        {maintain && (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".md,.txt,.text"
+              className="hidden"
+              onChange={(e) => {
+                onFileChange(e.target.files?.[0] ?? null)
+                e.target.value = ''
+              }}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="添加附件"
+              title="添加附件"
+              onClick={() => fileRef.current?.click()}
+            >
+              <Paperclip />
+            </Button>
+            {fileName && (
+              <span className="inline-flex max-w-48 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
+                <span className="truncate">{fileName}</span>
+                <button type="button" aria-label="移除附件" onClick={() => onFileChange(null)} className="text-muted-foreground hover:text-foreground">
+                  <X className="size-3" />
+                </button>
+              </span>
+            )}
+          </>
+        )}
         <Button
           type="button"
-          variant="primary"
+          size="icon"
+          className={cn('ml-auto rounded-full', sending && 'opacity-60')}
           disabled={sendDisabled}
           onClick={onSend}
-          className={cn('h-auto rounded-sm px-[18px] py-2 text-caption font-semibold', sending && 'opacity-60')}
+          aria-label={sending ? '发送中' : '发送'}
+          title="发送"
         >
-          {sending ? '发送中…' : '发送'}
+          <ArrowUp />
         </Button>
       </div>
     </div>

@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { ChevronLeft, ChevronRight, MoreHorizontal, Pencil, RotateCcw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { staggerTransition } from '@/components/layout'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { api, errMsg } from '@/lib/api'
 import type { DetectionRule } from '@/lib/types'
+import { SettingsGroup } from './settings-ui'
 
 const KIND_LABELS: Record<string, string> = {
   credential: '凭证',
@@ -24,9 +23,8 @@ const friendlyRuleError = (msg: string) => msg
   .replace(/^detection\.extra_rules\[\d+\]\./, '')
   .replace(/^detection\.builtin_rules\.overrides\.[^.]+\./, '')
 
-function RuleRow({ rule, index, onToggle, onOverride, onRestore, onDelete }: {
+function RuleItem({ rule, onToggle, onOverride, onRestore, onDelete }: {
   rule: DetectionRule
-  index: number
   onToggle: () => void
   onOverride: (body: { pattern?: string; kind?: string }) => Promise<void>
   onRestore: () => Promise<void>
@@ -38,7 +36,6 @@ function RuleRow({ rule, index, onToggle, onOverride, onRestore, onDelete }: {
   const [kind, setKind] = useState(rule.kind)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const reduceMotion = useReducedMotion()
   useEffect(() => { setPattern(rule.pattern || ''); setKind(rule.kind) }, [rule.pattern, rule.kind])
   const save = async () => {
     if (!pattern.trim() && kind === rule.kind) return
@@ -49,53 +46,116 @@ function RuleRow({ rule, index, onToggle, onOverride, onRestore, onDelete }: {
     } catch (e) { setError(friendlyRuleError(errMsg(e))) }
     finally { setSaving(false) }
   }
-  return <>
-    <TableRow asChild className="first:border-t-0">
-    <motion.tr layout initial={reduceMotion ? false : { opacity: 0, y: 'var(--spacing-compact)' }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0, x: 'var(--spacing-content)' }} transition={staggerTransition(reduceMotion, index)}>
-      <TableHead scope="row" className="min-w-[170px] whitespace-normal py-3">{rule.name}</TableHead>
-      <TableCell><Badge variant="muted">{KIND_LABELS[rule.kind] ?? rule.kind}</Badge></TableCell>
-      <TableCell><Badge variant={rule.source === 'custom' ? 'muted' : rule.source === 'override' ? 'warn' : 'accent'}>{SOURCE_LABELS[rule.source || 'builtin']}</Badge></TableCell>
-      <TableCell className="min-w-[300px] max-w-[560px] whitespace-normal text-muted">
-        <p className="break-words">{rule.description || '自定义匹配规则'}</p>
-        {!!rule.examples?.length && <p className="mt-1 text-meta">示例命中：{rule.examples.join('、')}</p>}
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center gap-2"><span className="text-meta text-muted">{rule.enabled ? '已启用' : '已停用'}</span><Switch checked={rule.enabled} onCheckedChange={onToggle} aria-label={`切换 ${rule.name}`} /></div>
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center gap-1">
-          {rule.source !== 'custom' && <Button variant="compact" size="icon" onClick={() => setEditing(!editing)} aria-label={`覆盖修改 ${rule.name}`} title="覆盖修改"><Pencil className="h-3.5 w-3.5" /></Button>}
+  return (
+    <div className="border-b px-4 py-3 last:border-b-0">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium">{rule.name}</p>
+            <Badge variant="outline">{KIND_LABELS[rule.kind] ?? rule.kind}</Badge>
+            <Badge variant="outline" className={rule.source === 'override' ? 'text-amber-600' : undefined}>
+              {SOURCE_LABELS[rule.source || 'builtin']}
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{rule.description || '自定义匹配规则'}</p>
+          {!!rule.examples?.length && (
+            <p className="mt-0.5 text-xs text-muted-foreground">示例命中：{rule.examples.join('、')}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">{rule.enabled ? '已启用' : '已停用'}</span>
+          <Switch
+            checked={rule.enabled}
+            onCheckedChange={onToggle}
+            className="data-[state=checked]:bg-emerald-600"
+            aria-label={`切换 ${rule.name}`}
+          />
+          {rule.source !== 'custom' && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setEditing((value) => !value)}
+              aria-label={`覆盖修改 ${rule.name}`}
+              title="覆盖修改"
+            >
+              <Pencil />
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="compact" size="icon" aria-label={`规则操作 ${rule.name}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="icon-sm" aria-label={`规则操作 ${rule.name}`} title="更多操作">
+                <MoreHorizontal />
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[170px]">
-              <DropdownMenuItem onSelect={() => setAdvanced((value) => !value)}>{advanced ? '收起正则' : '展开正则'}</DropdownMenuItem>
-              {rule.source !== 'custom' && <DropdownMenuItem onSelect={() => setEditing(true)}><Pencil />覆盖修改</DropdownMenuItem>}
-              {rule.source === 'override' && <DropdownMenuItem onSelect={() => void onRestore()}><RotateCcw />恢复默认</DropdownMenuItem>}
-              {rule.source === 'custom' && <DropdownMenuItem onSelect={() => void onDelete()}>删除规则</DropdownMenuItem>}
+              <DropdownMenuItem onSelect={() => setAdvanced((value) => !value)}>
+                {advanced ? '收起正则' : '展开正则'}
+              </DropdownMenuItem>
+              {rule.source !== 'custom' && (
+                <DropdownMenuItem onSelect={() => setEditing(true)}>
+                  <Pencil />
+                  覆盖修改
+                </DropdownMenuItem>
+              )}
+              {rule.source === 'override' && (
+                <DropdownMenuItem onSelect={() => void onRestore()}>
+                  <RotateCcw />
+                  恢复默认
+                </DropdownMenuItem>
+              )}
+              {rule.source === 'custom' && (
+                <DropdownMenuItem onSelect={() => void onDelete()} className="text-destructive">
+                  删除规则
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </TableCell>
-    </motion.tr>
-    </TableRow>
-    <AnimatePresence initial={false}>
-    {advanced && <TableRow asChild className="bg-bg"><motion.tr initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><TableCell colSpan={6} className="whitespace-normal py-2"><code className="block break-all font-mono text-meta text-muted">正则：{rule.pattern || '未提供'}</code></TableCell></motion.tr></TableRow>}
-    {editing && rule.source !== 'custom' && <TableRow asChild className="bg-bg"><motion.tr initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><TableCell colSpan={6} className="whitespace-normal">
-      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_170px_auto_auto]">
-        <Input aria-label={`${rule.name} 正则`} value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="覆盖正则模式" />
-        <Select value={kind} onValueChange={setKind}><SelectTrigger aria-label={`${rule.name} 类别`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select>
-        <Button variant="primary" size="sm" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存覆盖'}</Button>
-        <Button variant="compact" size="sm" onClick={() => setEditing(false)}>取消</Button>
       </div>
-      {error && <p className="mt-2 text-caption text-danger">{error}</p>}
-    </TableCell></motion.tr></TableRow>}
-    </AnimatePresence>
-  </>
+      {advanced && (
+        <code className="mt-2 block animate-in fade-in break-all rounded-md bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+          正则：{rule.pattern || '未提供'}
+        </code>
+      )}
+      {editing && rule.source !== 'custom' && (
+        <div className="mt-3 animate-in fade-in">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_170px_auto_auto]">
+            <Input
+              aria-label={`${rule.name} 正则`}
+              value={pattern}
+              onChange={(e) => setPattern(e.target.value)}
+              placeholder="覆盖正则模式"
+            />
+            <Select value={kind} onValueChange={setKind}>
+              <SelectTrigger aria-label={`${rule.name} 类别`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pii">个人信息（PII）</SelectItem>
+                <SelectItem value="credential">凭证</SelectItem>
+                <SelectItem value="unknown_suspect">疑似敏感信息</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              size="sm"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              {saving ? '保存中…' : '保存覆盖'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+              取消
+            </Button>
+          </div>
+          {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+        </div>
+      )}
+    </div>
+  )
 }
 
-/** 正则规则表：CRUD、筛选与分页状态自持，网络请求归属本区块 */
+/** 正则规则：CRUD、筛选与分页状态自持，网络请求归属本区块 */
 export function RegexRulesSection() {
   const [rules, setRules] = useState<DetectionRule[]>([])
   const [validators, setValidators] = useState<string[]>([])
@@ -152,31 +212,110 @@ export function RegexRulesSection() {
     catch (e) { setError(friendlyRuleError(errMsg(e))) }
     finally { setSaving(false) }
   }
-  return <section>
-    <div className="border-b border-border px-cell py-4">
-      <div className="mb-1"><h3 className="text-panel font-semibold">正则规则</h3><p className="mt-1 text-caption text-muted">匹配上以下任一规则的内容即视为敏感信息；可新增自定义规则，或覆盖/停用内置规则。</p></div>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[220px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" /><Input className="pl-8" aria-label="搜索规则" placeholder="搜索规则名称、描述或示例" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1) }} /></div>
-        <Select value={kindFilter} onValueChange={(value) => { setKindFilter(value); setPage(1) }}><SelectTrigger className="w-[170px]" aria-label="按类型筛选"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部类型</SelectItem>{Object.entries(KIND_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
-        <Button variant="primary" size="sm" className="ml-auto" onClick={() => setShowAddForm((value) => !value)}>{showAddForm ? '收起新增' : '新增规则'}</Button>
+  return (
+    <SettingsGroup
+      title="正则规则"
+      description="匹配上以下任一规则的内容即视为敏感信息；可新增自定义规则，或覆盖/停用内置规则。"
+      action={
+        <Button size="sm" variant="outline" onClick={() => setShowAddForm((value) => !value)}>
+          {showAddForm ? '收起新增' : '新增规则'}
+        </Button>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-8"
+            aria-label="搜索规则"
+            placeholder="搜索规则名称、描述或示例"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPage(1) }}
+          />
+        </div>
+        <Select value={kindFilter} onValueChange={(value) => { setKindFilter(value); setPage(1) }}>
+          <SelectTrigger className="w-[170px]" aria-label="按类型筛选">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部类型</SelectItem>
+            {Object.entries(KIND_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-      {rules.length > 50 && <p className="mt-3 rounded-md bg-warn-soft px-3 py-2 text-caption text-warn">规则较多可能影响扫描性能，建议定期清理不再使用的规则</p>}
-    </div>
-    <Table className="min-w-[940px]">
-      <TableHeader>
-        <TableRow><TableHead scope="col">名称</TableHead><TableHead scope="col">类型</TableHead><TableHead scope="col">来源</TableHead><TableHead scope="col">说明 / 示例命中</TableHead><TableHead scope="col">状态</TableHead><TableHead scope="col">操作</TableHead></TableRow>
-      </TableHeader>
-      <TableBody>
-        <AnimatePresence initial={false}>
-        {pageRules.map((rule, index) => <RuleRow key={rule.name} rule={rule} index={index} onToggle={() => void toggle(rule)} onOverride={(body) => override(rule, body)} onRestore={() => restore(rule)} onDelete={() => remove(rule)} />)}
-        </AnimatePresence>
-        {pageRules.length === 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted">暂无匹配规则</TableCell></TableRow>}
-      </TableBody>
-    </Table>
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-cell py-3">
-      <span className="text-meta text-muted">共 {filtered.length} 条 · 每页 20 条</span>
-      <div className="flex items-center gap-1.5"><span className="mr-1 font-mono text-meta text-muted">第 {currentPage} / {pageCount} 页</span><Button variant="compact" size="icon" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage === 1} aria-label="上一页"><ChevronLeft className="h-4 w-4" /></Button><Button variant="compact" size="icon" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={currentPage === pageCount} aria-label="下一页"><ChevronRight className="h-4 w-4" /></Button></div>
-    </div>
-    {showAddForm && <div className="border-t border-border px-cell py-4"><div className="mb-2.5 flex flex-wrap items-center justify-between gap-2"><h3 className="text-panel font-semibold">新增自定义规则</h3><span className="text-meta text-muted">不限条数 · 模式最多 300 字符</span></div><div className="grid gap-2 sm:grid-cols-2"><Input placeholder="规则名称，如 employee_id" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><Input placeholder="正则匹配模式" value={form.pattern} onChange={(e) => setForm({ ...form, pattern: e.target.value })} /><Select value={form.kind} onValueChange={(kind) => setForm({ ...form, kind })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pii">个人信息（PII）</SelectItem><SelectItem value="credential">凭证</SelectItem><SelectItem value="unknown_suspect">疑似敏感信息</SelectItem></SelectContent></Select><Select value={form.validator || 'none'} onValueChange={(validator) => setForm({ ...form, validator: validator === 'none' ? '' : validator })}><SelectTrigger><SelectValue placeholder="校验函数（可选）" /></SelectTrigger><SelectContent><SelectItem value="none">不使用校验函数</SelectItem>{validators.map((validator) => <SelectItem key={validator} value={validator}>{VALIDATOR_LABELS[validator] ?? validator}</SelectItem>)}</SelectContent></Select></div><div className="mt-2.5 flex items-center gap-2.5"><Button variant="primary" size="sm" disabled={saving} onClick={() => void add()}>{saving ? '新增中…' : '新增规则'}</Button>{error && <p className="text-caption text-danger">{error}</p>}</div></div>}
-  </section>
+      {rules.length > 50 && (
+        <p className="border-b bg-amber-500/10 px-4 py-2.5 text-xs text-amber-600">
+          规则较多可能影响扫描性能，建议定期清理不再使用的规则
+        </p>
+      )}
+      {pageRules.length === 0 ? (
+        <Empty className="py-8">
+          <EmptyHeader>
+            <EmptyTitle>暂无匹配规则</EmptyTitle>
+            <EmptyDescription>调整搜索或筛选条件，或新增自定义规则。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        pageRules.map((rule) => (
+          <RuleItem
+            key={rule.name}
+            rule={rule}
+            onToggle={() => void toggle(rule)}
+            onOverride={(body) => override(rule, body)}
+            onRestore={() => restore(rule)}
+            onDelete={() => remove(rule)}
+          />
+        ))
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
+        <span className="text-xs text-muted-foreground">共 {filtered.length} 条 · 每页 20 条</span>
+        <div className="flex items-center gap-1.5">
+          <span className="mr-1 font-mono text-xs text-muted-foreground">第 {currentPage} / {pageCount} 页</span>
+          <Button variant="outline" size="icon-sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage === 1} aria-label="上一页">
+            <ChevronLeft />
+          </Button>
+          <Button variant="outline" size="icon-sm" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={currentPage === pageCount} aria-label="下一页">
+            <ChevronRight />
+          </Button>
+        </div>
+      </div>
+      {showAddForm && (
+        <div className="animate-in fade-in border-t px-4 py-4">
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium">新增自定义规则</p>
+            <span className="text-xs text-muted-foreground">不限条数 · 模式最多 300 字符</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input placeholder="规则名称，如 employee_id" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input placeholder="正则匹配模式" value={form.pattern} onChange={(e) => setForm({ ...form, pattern: e.target.value })} />
+            <Select value={form.kind} onValueChange={(kind) => setForm({ ...form, kind })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pii">个人信息（PII）</SelectItem>
+                <SelectItem value="credential">凭证</SelectItem>
+                <SelectItem value="unknown_suspect">疑似敏感信息</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={form.validator || 'none'} onValueChange={(validator) => setForm({ ...form, validator: validator === 'none' ? '' : validator })}>
+              <SelectTrigger><SelectValue placeholder="校验函数（可选）" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">不使用校验函数</SelectItem>
+                {validators.map((validator) => (
+                  <SelectItem key={validator} value={validator}>{VALIDATOR_LABELS[validator] ?? validator}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="mt-3 flex items-center gap-2.5">
+            <Button className="bg-emerald-600 text-white hover:bg-emerald-700" size="sm" disabled={saving} onClick={() => void add()}>
+              {saving ? '新增中…' : '新增规则'}
+            </Button>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+          </div>
+        </div>
+      )}
+    </SettingsGroup>
+  )
 }

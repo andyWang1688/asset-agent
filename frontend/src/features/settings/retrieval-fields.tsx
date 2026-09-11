@@ -1,7 +1,5 @@
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { springTransition } from '@/components/layout'
 import type { ModelDownloadStatus } from '@/lib/types'
 
 
@@ -12,28 +10,30 @@ export function DownloadPanel({ downloading, dlStatus, canDownload, onStart }: {
   canDownload: boolean
   onStart: () => void
 }) {
-  const reduceMotion = useReducedMotion()
+  const busy = dlStatus?.status === 'queued' || dlStatus?.status === 'downloading'
   return (
-    <AnimatePresence initial={false}>
-    <motion.div className="space-y-1.5 overflow-hidden pt-1" initial={reduceMotion ? false : { height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={reduceMotion ? undefined : { height: 0, opacity: 0 }} transition={springTransition(reduceMotion)}>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="compact" size="sm" disabled={downloading || !canDownload} onClick={onStart}>
+    <div className="flex w-full flex-col items-end gap-1.5 sm:w-64">
+      <div className="flex select-none items-center gap-2">
+        <Button size="sm" variant="outline" disabled={downloading || !canDownload} onClick={onStart}>
           {downloading ? '下载中…' : dlStatus?.downloaded ? '重新下载' : '下载模型'}
         </Button>
-        {dlStatus?.downloaded && <Badge variant="accent">已下载</Badge>}
-        {dlStatus && (dlStatus.status === 'queued' || dlStatus.status === 'downloading') && (
-          <span className="font-mono text-meta text-muted">
-            {dlStatus.status === 'queued' ? '排队中…' : `下载中 ${dlStatus.progress}%${dlStatus.files_total ? ` · ${dlStatus.files_done}/${dlStatus.files_total} 文件` : ''}`}
-          </span>
+        {dlStatus?.downloaded && (
+          <Badge variant="outline" className="text-emerald-600">
+            已下载
+          </Badge>
         )}
       </div>
-      {dlStatus && (dlStatus.status === 'queued' || dlStatus.status === 'downloading') && (
-        <div className="h-1.5 w-full overflow-hidden rounded-pill bg-border">
-          <div className="motion-state h-full bg-accent transition-[width]" style={{ width: `${dlStatus.progress}%` }} />
-        </div>
+      {busy && (
+        <>
+          <span className="font-mono text-xs text-muted-foreground">
+            {dlStatus.status === 'queued' ? '排队中…' : `下载中 ${dlStatus.progress}%${dlStatus.files_total ? ` · ${dlStatus.files_done}/${dlStatus.files_total} 文件` : ''}`}
+          </span>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-emerald-600 transition-[width]" style={{ width: `${dlStatus.progress}%` }} />
+          </div>
+        </>
       )}
-      {dlStatus?.status === 'failed' && <p className="text-caption text-danger">{dlStatus.error}</p>}
-    </motion.div>
-    </AnimatePresence>
+      {dlStatus?.status === 'failed' && <p className="text-xs text-destructive">{dlStatus.error}</p>}
+    </div>
   )
 }

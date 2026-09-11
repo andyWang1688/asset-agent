@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@radix-ui/react-label'
 import {
   Select,
   SelectContent,
@@ -11,7 +11,6 @@ import {
 } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
-import { FormRow } from '@/components/layout'
 import { errMsg } from '@/lib/api'
 import type { ModelBody, ModelRow, Preset } from '@/lib/types'
 
@@ -83,77 +82,95 @@ export function ModelSheet({ open, role, model, presets, onSave, onClose }: Mode
         <SheetHeader>
           <SheetTitle>{model ? '编辑模型' : '添加模型'}</SheetTitle>
         </SheetHeader>
-        <div className="flex-1 space-y-3.5 overflow-y-auto px-5 py-3">
-          <div className="space-y-1.5">
-            <Label className="text-caption text-muted">角色</Label>
-            <Select value={role} disabled>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="knowledge">知识库（必配）</SelectItem>
-                <SelectItem value="security">安全增强（可选）</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-caption text-muted">{ROLE_HINTS[role] || ''}</p>
-          </div>
-          <FormRow label="名称" htmlFor="model-name" error={error || undefined} control={<Input id="model-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="如：DeepSeek 生产" />} />
-          <div className="space-y-1.5">
-            <Label className="text-caption text-muted">Provider</Label>
-            <Select
-              value={presetType}
-              onValueChange={(v) => {
-                setPresetType(v)
-                const p = presets.find((x) => x.type === v)
-                if (p) {
-                  if (p.base_url) setBaseUrl(p.base_url)
-                  if (p.model) setModelName(p.model)
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="选择预设" />
-              </SelectTrigger>
-              <SelectContent>
-                {presets.map((p) => (
-                  <SelectItem key={p.type} value={p.type}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-caption text-muted">API 地址</Label>
-            <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-caption text-muted">模型名</Label>
-            <Input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="deepseek-chat" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-caption text-muted">API Key</Label>
-            <Input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={model ? '留空表示保持不变' : '请输入 API Key'}
-              autoComplete="new-password"
-            />
-            <p className="text-caption text-muted">密钥加密保存，接口不回显。</p>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <Switch id="mf-active" checked={active} onCheckedChange={setActive} />
-            <Label htmlFor="mf-active" className="text-[13.5px]">
-              激活
-            </Label>
-          </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+          <FieldGroup className="gap-5">
+            <Field>
+              <FieldLabel>角色</FieldLabel>
+              <Select value={role} disabled>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="knowledge">知识库（必配）</SelectItem>
+                  <SelectItem value="security">安全增强（可选）</SelectItem>
+                </SelectContent>
+              </Select>
+              <FieldDescription>{ROLE_HINTS[role] || ''}</FieldDescription>
+            </Field>
+            <Field data-invalid={!!error}>
+              <FieldLabel htmlFor="model-name">名称</FieldLabel>
+              <Input
+                id="model-name"
+                value={name}
+                aria-invalid={!!error}
+                onChange={(e) => { setName(e.target.value); if (error) setError('') }}
+                placeholder="如：DeepSeek 生产"
+              />
+              <FieldError>{error}</FieldError>
+            </Field>
+            <Field>
+              <FieldLabel>Provider</FieldLabel>
+              <Select
+                value={presetType}
+                onValueChange={(v) => {
+                  setPresetType(v)
+                  const p = presets.find((x) => x.type === v)
+                  if (p) {
+                    if (p.base_url) setBaseUrl(p.base_url)
+                    if (p.model) setModelName(p.model)
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择预设" />
+                </SelectTrigger>
+                <SelectContent>
+                  {presets.map((p) => (
+                    <SelectItem key={p.type} value={p.type}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="model-base-url">API 地址</FieldLabel>
+              <Input id="model-base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="model-model-name">模型名</FieldLabel>
+              <Input id="model-model-name" value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="deepseek-chat" />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="model-api-key">API Key</FieldLabel>
+              <Input
+                id="model-api-key"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={model ? '留空表示保持不变' : '请输入 API Key'}
+                autoComplete="new-password"
+              />
+              <FieldDescription>密钥加密保存，接口不回显。</FieldDescription>
+            </Field>
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldLabel htmlFor="model-active">激活</FieldLabel>
+                <FieldDescription>保存后立即生效。</FieldDescription>
+              </FieldContent>
+              <Switch id="model-active" checked={active} onCheckedChange={setActive} className="data-[state=checked]:bg-emerald-600" />
+            </Field>
+          </FieldGroup>
         </div>
-        <SheetFooter>
+        <SheetFooter className="flex-row justify-end">
           <Button variant="outline" onClick={onClose}>
             取消
           </Button>
-          <Button variant="primary" disabled={saving} onClick={() => void submit()}>
+          <Button
+            className="bg-emerald-600 text-white hover:bg-emerald-700"
+            disabled={saving}
+            onClick={() => void submit()}
+          >
             {saving ? '保存中…' : '保存'}
           </Button>
         </SheetFooter>

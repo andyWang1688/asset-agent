@@ -1,6 +1,5 @@
-import { useState, type ComponentType } from 'react'
-import { AnimatePresence } from 'motion/react'
-import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
+import { useState } from 'react'
+import { CircleAlert, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,42 +13,120 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { PageShell, SectionCard } from '@/components/layout'
+import { SegmentedTabs } from '@/components/segmented-tabs'
 import { useApp } from '@/store/app-state'
 import { useModels } from '@/hooks/use-models'
 import { errMsg } from '@/lib/api'
-import type { ModelRow } from '@/lib/types'
-import { ModelCard, type ModelCardActions } from './model-card'
+import type { ModelRow as ModelRowType } from '@/lib/types'
+import { ModelRow, type ModelRowActions } from './model-row'
 import { ModelSheet } from './model-sheet'
+import { AboutSection } from './about-section'
 import { RetrievalSection } from './retrieval-section'
 import { SecurityEventsSection } from './security-events-section'
 import { SecurityPolicySection } from './security-policy-section'
+import { SettingsGroup, SettingsRow } from './settings-ui'
 import type { SettingsModule } from './settings-navigation'
 
-const MODULES: { id: SettingsModule; title: string; description: string; icon: ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
-  { id: 'models', title: '模型配置', description: '管理知识库模型', icon: Bot },
-  { id: 'retrieval', title: '检索配置', description: '历史向量检索（当前问答已用 LLM Wiki 主链路）', icon: Search },
-  { id: 'security', title: '安全策略', description: '管理检测规则与高级安全策略', icon: ShieldCheck },
-  { id: 'events', title: '安全事件', description: '查看检测与处理记录', icon: Siren },
+const MODULES: { id: SettingsModule; label: string }[] = [
+  { id: 'models', label: '模型配置' },
+  { id: 'retrieval', label: '检索配置' },
+  { id: 'security', label: '安全策略' },
+  { id: 'events', label: '安全事件' },
+  { id: 'about', label: '关于' },
 ]
 
-/** 设置页编排：模块区块各自独立成组件，页面只负责模型弹窗/删除确认等跨区块状态 */
+function ModelsPanel({
+  knowledge,
+  security,
+  actions,
+}: {
+  knowledge: ModelRowType[]
+  security: ModelRowType[]
+  actions: ModelRowActions
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <SettingsGroup
+        title="知识库模型"
+        badge={<Badge variant="outline">必配</Badge>}
+        description="负责 Wiki 编译与知识问答；未配置或未激活时，提交资料与提问会被阻止。"
+        action={
+          <Button size="sm" variant="outline" onClick={actions.onAdd}>
+            <Plus data-icon="inline-start" />
+            添加模型
+          </Button>
+        }
+      >
+        {knowledge.length === 0 ? (
+          <SettingsRow
+            label={
+              <span className="inline-flex items-center gap-1.5 text-destructive">
+                <CircleAlert className="size-3.5" />
+                未配置
+              </span>
+            }
+            description="可添加 DeepSeek、GLM、OpenAI、Claude、通义、Kimi 或 OpenAI 兼容端点。"
+            control={
+              <Button size="sm" variant="outline" onClick={actions.onAdd}>
+                添加模型
+              </Button>
+            }
+          />
+        ) : (
+          knowledge.map((model) => <ModelRow key={model.id} m={model} {...actions} />)
+        )}
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="安全增强模型"
+        badge={<Badge variant="outline">可选</Badge>}
+        description="本地 AI 辅检，只加严不放松；未配置时继续使用本地检测，仅允许本机或内网端点。"
+        action={
+          <Button size="sm" variant="outline" onClick={actions.onAdd}>
+            <Plus data-icon="inline-start" />
+            添加模型
+          </Button>
+        }
+      >
+        {security.length === 0 ? (
+          <SettingsRow
+            label={
+              <span className="inline-flex items-center gap-1.5 text-amber-600">
+                <CircleAlert className="size-3.5" />
+                未配置
+              </span>
+            }
+            description="使用本地正则与熵值检测。"
+            control={
+              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={actions.onAdd}>
+                添加
+              </Button>
+            }
+          />
+        ) : (
+          security.map((model) => <ModelRow key={model.id} m={model} {...actions} />)
+        )}
+      </SettingsGroup>
+    </div>
+  )
+}
+
+/** 设置页编排：模块切换走 URL；模型弹窗/删除确认等跨区块状态在此持有 */
 export function SettingsPage() {
-  const { refreshHealth, settingsRoute: activeModule, securityTab, setSecurityTab } = useApp()
+  const { refreshHealth, settingsRoute: activeModule, navigateSettings } = useApp()
   const models = useModels()
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetRole, setSheetRole] = useState('knowledge')
-  const [editing, setEditing] = useState<ModelRow | null>(null)
-  const [deleting, setDeleting] = useState<ModelRow | null>(null)
+  const [editing, setEditing] = useState<ModelRowType | null>(null)
+  const [deleting, setDeleting] = useState<ModelRowType | null>(null)
 
-  const openSheet = (role: string, model: ModelRow | null) => {
+  const openSheet = (role: string, model: ModelRowType | null) => {
     setEditing(model)
     setSheetRole(role)
     setSheetOpen(true)
   }
 
-  const groupProps = (role: 'knowledge' | 'security'): ModelCardActions => ({
+  const groupProps = (role: 'knowledge' | 'security'): ModelRowActions => ({
     onAdd: () => openSheet(role, null),
     onActivate: (id: number) => {
       void models.activate(id).then(() => {
@@ -62,50 +139,30 @@ export function SettingsPage() {
       if (r.ok) toast.success('连通成功：' + (r.reply || ''))
       else toast.error('连通失败：' + (r.error || '未知错误'))
     },
-    onEdit: (m: ModelRow) => openSheet(m.role || role, m),
-    onDelete: (m: ModelRow) => setDeleting(m),
+    onEdit: (m: ModelRowType) => openSheet(m.role || role, m),
+    onDelete: (m: ModelRowType) => setDeleting(m),
   })
 
-  const activeDefinition = MODULES.find((module) => module.id === activeModule) ?? MODULES[0]
-
   return (
-    <PageShell title={activeDefinition.title} description={activeDefinition.description}>
-      <SectionCard className="min-w-0 min-h-0 flex-1 overflow-hidden" contentClassName="p-0">
-        {activeModule === 'security' && (
-          <SecurityPolicySection tab={securityTab} onTabChange={setSecurityTab} securityModels={models.security} securityModelActions={groupProps('security')} />
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="flex w-full flex-col gap-4 px-4 py-4">
+        <SegmentedTabs
+          aria-label="设置模块"
+          value={activeModule}
+          onChange={(value) => navigateSettings(value)}
+          options={MODULES.map((module) => ({ value: module.id, label: module.label }))}
+        />
+
+        {activeModule === 'models' && (
+          <ModelsPanel knowledge={models.knowledge} security={models.security} actions={groupProps('knowledge')} />
         )}
-          {activeModule === 'models' && <section>
-            <div className="flex justify-end border-b border-border px-cell py-3">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="compact" size="sm">
-                    添加模型
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => openSheet('knowledge', null)}>知识库模型</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className="border-b border-border px-cell py-4">
-              <div className="mb-2.5 flex items-center gap-2">
-                <h3 className="text-panel font-semibold">知识库模型</h3>
-                <Badge variant="accent">必配</Badge>
-              </div>
-              <p className="mb-2.5 text-caption text-muted">负责 Wiki 编译与知识问答；未配置或未激活时，提交资料与提问会被阻止。</p>
-              {models.knowledge.length === 0 ? (
-                <ModelCard m={null} emptyDesc="可添加 DeepSeek、GLM、OpenAI、Claude、通义、Kimi 或 OpenAI 兼容端点。" {...groupProps('knowledge')} />
-              ) : (
-                <AnimatePresence mode="popLayout">{models.knowledge.map((m, index) => <ModelCard key={m.id} index={index} m={m} emptyDesc="" {...groupProps('knowledge')} />)}</AnimatePresence>
-              )}
-            </div>
-
-          </section>}
-
         {activeModule === 'retrieval' && <RetrievalSection />}
+        {activeModule === 'security' && (
+          <SecurityPolicySection securityModels={models.security} securityModelActions={groupProps('security')} />
+        )}
         {activeModule === 'events' && <SecurityEventsSection />}
-      </SectionCard>
+        {activeModule === 'about' && <AboutSection />}
+      </div>
 
       <ModelSheet
         open={sheetOpen}
@@ -149,6 +206,6 @@ export function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </PageShell>
+    </div>
   )
 }

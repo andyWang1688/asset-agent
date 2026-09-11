@@ -1,154 +1,146 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/figtree";
 
-/* ============================================================
- * Design Tokens（唯一来源）
- * 所有页面/组件只允许引用这里的语义 token，禁止散落硬编码值。
- * oklch/color-mix 由 Vite 的 Lightning CSS 按 targets 降级为静态值。
- * ============================================================ */
-@theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
-    "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+@custom-variant dark (&:is(.dark *));
 
-  /* 颜色：背景 / 表面 / 前景 / 弱化 / 边框（仅颜色深浅两档，宽度恒为 1px） */
-  --color-bg: oklch(98% 0.004 250);
-  --color-surface: oklch(100% 0 0);
-  --color-fg: oklch(22% 0.02 240);
-  --color-muted: oklch(51% 0.018 240);
-  --color-border: oklch(91% 0.008 240);
-  --color-border-strong: oklch(82% 0.01 240);
-  --color-soft: color-mix(in oklch, oklch(22% 0.02 240) 5%, transparent);
-  --color-accent: oklch(58% 0.16 145);
-  --color-accent-strong: color-mix(in oklch, oklch(58% 0.16 145) 62%, oklch(22% 0.02 240));
-  --color-accent-soft: color-mix(in oklch, oklch(58% 0.16 145) 12%, transparent);
-  --color-danger: #d70015;
-  --color-danger-soft: color-mix(in oklch, #d70015 10%, transparent);
-  --color-warn: #b25000;
-  --color-warn-soft: color-mix(in oklch, #b25000 12%, transparent);
-  --color-info: oklch(53% 0.12 250);
-  --color-info-soft: color-mix(in oklch, oklch(53% 0.12 250) 12%, transparent);
-  --color-ok: oklch(50% 0.14 145);
-  --color-ok-soft: color-mix(in oklch, oklch(58% 0.16 145) 14%, transparent);
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Figtree Variable', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
 
-  /* 兼容别名（shadcn 基础组件沿用旧名，指向同一 token） */
-  --color-background: var(--color-bg);
-  --color-foreground: var(--color-fg);
-  --color-muted-fg: var(--color-muted);
-  --color-fill: var(--color-soft);
-  --color-primary: var(--color-fg);
-  --color-primary-fg: var(--color-surface);
-  --color-primary-soft: var(--color-soft);
-  --color-sidebar: var(--color-surface);
-  --color-sidebar-foreground: var(--color-fg);
-  --color-sidebar-accent: var(--color-soft);
-  --color-sidebar-accent-foreground: var(--color-fg);
-  --color-sidebar-border: var(--color-border);
-  --color-sidebar-ring: var(--color-accent);
-  --color-card: var(--color-surface);
-  --color-card-foreground: var(--color-fg);
-  --color-muted-foreground: var(--color-muted);
+:root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+}
 
-  /* 间距：语义档位；Tailwind 生成 p-page/gap-section 等同名工具类 */
-  --spacing-compact: 0.5rem;
-  --spacing-control: 0.75rem;
-  --spacing-content: 1rem;
-  --spacing-section: 1.5rem;
-  --spacing-section-lg: 1.75rem;
-  --spacing-page: 1.5rem;
-  --spacing-page-mobile: 1rem;
-  --spacing-page-narrow: 0.875rem;
-  --spacing-overlay: 2rem;
-  /* 卡片内行/表格单元格的水平内边距（历史值 17px，收敛为 token） */
-  --spacing-cell: 17px;
-  /* 徽标胶囊/底部导航的垂直内边距（历史值 5px，收敛为 token） */
-  --spacing-chip: 5px;
-  /* 状态圆点直径（历史值 7px，收敛为 token） */
-  --spacing-dot: 7px;
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+}
 
-  /* 圆角：六档，全站统一 */
-  --radius-xs: 5px;
-  --radius-sm: 7px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 16px;
-  --radius-pill: 999px;
-
-  /* 字号：语义档位（mono 元信息 / 说明 / 正文 / 输入 / 面板标题） */
-  --text-meta: 10px;
-  --text-caption: 12px;
-  --text-body: 14px;
-  --text-input: 15px;
-  --text-panel: 13px;
-  --text-label: 13px;
-  --text-heading: 16px;
-  --text-title: 18px;
-  --text-display: clamp(22px, 2vw, 28px);
-  --leading-tight: 1.25;
-  --leading-body: 1.6;
-  --leading-relaxed: 1.75;
-
-  /* 阴影 */
-  --shadow-pop: 0 10px 30px color-mix(in oklch, oklch(22% 0.02 240) 5%, transparent);
-  --shadow-panel: 0 1px 2px color-mix(in oklch, oklch(22% 0.02 240) 4%, transparent);
-
-  /* 动效：时长三档；位移使用 spring，淡入淡出使用标准曲线 */
-  --motion-duration-fast: 150ms;
-  --motion-duration-standard: 300ms;
-  --motion-duration-slow: 450ms;
-  --motion-stagger: 40ms;
-  --motion-duration-collapse: 200ms;
-  --motion-ease-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
-  --motion-ease-fade: cubic-bezier(0.32, 0.72, 0, 1);
-
-  /* Tailwind 动效命名空间，指向上面的单一来源 token */
-  --duration-fast: var(--motion-duration-fast);
-  --duration-standard: var(--motion-duration-standard);
-  --duration-slow: var(--motion-duration-slow);
-  --ease-spring: var(--motion-ease-spring);
-  --ease-fade: var(--motion-ease-fade);
-
-  --animate-breathe: breathe calc(var(--motion-duration-slow) * 3) var(--motion-ease-fade) infinite;
-  --animate-menu-in: menu-in var(--motion-duration-standard) var(--motion-ease-spring);
-  --animate-menu-out: menu-out var(--motion-duration-standard) var(--motion-ease-spring);
-  --animate-requeue: requeue calc(var(--motion-duration-slow) * 2) var(--motion-ease-fade);
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  button {
+    cursor: pointer;
+  }
 }
 
 /* ============================================================
- * Base
+ * 滚动条
  * ============================================================ */
-* {
-  box-sizing: border-box;
-}
-
-html {
-  -webkit-text-size-adjust: 100%;
-}
-
-body {
-  margin: 0;
-  background: var(--color-bg);
-  color: var(--color-fg);
-  font-family: var(--font-sans);
-  font-size: var(--text-body);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
-}
-
-.app-main-scroll {
-  scrollbar-gutter: stable;
-}
-
-::selection {
-  background: var(--color-soft);
-}
-
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in oklch, var(--color-fg) 18%, transparent);
+  background: color-mix(in oklch, var(--foreground) 18%, transparent);
   border-radius: 8px;
   border: 3px solid transparent;
   background-clip: content-box;
@@ -157,118 +149,27 @@ body {
   background: transparent;
 }
 
-@layer base {
-  button {
-    cursor: pointer;
-  }
-  button,
-  input,
-  textarea,
-  select {
-    font: inherit;
-  }
-  h1,
-  h2,
-  h3,
-  p {
-    margin: 0;
-  }
-  :focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
-  }
+::selection {
+  background: var(--muted);
 }
 
-.motion-interactive {
-  transition-duration: var(--motion-duration-fast);
-  transition-timing-function: var(--motion-ease-fade);
-}
-
-.motion-state {
-  transition-duration: var(--motion-duration-standard);
-  transition-timing-function: var(--motion-ease-fade);
-}
-
-.motion-spring {
-  transition-duration: var(--motion-duration-standard);
-  transition-timing-function: var(--motion-ease-spring);
-}
-
-.motion-collapse {
-  transition-duration: var(--motion-duration-collapse);
-  transition-timing-function: linear;
-}
-
-/* 拖拽侧栏期间关闭外壳全部 transition（实时跟手），pointerup 后移除属性恢复平滑吸附 */
-div[class*="sidebar-wrapper"][data-dragging] * {
-  transition-duration: 0ms !important;
-}
-
-.motion-card {
-  transition-property: box-shadow;
-  transition-duration: var(--motion-duration-fast);
-  transition-timing-function: var(--motion-ease-fade);
-}
-
-.motion-card:hover {
-  box-shadow: var(--shadow-pop);
-}
-
-.motion-card:has(.motion-card:hover) {
-  box-shadow: var(--shadow-panel);
-}
-
-/* 流式打字光标 */
+/* ============================================================
+ * 流式打字光标
+ * ============================================================ */
 .streaming::after {
   content: "";
   display: inline-block;
   width: 2px;
   height: 1em;
-  background: var(--color-fg);
+  background: var(--foreground);
   margin-left: 2px;
   vertical-align: -0.15em;
-  animation: caret calc(var(--motion-duration-slow) * 2) steps(1) infinite;
+  animation: caret 900ms steps(1) infinite;
 }
 
-/* ============================================================
- * 动画
- * ============================================================ */
-@keyframes menu-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, calc(-50% + var(--spacing-compact))) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -50%);
-  }
-}
-@keyframes menu-out {
-  to {
-    opacity: 0;
-    transform: translate(-50%, calc(-50% + var(--spacing-compact))) scale(0.98);
-  }
-}
 @keyframes caret {
   50% {
     opacity: 0;
-  }
-}
-@keyframes breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-accent) 40%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 5px color-mix(in oklch, var(--color-accent) 0%, transparent);
-  }
-}
-@keyframes requeue {
-  0% {
-    background: var(--color-accent-soft);
-  }
-  100% {
-    background: transparent;
   }
 }
 
@@ -279,7 +180,7 @@ div[class*="sidebar-wrapper"][data-dragging] * {
   overflow-wrap: anywhere;
   font-size: 14.5px;
   line-height: 1.75;
-  color: var(--color-fg);
+  color: var(--foreground);
 }
 .md-body h1,
 .md-body h2,
@@ -321,21 +222,21 @@ div[class*="sidebar-wrapper"][data-dragging] * {
 .md-body blockquote {
   margin: 0.7em 0;
   padding: 2px 14px;
-  border-left: 3px solid var(--color-fg);
-  color: var(--color-muted);
-  background: var(--color-soft);
+  border-left: 3px solid var(--foreground);
+  color: var(--muted-foreground);
+  background: var(--muted);
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 .md-body code {
-  font-family: var(--font-mono);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 0.88em;
-  background: var(--color-soft);
+  background: var(--muted);
   padding: 1px 5px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
 }
 .md-body pre {
-  background: var(--color-fg);
-  color: var(--color-surface);
+  background: var(--foreground);
+  color: var(--background);
   padding: 12px 14px;
   border-radius: var(--radius-md);
   overflow-x: auto;
@@ -356,17 +257,17 @@ div[class*="sidebar-wrapper"][data-dragging] * {
 }
 .md-body th,
 .md-body td {
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--border);
   padding: 6px 10px;
   text-align: left;
 }
 .md-body th {
-  background: var(--color-bg);
+  background: var(--muted);
   font-weight: 600;
 }
 .md-body hr {
   border: none;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--border);
   margin: 1.1em 0;
 }
 .md-body img {
@@ -374,7 +275,7 @@ div[class*="sidebar-wrapper"][data-dragging] * {
   border-radius: var(--radius-sm);
 }
 .md-body a {
-  color: var(--color-fg);
+  color: var(--foreground);
 }
 .md-body a:hover {
   text-decoration: underline;
@@ -384,24 +285,24 @@ div[class*="sidebar-wrapper"][data-dragging] * {
 }
 .md-body .secret-ref {
   display: inline-block;
-  background: var(--color-warn-soft);
-  color: var(--color-warn);
-  border-radius: var(--radius-xs);
+  background: color-mix(in oklch, oklch(0.75 0.16 80) 18%, transparent);
+  color: oklch(0.55 0.14 70);
+  border-radius: var(--radius-sm);
   padding: 0 6px;
   font-size: 0.9em;
 }
 .md-body .redacted,
 .md-body .img-blocked {
   display: inline-block;
-  background: var(--color-soft);
-  color: var(--color-muted);
-  border-radius: var(--radius-xs);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border-radius: var(--radius-sm);
   padding: 0 6px;
   font-size: 0.9em;
 }
 
 /* ============================================================
- * 响应式（断点唯一：820px，与 useIsMobile(820) 保持一致）
+ * 无障碍：减少动态效果
  * ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -411,9 +312,5 @@ div[class*="sidebar-wrapper"][data-dragging] * {
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
-  }
-  .motion-card:hover {
-    transform: none;
-    box-shadow: var(--shadow-panel) !important;
   }
 }

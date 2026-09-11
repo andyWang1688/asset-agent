@@ -1,203 +1,362 @@
-import { useRef, type KeyboardEvent, type PointerEvent, type ReactElement } from 'react'
-import { motion, useReducedMotion } from 'motion/react'
-import { Bot, Search, ShieldCheck, Siren } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { BookOpen, Check, ChevronDown, ListTodo, MessageSquare, Monitor, Moon, MoreHorizontal, Plus, Settings, Sun } from 'lucide-react'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from '@/components/ui/sidebar'
-import { useSidebar } from '@/components/ui/sidebar-context'
-import { cn } from '@/lib/utils'
-import {
-  SIDEBAR_WIDTH_ICON,
-  SIDEBAR_WIDTH_MAX,
-  SIDEBAR_WIDTH_MIN,
-  clampSidebarWidth,
-  collapseFromDrag,
-} from '@/lib/sidebar-width'
-import { stateTransition } from '@/components/layout'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
+import { useSidebar } from '@/components/ui/sidebar'
+import { ShouMark, Wordmark } from '@/brand-wordmark'
+import { api } from '@/lib/api'
+import { fmtTime } from '@/lib/format'
+import { readTheme, setTheme, type Theme } from '@/lib/theme'
+import type { ChatEntry, SessionInfo } from '@/lib/types'
+import { useApp, type Tab } from '@/store/app-state'
 import { useTasks } from '@/hooks/use-tasks'
-import { useApp, type SettingsRoute, type Tab } from '@/store/app-state'
+import type { useChat, ChatMessage } from '@/hooks/use-chat'
+import { cn } from '@/lib/utils'
 
-const ICONS: Record<Tab, ReactElement> = {
-  chat: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 shrink-0">
-      <path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4.6A2.5 2.5 0 0 1 5 12.5z" />
-    </svg>
-  ),
-  wiki: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 shrink-0">
-      <path d="M4 5.5h6l2 2H20v11H4z" />
-      <path d="M4 7.5h16" />
-    </svg>
-  ),
-  tasks: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 shrink-0">
-      <path d="M5 6h14M5 12h14M5 18h9" />
-      <path d="m17 17 2 2 3-4" />
-    </svg>
-  ),
-  settings: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 shrink-0">
-      <circle cx="12" cy="12" r="3.5" />
-      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
-    </svg>
-  ),
-}
-
-type NavItemDef = { tab: Tab; label: string }
-
-const NAV_WORKSPACE: NavItemDef[] = [
-  { tab: 'chat', label: '对话' },
-  { tab: 'wiki', label: '知识库' },
-  { tab: 'tasks', label: '任务' },
-]
-const NAV_LOCAL: { route: SettingsRoute; label: string; icon: typeof Bot }[] = [
-  { route: 'models', label: '模型配置', icon: Bot },
-  { route: 'retrieval', label: '检索配置', icon: Search },
-  { route: 'security', label: '安全策略', icon: ShieldCheck },
-  { route: 'events', label: '安全事件', icon: Siren },
+const PRIMARY: { tab: Tab; label: string; icon: typeof MessageSquare }[] = [
+  { tab: 'chat', label: '对话', icon: MessageSquare },
+  { tab: 'wiki', label: '知识库', icon: BookOpen },
+  { tab: 'tasks', label: '任务', icon: ListTodo },
+  { tab: 'settings', label: '设置', icon: Settings },
 ]
 
-/** 边界控件：上/下轨道只拖拽，居中按钮只切换；默认隐藏，热区 hover/键盘 focus 时出现 */
-function SidebarEdge({ collapsed, width, onWidthChange }: { collapsed: boolean; width: number; onWidthChange: (w: number) => void }) {
-  const { toggleSidebar, setOpen } = useSidebar()
-  const dragState = useRef<{ startX: number; startW: number } | null>(null)
-  const setDragging = (el: HTMLElement, on: boolean) => {
-    const wrapper = el.closest('div[class*="sidebar-wrapper"]')
-    if (!wrapper) return
-    if (on) wrapper.setAttribute('data-dragging', '')
-    else wrapper.removeAttribute('data-dragging')
-  }
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.currentTarget.setPointerCapture(e.pointerId)
-    dragState.current = { startX: e.clientX, startW: collapsed ? SIDEBAR_WIDTH_ICON : width }
-    setDragging(e.currentTarget, true)
-  }
-  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    const drag = dragState.current
-    if (!drag) return
-    const next = drag.startW + (e.clientX - drag.startX)
-    const nextCollapsed = collapseFromDrag(next, collapsed)
-    if (nextCollapsed !== collapsed) setOpen(!nextCollapsed)
-    if (!nextCollapsed) onWidthChange(clampSidebarWidth(next))
-  }
-  const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
-    dragState.current = null
-    setDragging(e.currentTarget, false)
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-  }
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-    e.preventDefault()
-    if (collapsed) {
-      if (e.key === 'ArrowRight') {
-        setOpen(true)
-        onWidthChange(SIDEBAR_WIDTH_MIN)
-      }
-      return
-    }
-    onWidthChange(clampSidebarWidth(width + (e.key === 'ArrowRight' ? 8 : -8)))
-  }
-  const track = 'pointer-events-auto absolute left-1/2 w-[6px] -translate-x-1/2 cursor-col-resize rounded-pill outline-none transition-colors hover:bg-sidebar-border/60 focus-visible:bg-sidebar-border'
+const THEME_LABEL: Record<Theme, string> = { light: '浅色', dark: '深色', system: '跟随系统' }
+
+function Brand() {
   return (
-    <div data-sidebar="edge" className="group/edge pointer-events-none absolute inset-y-0 -right-2 z-30 hidden w-4 sm:block">
-      {/* 热区：仅负责 hover/focus 显示居中按钮 */}
-      <div className="pointer-events-auto absolute inset-0" aria-hidden="true" />
-      {/* 上/下轨道：只拖拽 */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="拖拽调整侧栏宽度"
-        aria-valuemin={SIDEBAR_WIDTH_MIN}
-        aria-valuemax={SIDEBAR_WIDTH_MAX}
-        aria-valuenow={collapsed ? SIDEBAR_WIDTH_ICON : width}
-        tabIndex={0}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onKeyDown={onKeyDown}
-        className={cn(track, 'top-0 bottom-[calc(50%+28px)]')}
-      />
-      <div
-        aria-hidden="true"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        className={cn(track, 'bottom-0 top-[calc(50%+28px)]')}
-      />
-      {/* 居中按钮：只切换 */}
-      <button
-        type="button"
-        onClick={toggleSidebar}
-        aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
-        title={collapsed ? '展开侧栏' : '收起侧栏'}
-        className="motion-interactive pointer-events-auto absolute left-1/2 top-1/2 z-10 grid h-9 w-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-surface text-muted/80 opacity-0 shadow-panel transition-opacity hover:text-fg focus-visible:opacity-100 group-hover/edge:opacity-100"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-          {collapsed ? <path d="M10 7l5 5-5 5" /> : <path d="M14 7l-5 5 5 5" />}
-        </svg>
-      </button>
+    <div className="flex items-center px-1">
+      <Wordmark className="h-6 w-auto shrink-0 text-foreground group-data-[collapsible=icon]:hidden" />
+      <ShouMark className="hidden size-7 shrink-0 text-foreground group-data-[collapsible=icon]:block" />
     </div>
   )
 }
 
-/** shadcn 官方 Sidebar：collapsible=icon，滑动高亮保留；品牌归左栏，切换/拖拽归边界控件 */
-export function AppSidebar({ onNavigate, width, onWidthChange }: { onNavigate?: (t: Tab) => void; width: number; onWidthChange: (w: number) => void }) {
-  const { attention } = useTasks()
-  const { tab, setTab, navigateSettings, settingsRoute } = useApp()
-  const { state, isMobile, setOpenMobile } = useSidebar()
-  const collapsed = state === 'collapsed'
-  const reduceMotion = useReducedMotion()
-  const activeRoute = tab === 'settings' ? settingsRoute : null
-  /** 移动端 Sheet 内点击导航后关闭 Sheet */
+interface SessionGroup {
+  id: string
+  title: string
+  time: string
+  mode: SessionInfo['mode']
+  pinned: boolean
+  ids: number[]
+  messages: ChatMessage[]
+}
+
+function dayLabel(time: string): string {
+  const d = new Date(time.replace(' ', 'T'))
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const diff = Math.round((today.getTime() - day.getTime()) / 86400000)
+  if (diff <= 0) return '今天'
+  if (diff === 1) return '昨天'
+  return '更早'
+}
+
+/** chat_sessions + chat_log 合并分组：维护会话即使没有问答记录也出现；置顶优先、其余按最近活跃倒序。 */
+function groupSessions(sessions: SessionInfo[], rows: ChatEntry[]): SessionGroup[] {
+  const map = new Map<string, ChatEntry[]>()
+  for (const r of rows) {
+    const key = r.session_id || `legacy-${r.id}`
+    const list = map.get(key)
+    if (list) list.push(r)
+    else map.set(key, [r])
+  }
+  const groups: SessionGroup[] = []
+  const seen = new Set<string>()
+  for (const s of sessions) {
+    const list = map.get(s.session_id) || []
+    list.sort((a, b) => a.id - b.id)
+    const first = list[0]
+    const last = list[list.length - 1] || { created_at: s.created_at }
+    const derived = first ? (first.question.length > 22 ? first.question.slice(0, 22) + '…' : first.question) : (s.mode === 'maintain' ? '资料维护' : '对话')
+    groups.push({
+      id: s.session_id,
+      title: s.title || derived,
+      time: last.created_at,
+      mode: s.mode,
+      pinned: s.pinned,
+      ids: list.map((r) => r.id),
+      messages: list.map((r) => ({ q: r.question, a: r.answer, cites: r.citations || [] })),
+    })
+    seen.add(s.session_id)
+  }
+  for (const [id, list] of map) {
+    if (seen.has(id)) continue
+    list.sort((a, b) => a.id - b.id)
+    const first = list[0]
+    const last = list[list.length - 1]
+    const derived = first.question.length > 22 ? first.question.slice(0, 22) + '…' : first.question
+    groups.push({
+      id,
+      title: first.title || derived,
+      time: last.created_at,
+      mode: 'ask',
+      pinned: first.pinned,
+      ids: list.map((r) => r.id),
+      messages: list.map((r) => ({ q: r.question, a: r.answer, cites: r.citations || [] })),
+    })
+  }
+  groups.sort((a, b) => (a.pinned === b.pinned ? (a.time < b.time ? 1 : -1) : a.pinned ? -1 : 1))
+  return groups
+}
+
+function HistoryNav({ chat }: { chat: ReturnType<typeof useChat> }) {
+  const { setTab } = useApp()
+  const { sessionId } = chat
+  const { isMobile, setOpenMobile } = useSidebar()
+  const [groups, setGroups] = useState<SessionGroup[]>([])
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const [sessions, chats] = await Promise.all([api.listSessions(), api.chatHistory()])
+      setGroups(groupSessions(sessions, chats))
+    } catch {
+      setGroups([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load, sessionId])
+
   const done = () => {
     if (isMobile) setOpenMobile(false)
   }
+
+  const openSession = (g: SessionGroup) => {
+    chat.openSession(g.id, g.mode, g.messages, g.title)
+    setTab('chat')
+    done()
+  }
+
+  const saveRename = async (id: string) => {
+    const t = draft.trim()
+    setRenaming(null)
+    if (!t) return
+    try {
+      await api.setSessionTitle(id, t)
+      await load()
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  const togglePin = async (g: SessionGroup) => {
+    try {
+      await api.setSessionPin(g.id, !g.pinned)
+      await load()
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  const remove = async (id: string) => {
+    setDeleting(null)
+    try {
+      await api.deleteSession(id)
+      setGroups((rows) => rows.filter((row) => row.id !== id))
+      await load()
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  let lastDay = ''
+
+  return (
+    <Collapsible defaultOpen className="group/history">
+      <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+        <SidebarGroupLabel asChild>
+          <CollapsibleTrigger className="w-full">
+            对话历史
+            <ChevronDown className="ml-auto transition-transform duration-200 group-data-[state=closed]/history:-rotate-90" />
+          </CollapsibleTrigger>
+        </SidebarGroupLabel>
+        <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {groups.length === 0 && (
+                <li className="px-2 py-3 text-xs text-muted-foreground">还没有对话记录</li>
+              )}
+              {groups.map((g) => {
+                const day = g.pinned ? '置顶' : dayLabel(g.time)
+                const showDay = day !== lastDay
+                lastDay = day
+                return (
+                  <li key={g.id} className="list-none">
+                    {showDay && <div className="px-2 pb-1 pt-3 text-xs text-muted-foreground first:pt-1">{day}</div>}
+                    <SidebarMenuItem className="group/session relative">
+                      {renaming === g.id ? (
+                        <Input
+                          autoFocus
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          onBlur={() => void saveRename(g.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void saveRename(g.id)
+                            if (e.key === 'Escape') setRenaming(null)
+                          }}
+                          aria-label="重命名会话"
+                          className="my-0.5 h-8 text-xs"
+                        />
+                      ) : (
+                        <SidebarMenuButton isActive={g.id === sessionId} className="h-auto py-1.5 pr-7" onClick={() => openSession(g)}>
+                          <div className="flex min-w-0 flex-col items-start gap-0.5">
+                            <span className="w-full truncate text-sm">{g.title}</span>
+                            <span className="w-full truncate text-xs font-normal text-muted-foreground">
+                              {g.mode === 'maintain' ? '维护' : '问答'} · {fmtTime(g.time)}
+                            </span>
+                          </div>
+                        </SidebarMenuButton>
+                      )}
+                      {renaming !== g.id && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label="会话操作"
+                              className={cn(
+                                'absolute right-1 top-1.5 grid size-6 place-items-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground',
+                                'opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100',
+                              )}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="size-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="min-w-32">
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setRenaming(g.id)
+                                setDraft(g.title)
+                              }}
+                            >
+                              重命名
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void togglePin(g)}>{g.pinned ? '取消置顶' : '置顶'}</DropdownMenuItem>
+                            <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(g.id)}>
+                              删除
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </SidebarMenuItem>
+                  </li>
+                )
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </CollapsibleContent>
+      </SidebarGroup>
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除对话记录？</AlertDialogTitle>
+            <AlertDialogDescription>
+              只删除这段对话历史，不会删除已入库的资料、原件、保险柜条目或知识库页面。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => deleting && void remove(deleting)}>
+              确认删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Collapsible>
+  )
+}
+
+function ThemeSwitcher() {
+  const [theme, setThemeState] = useState<Theme>(() => readTheme())
+  const choose = (t: Theme) => {
+    setThemeState(t)
+    setTheme(t)
+  }
+  const Icon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <SidebarMenuButton tooltip={THEME_LABEL[theme]} className="group-data-[collapsible=icon]:mx-auto">
+          <Icon />
+          <span className="group-data-[collapsible=icon]:hidden">{THEME_LABEL[theme]}</span>
+        </SidebarMenuButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-32">
+        {(Object.keys(THEME_LABEL) as Theme[]).map((t) => (
+          <DropdownMenuItem key={t} onSelect={() => choose(t)}>
+            {THEME_LABEL[t]}
+            {theme === t && <Check className="ml-auto" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** 应用侧栏：品牌 + 新对话 + 工作区导航 + 对话历史 + 主题；移动端由官方 Sidebar 渲染为抽屉。 */
+export function AppSidebar({ chat }: { chat: ReturnType<typeof useChat> }) {
+  const { tab, setTab, navigateSettings } = useApp()
+  const { attention } = useTasks()
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  const go = (t: Tab) => {
+    setTab(t)
+    if (isMobile) setOpenMobile(false)
+  }
+
   return (
     <Sidebar collapsible="icon" variant="inset">
       <SidebarHeader>
-        {/* 单一行 + 宽度/透明度动画：收起时 AA 与菜单图标同轴居中，展开时左对齐，无条件切换跳变 */}
-        <div className="flex items-center gap-2 overflow-hidden px-2 text-body font-bold transition-[padding] duration-200 ease-linear group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <span className="-ml-[5px] grid h-[26px] w-[26px] shrink-0 place-items-center rounded-sm bg-fg font-mono text-meta font-bold text-surface transition-[margin-left] duration-200 ease-linear group-data-[collapsible=icon]:ml-[8px]">AA</span>
-          <span className="max-w-[160px] whitespace-nowrap overflow-hidden transition-[max-width,opacity] duration-200 ease-linear group-data-[collapsible=icon]:max-w-0 group-data-[collapsible=icon]:opacity-0">资产 Agent</span>
-        </div>
+        <Brand />
       </SidebarHeader>
       <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  variant="outline"
+                  tooltip="新对话"
+                  className="justify-center"
+                  onClick={() => {
+                    chat.newChat()
+                    go('chat')
+                  }}
+                >
+                  <Plus />
+                  <span>新对话</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>工作区</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_WORKSPACE.map(({ tab: t, label }) => (
-                <SidebarMenuItem key={t}>
+              {PRIMARY.map((item) => (
+                <SidebarMenuItem key={item.tab}>
                   <SidebarMenuButton
-                    isActive={tab === t}
-                    tooltip={label}
-                    title={label}
-                    onClick={() => {
-                      setTab(t)
-                      onNavigate?.(t)
-                      done()
-                    }}
-                    className="relative isolate data-[active=true]:bg-transparent group-data-[collapsible=icon]:mx-auto"
+                    isActive={tab === item.tab}
+                    tooltip={item.label}
+                    onClick={() => (item.tab === 'settings' ? navigateSettings('models') : go(item.tab))}
                   >
-                    {tab === t && (
-                      <motion.span layoutId="primary-nav-highlight" className="absolute inset-0 -z-10 rounded-md bg-sidebar-accent" transition={stateTransition(reduceMotion)} aria-hidden="true" />
-                    )}
-                    {ICONS[t]}
-                    <span className="truncate transition-opacity duration-150 group-data-[collapsible=icon]:opacity-0">{label}</span>
-                    {t === 'tasks' && attention.length > 0 && (
-                      <span className="ml-auto">
-                        <Badge variant="muted" className="font-mono">{attention.length}</Badge>
-                      </span>
+                    <item.icon />
+                    <span>{item.label}</span>
+                    {item.tab === 'tasks' && attention.length > 0 && (
+                      <Badge variant="secondary" className="ml-auto">
+                        {attention.length}
+                      </Badge>
                     )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -205,36 +364,15 @@ export function AppSidebar({ onNavigate, width, onWidthChange }: { onNavigate?: 
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>本地设置</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {NAV_LOCAL.map(({ route, label, icon: Icon }) => (
-                <SidebarMenuItem key={route}>
-                  <SidebarMenuButton
-                    isActive={activeRoute === route}
-                    tooltip={label}
-                    title={label}
-                    onClick={() => {
-                      navigateSettings(route)
-                      onNavigate?.('settings')
-                      done()
-                    }}
-                    className="relative isolate data-[active=true]:bg-transparent group-data-[collapsible=icon]:mx-auto"
-                  >
-                    {activeRoute === route && (
-                      <motion.span layoutId="primary-nav-highlight" className="absolute inset-0 -z-10 rounded-md bg-sidebar-accent" transition={stateTransition(reduceMotion)} aria-hidden="true" />
-                    )}
-                    <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
-                    <span className="truncate transition-opacity duration-150 group-data-[collapsible=icon]:opacity-0">{label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <HistoryNav chat={chat} />
       </SidebarContent>
-      <SidebarEdge collapsed={collapsed} width={width} onWidthChange={onWidthChange} />
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <ThemeSwitcher />
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
     </Sidebar>
   )
 }
