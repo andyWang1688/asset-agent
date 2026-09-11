@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { CheckCircle2, CircleAlert, CircleDashed } from 'lucide-react'
-import { Wordmark } from '@/brand-wordmark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -117,7 +116,6 @@ function ChatEmpty({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4">
-      <Wordmark className="h-10 w-auto text-foreground" />
       <h1 className="mt-8 text-center text-4xl font-semibold tracking-tight">
         {mode === 'ask' ? '想问点什么？' : '今天想整理点什么？'}
       </h1>
