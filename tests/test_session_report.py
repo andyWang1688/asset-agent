@@ -15,6 +15,7 @@ from app.ingest import receiver
 from app.security import submissions
 from app.security.policy import PolicyStore
 from tests.fakes import FakeCredentialStore, FakeProvider
+from tests.fakes import ingest_and_finish
 
 SECRET = "Sup3rSecret!"
 PLAN = "{}"
@@ -63,7 +64,7 @@ def test_list_sessions_includes_mode():
 async def test_ingest_rejected_on_ask_session(settings, ask_session):
     creds = FakeCredentialStore()
     with pytest.raises(ValueError) as ei:
-        await receiver.ingest(
+        await ingest_and_finish(
             settings, creds, text=f"password={SECRET}",
             knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=ask_session,
         )
@@ -77,7 +78,7 @@ async def test_ingest_rejected_on_ask_session(settings, ask_session):
 async def test_ingest_rejected_without_session(settings):
     creds = FakeCredentialStore()
     with pytest.raises(ValueError) as ei:
-        await receiver.ingest(
+        await ingest_and_finish(
             settings, creds, text=f"password={SECRET}",
             knowledge_provider_getter=lambda: FakeProvider(PLAN),
         )
@@ -92,7 +93,7 @@ async def test_confirm_rejected_when_session_not_maintain(settings):
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
     sid = _new_session(db.SESSION_MAINTAIN)
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=sid,
     )
@@ -114,7 +115,7 @@ async def test_auto_mode_creates_task_and_locked_report(settings, maintain_sessi
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "default"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET} 说明", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -143,7 +144,7 @@ async def test_confirm_mode_no_task_until_confirm(settings, maintain_session):
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -173,7 +174,7 @@ async def test_confirm_mode_no_findings_report_locked(settings, maintain_session
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text="没有任何敏感信息的普通资料", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -190,7 +191,7 @@ async def test_report_never_contains_plaintext(settings, maintain_session):
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"密码 password={SECRET} 身份证 11010519491231002X",
         policy_store=store, knowledge_provider_getter=lambda: FakeProvider(PLAN),
         session_id=maintain_session,
@@ -212,7 +213,7 @@ async def test_reject_no_side_effects(settings, maintain_session):
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -230,11 +231,11 @@ async def test_multi_round_maintenance_same_session(settings):
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
     sid = _new_session(db.SESSION_MAINTAIN)
-    r1 = await receiver.ingest(
+    r1 = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=sid,
     )
-    r2 = await receiver.ingest(
+    r2 = await ingest_and_finish(
         settings, creds, text="订单服务说明", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=sid,
     )
@@ -342,12 +343,12 @@ async def test_duplicate_confirm_rescan_rejects_unsanitized_preview(settings):
     creds = FakeCredentialStore()
     provider = FakeProvider("{}")
     store.update_security_settings({"mode": "confirm"})
-    draft = await receiver.ingest(
+    draft = await ingest_and_finish(
         settings, creds, text="ordinary duplicate audit text", session_id="dup-draft",
         policy_store=store, knowledge_provider_getter=lambda: provider,
     )
     store.update_security_settings({"mode": "default"})
-    await receiver.ingest(
+    await ingest_and_finish(
         settings, creds, text="ordinary duplicate audit text", session_id="dup-auto",
         policy_store=store, knowledge_provider_getter=lambda: provider,
     )
@@ -371,11 +372,11 @@ async def test_identical_input_keeps_session_ownership(settings):
         db.create_session(sid, db.SESSION_MAINTAIN)
     creds = FakeCredentialStore()
     provider = FakeProvider("{}")
-    a = await receiver.ingest(
+    a = await ingest_and_finish(
         settings, creds, text="normal audit document", session_id="iso-a",
         policy_store=store, knowledge_provider_getter=lambda: provider,
     )
-    b = await receiver.ingest(
+    b = await ingest_and_finish(
         settings, creds, text="normal audit document", session_id="iso-b",
         policy_store=store, knowledge_provider_getter=lambda: provider,
     )
@@ -393,11 +394,11 @@ async def test_same_session_duplicate_idempotent_and_report_link(settings):
     db.create_session("same-s", db.SESSION_MAINTAIN)
     creds = FakeCredentialStore()
     provider = FakeProvider("{}")
-    r1 = await receiver.ingest(
+    r1 = await ingest_and_finish(
         settings, creds, text="dup text", session_id="same-s",
         policy_store=store, knowledge_provider_getter=lambda: provider,
     )
-    r2 = await receiver.ingest(
+    r2 = await ingest_and_finish(
         settings, creds, text="dup text", session_id="same-s",
         policy_store=store, knowledge_provider_getter=lambda: provider,
     )

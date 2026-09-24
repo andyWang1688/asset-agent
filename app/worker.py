@@ -1,5 +1,5 @@
 """后台任务循环：待确认提交 TTL 清理、Vaultwarden 待处理队列重试 + Wiki 编译任务执行。
-故障策略：秘密原文只存在于加密队列；失败任务可重试；不产生半成品页面；
+故障策略：新维护任务失败时补偿本轮写入，重启先恢复；用户须重新提交，不自动重试任务；
 未通过确认闸门或复扫仍残留 Finding 的来源绝不调用云端模型。
 knowledge 模型未配置时编译任务保持 pending（fail-closed，不报错不丢数据）；
 security 增强模型（可选）接入编译前复扫，失败时回退本地检测结果。"""
@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from . import crypto, db
+from .ingest import transaction
 from .config import Settings
 from .credentials.base import CredentialError, SecretPayload
 from .llm.provider import get_security_provider
@@ -25,6 +26,7 @@ class Worker:
         self.get_provider = provider_getter
         self.get_security_provider = security_provider_getter or (lambda: get_security_provider(settings))
         self._task: asyncio.Task | None = None
+        self._tick_lock = asyncio.Lock()
 
     def start(self) -> None:
         plans.recover_interrupted()
@@ -47,10 +49,13 @@ class Worker:
             await asyncio.sleep(2)
 
     async def tick(self) -> None:
-        await self._expire_submissions()
-        await self._flush_pending()
-        await self._process_plans()
-        await self._process_tasks()
+        async with self._tick_lock:
+            if not await transaction.recover(self.settings, self.creds):
+                return
+            await self._expire_submissions()
+            await self._flush_pending()
+            await self._process_plans()
+            await self._process_tasks()
 
     async def _process_plans(self) -> None:
         await plans.process_pending(self.settings, PolicyStore(self.settings.policy_file),

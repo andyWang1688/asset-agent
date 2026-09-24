@@ -38,6 +38,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TEXT DEFAULT (datetime('now','localtime')),
   updated_at TEXT DEFAULT (datetime('now','localtime'))
 );
+CREATE TABLE IF NOT EXISTS task_sources (
+  task_id INTEGER NOT NULL,
+  source_id INTEGER NOT NULL,
+  position INTEGER NOT NULL,
+  private_path TEXT DEFAULT '',
+  original_sha TEXT DEFAULT '',
+  PRIMARY KEY(task_id, position)
+);
 CREATE TABLE IF NOT EXISTS pending_secrets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_id INTEGER,
@@ -176,6 +184,9 @@ def _migrate() -> None:
     """轻量迁移：老库补列。sources.confirmed=1 表示已通过确认闸门（历史数据视为已确认）。
     model_configs.role 缺失时补 knowledge（老库唯一模型即知识库模型），并按角色归一化
     多激活：knowledge/security 各自最多保留一个激活配置（fail-closed，不放大模型调用面）。"""
+    batch_cols = {r["name"] for r in _c().execute("PRAGMA table_info(task_sources)")}
+    if "original_sha" not in batch_cols:
+        _c().execute("ALTER TABLE task_sources ADD COLUMN original_sha TEXT DEFAULT ''")
     cols = {r["name"] for r in _c().execute("PRAGMA table_info(sources)")}
     if "confirmed" not in cols:
         _c().execute("ALTER TABLE sources ADD COLUMN confirmed INTEGER DEFAULT 1")
@@ -352,7 +363,7 @@ def get_task(task_id: int):
 
 
 def list_tasks(statuses=None, limit: int = 100):
-    q = "SELECT t.*, COALESCE(s.original_name,r.original_name) AS original_name, COALESCE(s.kind,r.kind) AS kind FROM tasks t LEFT JOIN sources s ON s.id=t.source_id LEFT JOIN reports r ON r.id=t.report_id "
+    q = "SELECT t.*, COALESCE(r.original_name,s.original_name) AS original_name, COALESCE(r.kind,s.kind) AS kind FROM tasks t LEFT JOIN sources s ON s.id=t.source_id LEFT JOIN reports r ON r.id=t.report_id "
     args = []
     if statuses:
         q += "WHERE t.status IN (%s) " % ",".join("?" * len(statuses))
@@ -432,10 +443,10 @@ def delete_stale_submissions(sha256: str, session_id: str | None = None) -> int:
     避免 (session_id, sha256) 唯一冲突且不留旧密文；不影响其他会话的提交。"""
     if session_id is not None:
         return _w(
-            "DELETE FROM pending_submissions WHERE session_id=? AND sha256=? AND status!='waiting'",
+            "DELETE FROM pending_submissions WHERE session_id=? AND sha256=? AND status NOT IN ('waiting','processing')",
             (session_id, sha256),
         ).rowcount
-    return _w("DELETE FROM pending_submissions WHERE sha256=? AND status!='waiting'", (sha256,)).rowcount
+    return _w("DELETE FROM pending_submissions WHERE sha256=? AND status NOT IN ('waiting','processing')", (sha256,)).rowcount
 
 
 def get_submission(submission_id: int):
@@ -446,10 +457,10 @@ def submission_by_sha256(sha256: str, session_id: str | None = None):
     """按会话查重：同一会话重复提交返回既有等待提交；跨会话不合并。"""
     if session_id is not None:
         return _r1(
-            "SELECT * FROM pending_submissions WHERE session_id=? AND sha256=? AND status='waiting'",
+            "SELECT * FROM pending_submissions WHERE session_id=? AND sha256=? AND status IN ('waiting','processing')",
             (session_id, sha256),
         )
-    return _r1("SELECT * FROM pending_submissions WHERE sha256=? AND status='waiting'", (sha256,))
+    return _r1("SELECT * FROM pending_submissions WHERE sha256=? AND status IN ('waiting','processing')", (sha256,))
 
 
 def list_submissions(status: str | None = None):
@@ -803,7 +814,7 @@ def find_ref_metadata(ref_id: str) -> dict | None:
 
     for row in _r(
         "SELECT id, session_id, original_name, kind, created_at, status, entries "
-        "FROM reports ORDER BY id DESC"
+        "FROM reports WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.report_id=reports.id AND tasks.status!='done') ORDER BY id DESC"
     ):
         if row["status"] not in ("confirmed", "auto"):
             continue  # pending/rejected 尚未真正落库，不作为可用位置
@@ -821,8 +832,41 @@ def find_ref_metadata(ref_id: str) -> dict | None:
                     "vault_name": vault.get("name"),
                     "field_name": vault.get("field_name"),
                     "item_id": vault.get("item_id"),
+                    "private_path": e.get("private_path"),
+                    "location": e.get("location"),
                     "report_id": row["id"],
                     "session_id": row["session_id"],
                     "created_at": row["created_at"],
                 }
     return None
+
+
+def link_task_source(task_id, source_id, position, private_path="", original_sha=""):
+    _w("INSERT INTO task_sources(task_id,source_id,position,private_path,original_sha) VALUES(?,?,?,?,?)",
+       (task_id, source_id, position, private_path, original_sha))
+
+
+def sources_for_task(task_id):
+    return _r("SELECT s.*,ts.private_path FROM task_sources ts JOIN sources s ON s.id=ts.source_id WHERE ts.task_id=? ORDER BY ts.position", (task_id,))
+
+
+def maintenance_snapshot():
+    # Only knowledge state, never conversations/settings/other queued tasks.
+    with _lock:
+        return {table: [dict(r) for r in _q(f"SELECT * FROM {table}").fetchall()]
+                for table in ("sources", "pages_data")}
+
+
+def restore_maintenance(snapshot, task_id):
+    with _lock, _c():
+        for table in ("sources", "pages_data"):
+            _q(f"DELETE FROM {table}")
+            for row in snapshot[table]:
+                columns = list(row)
+                _q(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", tuple(row.values()))
+        _q("DELETE FROM task_sources WHERE task_id=?", (task_id,))
+        _q("UPDATE tasks SET source_id=NULL,input_snapshot='{}',result='{}' WHERE id=?", (task_id,))
+
+
+def archived_original(original_sha):
+    return _r1("SELECT private_path FROM task_sources WHERE original_sha=? AND private_path!='' ORDER BY task_id LIMIT 1", (original_sha,))

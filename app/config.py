@@ -21,6 +21,7 @@ class Settings:
     def __init__(self) -> None:
         self.workspace_dir = Path(os.environ.get("WORKSPACE_DIR", str(BASE_DIR / "workspace")))
         self.data_dir = Path(os.environ.get("DATA_DIR", str(self.workspace_dir / ".asset-assistant")))
+        self.private_raw_dir = Path(os.environ.get("PRIVATE_RAW_DIR", str(self.workspace_dir / "private_raw")))
         self.raw_dir = self.workspace_dir / "raw"
         self.inbox_dir = self.raw_dir / "inbox"
         self.attachments_dir = self.raw_dir / "attachments"
@@ -71,7 +72,11 @@ class Settings:
         self._queue_key: bytes | None = None
 
     def ensure_dirs(self) -> None:
-        for d in (self.raw_dir, self.inbox_dir, self.attachments_dir, self.wiki_dir, self.data_dir):
+        private = self.private_raw_dir.resolve()
+        if any(private.is_relative_to(root.resolve()) or root.resolve().is_relative_to(private)
+               for root in (self.raw_dir, self.wiki_dir)):
+            raise ValueError("Private Raw 必须与 Raw、Wiki 目录分开")
+        for d in (self.private_raw_dir, self.raw_dir, self.inbox_dir, self.attachments_dir, self.wiki_dir, self.data_dir):
             d.mkdir(parents=True, exist_ok=True)
         for sub in ("concepts", "entities", "projects", "sources", "analyses"):
             (self.wiki_dir / sub).mkdir(exist_ok=True)

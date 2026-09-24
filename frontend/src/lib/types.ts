@@ -23,6 +23,8 @@ export interface SessionInfo {
 
 /** 后端未声明 response_model，health 响应无 OpenAPI 模式，按实际形状显式声明 */
 export interface Health {
+  wiki_dir?: string
+  private_raw_dir?: string
   status: string
   vaultwarden_cli: boolean
   vaultwarden_configured: boolean
@@ -257,6 +259,8 @@ export interface ReportSnapshot {
 }
 
 export interface PrivateRefMeta {
+  private_path?: string
+  location?: string
   ref_id: string
   name: string | null
   source: string

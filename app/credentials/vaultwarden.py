@@ -133,12 +133,9 @@ class VaultwardenAdapter:
             raise CredentialError("Vaultwarden 解锁失败")
 
     async def create_secret(self, payload: SecretPayload) -> SecretRef:
+        # 创建不是幂等操作：响应丢失时禁止盲重试；事务标记负责查找与补偿。
         async with self._busy:
-            try:
-                return await self._create(payload)
-            except CredentialError:
-                self._session = None  # 会话失效时重新登录重试一次
-                return await self._create(payload)
+            return await self._create(payload)
 
     async def _create(self, payload: SecretPayload) -> SecretRef:
         await self._ensure_ready()
@@ -181,6 +178,7 @@ class VaultwardenAdapter:
 
     async def _list_items(self) -> list[SecretMetadata]:
         await self._ensure_ready()
+        await self._run("sync")
         out = await self._run("list", "items")
         try:
             items = json.loads(out or "[]")
@@ -198,6 +196,8 @@ class VaultwardenAdapter:
                     note="",  # 不对外暴露笔记正文（用户 Secure Note 的 notes 即敏感正文）
                     updated_at=it.get("revisionDate") or "",
                     kind=kind,
+                    transaction_id=(match.group(1) if _app_managed_note(note) and
+                                    (match := re.search(r"维护事务: ([0-9a-f]{32})", note)) else ""),
                     value_hash=_app_value_hash(note),
                     field_name=_app_field_name(note),
                 )
@@ -227,4 +227,4 @@ class VaultwardenAdapter:
     async def delete_secret(self, ref: SecretRef) -> None:
         async with self._busy:
             await self._ensure_ready()
-            await self._run("delete", "item", ref.item_id)
+            await self._run("delete", "item", ref.item_id, "--permanent")

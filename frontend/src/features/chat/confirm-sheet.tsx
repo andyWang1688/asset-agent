@@ -62,8 +62,8 @@ function ReviewSession({ view, loading, onClose, onConfirmed, onCancelled }: Pro
   const documents = review?.documents ?? []
   const doc = documents.find((d) => d.id === docId) ?? documents[0]
   const navigation = documents.flatMap((d) => d.sheets.length
-    ? d.sheets.map((s, index) => ({ key: `${d.id}:${index}`, docId: d.id, sheet: String(index), name: s.name, table: true }))
-    : [{ key: `${d.id}:0`, docId: d.id, sheet: '0', name: d.id === 'instruction' ? '附带文字' : view.original_name || '输入文字', table: false }])
+    ? d.sheets.map((s, index) => ({ key: `${d.id}:${index}`, docId: d.id, sheet: String(index), name: documents.filter((item) => item.id !== 'instruction').length > 1 ? `${d.name} / ${s.name}` : s.name, table: true }))
+    : [{ key: `${d.id}:0`, docId: d.id, sheet: '0', name: d.id === 'instruction' ? '附带文字' : d.name === '资料正文' ? view.original_name || '输入文字' : d.name, table: false }])
   const activeName = navigation.find((n) => n.docId === doc?.id && n.sheet === sheet)?.name
   const selections = doc?.units.filter((u) => selected.includes(u.id)).map((unit) => ({ source: doc.id, unit })) ?? []
   const findings = review?.findings ?? []

@@ -52,6 +52,8 @@ export function PrivateRefCard() {
         `保险柜条目：${meta.vault_name || '—'}`,
         meta.field_name ? `字段：${meta.field_name}` : null,
         meta.item_id ? `条目 ID：${meta.item_id}` : null,
+        meta.private_path ? `原件：${meta.private_path}` : null,
+        meta.location ? `文件内位置：${meta.location}` : null,
         `报告：#${meta.report_id}`,
       ].filter((l): l is string => !!l)
     : []
@@ -72,7 +74,7 @@ export function PrivateRefCard() {
       <SheetContent className="w-[420px] max-w-full sm:w-[420px]">
         <SheetHeader>
           <SheetTitle>私密引用位置</SheetTitle>
-          <SheetDescription>这里只显示敏感值在保险柜中的存放位置，不会读取原值。</SheetDescription>
+          <SheetDescription>这里只显示保险柜和原件位置，不会读取原值。</SheetDescription>
         </SheetHeader>
         {loading ? (
           <div className="flex flex-1 flex-col gap-3 px-5 py-4">
@@ -90,6 +92,8 @@ export function PrivateRefCard() {
                 ['保险柜条目', meta.vault_name || '—'],
                 ...(meta.field_name ? ([['字段', meta.field_name]] as const) : []),
                 ...(meta.item_id ? ([['条目 ID', meta.item_id]] as const) : []),
+                ...(meta.private_path ? ([['原件', meta.private_path]] as const) : []),
+                ...(meta.location ? ([['文件内位置', meta.location]] as const) : []),
                 ['报告', `#${meta.report_id}`],
               ].map(([k, v]) => (
                 <div key={k} className="flex gap-2">
@@ -98,7 +102,7 @@ export function PrivateRefCard() {
                 </div>
               ))}
             </dl>
-            <p className="mt-3 text-[11px] text-muted-foreground">敏感原值始终保存在保险柜中，这里只显示其存放位置。</p>
+            <p className="mt-3 text-[11px] text-muted-foreground">请自行到保险柜或本地原件目录查看；这里不提供原文读取。</p>
             <div className="mt-3 flex justify-end">
               <Button variant="outline" size="sm" onClick={() => void copy()}>
                 {copied ? '已复制' : '复制位置'}

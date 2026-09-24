@@ -96,7 +96,7 @@ function ChatEmpty({
   onSend,
   sending,
   sendDisabled,
-  fileName,
+  files,
   onFileChange,
   knowledgeMissing,
   onGoSettings,
@@ -110,8 +110,8 @@ function ChatEmpty({
   onSend: () => void
   sending: boolean
   sendDisabled: boolean
-  fileName: string | null
-  onFileChange: (f: File | null) => void
+  files: File[]
+  onFileChange: (f: File[]) => void
   knowledgeMissing: boolean
   onGoSettings: () => void
   error: string
@@ -133,7 +133,7 @@ function ChatEmpty({
           onSend={onSend}
           sending={sending}
           sendDisabled={sendDisabled}
-          fileName={fileName}
+          files={files}
           onFileChange={onFileChange}
           showModeSwitch
           onModeChange={onModeChange}
@@ -163,7 +163,7 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
   const { messages, asking, ask, sessionId, mode, draftMode, setDraftMode, openSessionById, hydrating } = chat
 
   const [value, setValue] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [focusToken, setFocusToken] = useState(0)
@@ -202,7 +202,7 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
 
   const knowledgeMissing = !health || !health.knowledge_model
   const activeMode: ChatMode = (mode ?? draftMode) as ChatMode
-  const hasInput = value.trim().length > 0 || !!file
+  const hasInput = value.trim().length > 0 || (activeMode === 'maintain' && files.length > 0)
   const sendDisabled = knowledgeMissing || sending || asking || !hasInput
 
   const send = useCallback(async () => {
@@ -214,7 +214,7 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
       if (err) setError(err)
       else {
         setValue('')
-        setFile(null)
+        setFiles([])
       }
       return
     }
@@ -223,8 +223,8 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
       const { sessionId: sid } = await chat.ensureSession('maintain')
       const fd = new FormData()
       fd.append('session_id', sid)
-      if (file) {
-        fd.append('file', file)
+      if (files.length) {
+        files.forEach((file) => fd.append('files', file))
         if (value.trim()) fd.append('text', value)
       } else {
         fd.append('text', value)
@@ -236,17 +236,17 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
       } else if (r.duplicate) {
         toast('内容已存在，未重复处理')
       } else {
-        toast.success(`已接收，来源 #${r.source_id}`)
+        toast.success(`已创建维护任务 #${r.task_id}`)
       }
       setValue('')
-      setFile(null)
+      setFiles([])
       await Promise.all([maintenance.load(), submissions.load()])
     } catch (e) {
       setError(errMsg(e))
     } finally {
       setSending(false)
     }
-  }, [sending, asking, sendDisabled, mode, draftMode, ask, value, file, chat, submissions, maintenance])
+  }, [sending, asking, sendDisabled, mode, draftMode, ask, value, files, chat, submissions, maintenance])
 
   const onConfirmed = useCallback(
     (r: MaintenanceReceipt) => {
@@ -286,8 +286,8 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
           onSend={() => void send()}
           sending={sending || asking}
           sendDisabled={sendDisabled}
-          fileName={file?.name ?? null}
-          onFileChange={setFile}
+          files={files}
+          onFileChange={setFiles}
           knowledgeMissing={knowledgeMissing}
           onGoSettings={() => navigateSettings('models')}
           error={error}
@@ -339,8 +339,8 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
                 onSend={() => void send()}
                 sending={sending || asking}
                 sendDisabled={sendDisabled}
-                fileName={file?.name ?? null}
-                onFileChange={setFile}
+                files={files}
+                onFileChange={setFiles}
                 focusToken={focusToken}
               />
               {error && <p className="mt-2 text-center text-xs text-destructive">{error}</p>}

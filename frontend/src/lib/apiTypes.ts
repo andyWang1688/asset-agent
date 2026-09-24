@@ -880,6 +880,8 @@ export interface components {
             text?: string | null;
             /** File */
             file?: string | null;
+            /** Files */
+            files?: string[] | null;
             /** Session Id */
             session_id?: string | null;
         };

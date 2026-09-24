@@ -94,7 +94,7 @@ def _lock_report(row, findings, instruction_findings, decisions, edits, sources,
     rep = report_mod.build_report(all_entries, original_name, preview,
                                   instruction=instruction_redacted, refs=refs)
     db.update_report(
-        rid, status="confirmed",
+        rid, status="auto" if current and current["mode"] == "auto" else "confirmed",
         summary=json.dumps(rep["summary"], ensure_ascii=False),
         entries=json.dumps(rep["entries"], ensure_ascii=False),
         preview=preview,
@@ -126,7 +126,7 @@ def create_submission(settings: Settings, text: str, findings: list[Finding], sh
                       kind: str, original_name: str, policy: dict | None = None,
                       session_id: str | None = None, report_id: int | None = None,
                       instruction: str | None = None,
-                      instruction_findings: list | None = None, is_file: bool = False, review_layout: list | None = None) -> int:
+                      instruction_findings: list | None = None, is_file: bool = False, review_layout: list | None = None, documents: list | None = None) -> int:
     payload = {
         "version": PAYLOAD_VERSION,
         "text": text,
@@ -139,6 +139,7 @@ def create_submission(settings: Settings, text: str, findings: list[Finding], sh
         "instruction": instruction or "",
         "is_file": is_file,
         "review_layout": review_layout or [],
+        "documents": documents or [],
         "instruction_findings": [finding_to_dict(f) for f in (instruction_findings or [])],
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -352,7 +353,7 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
             edited_text=edited_text, security_provider=security_provider,
             session_id=row["session_id"], edits=edits, instruction=instruction,
             instruction_findings=instruction_findings, sources=sources,
-            reuse_source=bool(payload.get("is_file")), task_id=task_id,
+            reuse_source=bool(payload.get("is_file")), task_id=task_id, documents=payload.get("documents"),
         )
     except DuplicateSourceError as dup:
         db.resolve_submission(submission_id, "confirmed")

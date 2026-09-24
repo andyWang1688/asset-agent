@@ -535,6 +535,9 @@ async def test_gate_never_direct_flow(settings):
         session_id=_new_session(),
     )
     assert "pending_confirmation" not in r
+    assert not creds.created
+    from tests.fakes import finish_queued
+    r = await finish_queued(settings, creds, r)
     assert r["secrets"][0]["saved"] is True
     raw = next(settings.inbox_dir.glob("*")).read_text(encoding="utf-8")
     assert "Sup3rSecret!" not in raw

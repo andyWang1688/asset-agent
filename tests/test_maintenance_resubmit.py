@@ -6,11 +6,11 @@ from app import db
 from app.ingest import receiver
 from app.security.policy import PolicyStore
 from app.worker import Worker
-from tests.fakes import FakeCredentialStore, FakeProvider
+from tests.fakes import FakeCredentialStore, FakeProvider, ingest_and_finish, finish_queued
 
 async def submit(settings, vault, session, instruction):
     PolicyStore(settings.policy_file).update_security_settings({'mode':'default'})
-    return await receiver.ingest(settings,vault,filename='notes.md',data=b'password=RoundSecret42! notes',
+    return await ingest_and_finish(settings,vault,filename='notes.md',data=b'password=RoundSecret42! notes',
         instruction=instruction,session_id=session,knowledge_provider_getter=lambda:FakeProvider('{}'))
 
 async def test_repeated_file_uses_immutable_raw_and_new_task_instruction(settings, maintain_session, monkeypatch):
@@ -26,13 +26,9 @@ async def test_repeated_file_uses_immutable_raw_and_new_task_instruction(setting
     assert dict(db.get_source(first['source_id']))==original
     assert Path(original['path']).read_bytes()==raw
     assert db.report_view(first['report_id'])['instruction']=='第一次按项目整理'
-    seen=[]
-    async def compile_capture(settings,provider,source,text):
-        seen.append(source['instruction']);assert 'RoundSecret42!' not in text
-        return {'changes':[],'conflicts':[]}
-    monkeypatch.setattr('app.wiki.compiler.compile_source',compile_capture)
-    await Worker(settings,vault,lambda:FakeProvider('{}'),lambda:None).run_task(second['task_id'])
-    assert seen==['第二次补充分析']
+    snapshot=json.loads(db.get_task(second['task_id'])['input_snapshot'])
+    assert snapshot['instruction']=='第二次补充分析'
+    assert 'RoundSecret42!' not in snapshot['text']
     assert db.get_task(second['task_id'])['status']=='done'
 
 async def test_failed_manual_input_can_start_new_round_without_duplicate_vault(settings, maintain_session):
@@ -40,8 +36,10 @@ async def test_failed_manual_input_can_start_new_round_without_duplicate_vault(s
     async def add():
         return await receiver.ingest(settings,vault,text='password=RetrySecret42! 读书会资料',
             session_id=maintain_session,knowledge_provider_getter=lambda:FakeProvider('{}'))
-    first=await add();db.update_task_status(first['task_id'],'failed',error='模型不可用')
-    second=await add()
+    first=await add()
+    await Worker(settings,vault,lambda:FakeProvider('{}'),lambda:None).tick()
+    assert not db.list_sources() and not vault.created
+    second=await finish_queued(settings,vault,await add())
     assert second['task_id']!=first['task_id'] and second['report_id']!=first['report_id']
     assert db.get_task(first['task_id'])['status']=='failed'
     assert len(vault.created)==1

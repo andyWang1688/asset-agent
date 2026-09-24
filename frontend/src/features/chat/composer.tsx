@@ -22,8 +22,8 @@ interface ComposerProps {
   onSend: () => void
   sending: boolean
   sendDisabled: boolean
-  fileName: string | null
-  onFileChange: (f: File | null) => void
+  files: File[]
+  onFileChange: (f: File[]) => void
   showModeSwitch?: boolean
   onModeChange?: (m: ChatMode) => void
   /** 首页大输入框 */
@@ -40,7 +40,7 @@ export function Composer({
   onSend,
   sending,
   sendDisabled,
-  fileName,
+  files,
   onFileChange,
   showModeSwitch = false,
   onModeChange,
@@ -110,10 +110,11 @@ export function Composer({
             <input
               ref={fileRef}
               type="file"
+              multiple
               accept=".md,.txt,.text,.pdf,.xlsx,.xls,.csv,.docx"
               className="hidden"
               onChange={(e) => {
-                onFileChange(e.target.files?.[0] ?? null)
+                onFileChange([...files, ...Array.from(e.target.files ?? [])])
                 e.target.value = ''
               }}
             />
@@ -127,14 +128,15 @@ export function Composer({
             >
               <Paperclip />
             </Button>
-            {fileName && (
-              <span className="inline-flex max-w-48 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-                <span className="truncate">{fileName}</span>
-                <button type="button" aria-label="移除附件" onClick={() => onFileChange(null)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-3" />
-                </button>
-              </span>
-            )}
+            <div className="flex min-w-0 flex-wrap gap-1">
+              {files.map((file, index) => (
+                <Badge key={`${file.name}-${index}`} variant="secondary" className="max-w-48 gap-1">
+                  <span className="truncate" title={file.name}>{file.name}</span>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`移除 ${file.name}`}
+                    onClick={() => onFileChange(files.filter((_, i) => i !== index))}><X /></Button>
+                </Badge>
+              ))}
+            </div>
           </>
         )}
         <Button

@@ -112,3 +112,33 @@ class KeywordEmbedding(BaseEmbedding):
 
     async def _aget_query_embedding(self, query: str) -> list[float]:
         return self._get_query_embedding(query)
+
+
+class FixturePlanningProvider(FakeProvider):
+    """每轮创建独立测试页面，避免重复测试夹具覆盖已有页面。"""
+    def __init__(self):
+        import json
+        from app import db
+        task = db.list_tasks()[0]
+        plan = {'source_summary': {'path': f"sources/fixture-{task['id']}.md", 'title': '测试资料',
+                                   'content': '# 测试资料\n已整理。'}, 'pages': [], 'conflicts': []}
+        super().__init__(json.dumps({'action': 'final', 'plan': plan}))
+
+
+async def finish_queued(settings, creds, result):
+    """测试显式推进后台流程；生产 ingest 不等待模型与保存。"""
+    from app import db
+    from app.worker import Worker
+    if result.get('task_id') and db.get_task(result['task_id'])['status'] == 'planning_pending':
+        await Worker(settings, creds, lambda: FixturePlanningProvider(), lambda: None).tick()
+        task = db.get_task(result['task_id'])
+        assert task['status'] == 'done', task['error']
+        result['source_id'] = task['source_id']
+        report = db.report_view(result['report_id'])
+        result['secrets'] = [{'name': e['name'], 'saved': e['vault']['saved']} for e in report['entries'] if e['action'] == 'store']
+    return result
+
+
+async def ingest_and_finish(settings, creds, **kwargs):
+    from app.ingest import receiver
+    return await finish_queued(settings, creds, await receiver.ingest(settings, creds, **kwargs))

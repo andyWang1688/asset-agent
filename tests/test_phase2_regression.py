@@ -14,6 +14,7 @@ from app.security import redactor, submissions
 from app.security.detectors import ScanEngine
 from app.security.policy import PolicyStore
 from tests.fakes import FakeCredentialStore, FakeProvider
+from tests.fakes import ingest_and_finish
 
 
 def _store(settings):
@@ -29,7 +30,7 @@ async def _submit(settings, creds, sid, text, mode="confirm"):
     db.create_session(sid, "maintain")
     store = _store(settings)
     store.update_security_settings({"mode": mode})
-    result = await receiver.ingest(
+    result = await ingest_and_finish(
         settings, creds, text=text, session_id=sid, policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider("{}"),
     )
@@ -53,6 +54,8 @@ def _memory_bw_adapter(settings, monkeypatch):
             item["id"] = "fixture-item-" + str(len(items) + 1)
             items.append(item)
             return json.dumps(item)
+        if args == ("sync",):
+            return ""
         if args == ("list", "items"):
             return json.dumps(items)
         raise AssertionError("unexpected fake bw operation: " + str(args))
@@ -80,6 +83,8 @@ async def test_vault_metadata_no_note_body(settings, monkeypatch):
         pass
 
     async def fake_run(*args, **kwargs):
+        if args == ("sync",):
+            return ""
         assert args == ("list", "items")
         return json.dumps([{"id": "note-one", "type": 2, "name": "Personal note",
                             "notes": secret, "secureNote": {"type": 0}}])
@@ -182,7 +187,7 @@ async def test_sensitive_instruction_saved(settings):
     store.update_security_settings({"mode": "default"})
     creds = FakeCredentialStore()
     secret = "FixtureInstructionSecret!"
-    result = await receiver.ingest(
+    result = await ingest_and_finish(
         settings, creds, filename="fixture.txt", data=b"ordinary file document",
         instruction="process this password=" + secret, session_id="instruction-a",
         policy_store=store, knowledge_provider_getter=lambda: FakeProvider("{}"),

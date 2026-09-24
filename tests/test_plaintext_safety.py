@@ -60,7 +60,7 @@ async def test_mock_llm_never_receives_plaintext(settings):
     )
     provider = FakeProvider(PLAN)
     worker = Worker(settings, creds, lambda: provider)
-    await worker.run_task(r["task_id"])
+    await worker.tick()
     assert db.get_task(r["task_id"])["status"] == "done"
     sent = json.dumps(provider.calls, ensure_ascii=False)
     assert SECRET not in sent
@@ -76,7 +76,7 @@ async def test_plaintext_not_in_raw_sqlite_audit_wiki(settings):
     r = await _ingest_and_confirm(settings, creds, f"密码 password={SECRET} 与普通内容")
     provider = FakeProvider(PLAN)
     worker = Worker(settings, creds, lambda: provider)
-    await worker.run_task(r["task_id"])
+    await worker.tick()
     assert db.get_task(r["task_id"])["status"] == "done"
 
     # 1) Raw 文件
@@ -133,16 +133,18 @@ async def test_detector_failure_blocks_and_leaks_nothing(settings, monkeypatch):
     assert events and SECRET not in json.dumps(events, ensure_ascii=False)
 
 
-async def test_vaultwarden_failure_no_cloud_call(settings):
+async def test_vaultwarden_failure_rolls_back_and_does_not_repeat_model(settings):
     creds = FakeCredentialStore(fail=True)
     r = await _ingest_and_confirm(settings, creds, f"password={SECRET}")
-    assert r["secrets"][0]["saved"] is False
+    assert not creds.created
     provider = FakeProvider(PLAN)
     worker = Worker(settings, creds, lambda: provider)
     for _ in range(3):
         await worker.tick()
-    assert provider.calls == []  # Vaultwarden 失败期间绝不调用云端模型
-    assert db.get_task(r["task_id"])["status"] == "credential_pending"
+    assert provider.calls  # 模型先依据安全资料生成计划，保存失败后不再重试。
+    assert SECRET not in json.dumps(provider.calls)
+    assert db.get_task(r["task_id"])["status"] == "failed"
+    assert not db.list_sources() and not db.list_pending("pending")
 
 
 async def test_confirm_error_messages_hide_plaintext(settings):

@@ -93,6 +93,8 @@ async def test_ingest_duplicate(settings):
     sid = _new_session()
     r1 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider,
                                session_id=sid)
+    from tests.fakes import finish_queued
+    r1 = await finish_queued(settings, creds, r1)
     r2 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider,
                                session_id=sid)
     assert r2["duplicate"] is True
@@ -115,19 +117,19 @@ async def test_failed_round_resubmit_starts_new_round(settings):
                                   knowledge_provider_getter=lambda: FakeProvider(PLAN),
                                   session_id=sid, **upload)
     worker = Worker(settings, creds, lambda: FailingProvider())
-    await worker.run_task(first["task_id"])
+    await worker.tick()
     assert db.get_task(first["task_id"])["status"] == "failed"
 
     second = await receiver.ingest(settings, creds, instruction="请重新整理为概念页。",
                                    knowledge_provider_getter=lambda: FakeProvider(PLAN),
                                    session_id=sid, **upload)
     assert second.get("duplicate") is not True
-    assert second["source_id"] == first["source_id"]  # 复用来源，不新建 Source
-    assert second["task_id"] != first["task_id"]  # 新任务
-    assert len(db.list_tasks()) == 2
-    assert len(db.list_reports()) == 2
-    assert db.get_source(first["source_id"])["instruction"] == "请整理为项目页。"
-    assert json.loads(db.get_task(second["task_id"])["input_snapshot"])["instruction"] == "请重新整理为概念页。"
+    assert not db.list_sources()  # 失败轮不留下来源或原件。
+    assert second["task_id"] != first["task_id"]
+    from tests.fakes import finish_queued
+    second = await finish_queued(settings, creds, second)
+    assert len(db.list_tasks()) == 2 and len(db.list_reports()) == 2
+    assert db.get_source(second["source_id"])["instruction"] == "请重新整理为概念页。"
 
 
 async def test_failed_round_resubmit_confirm_mode_creates_new_submission(settings):
@@ -204,6 +206,8 @@ async def test_document_formats_share_security_pipeline(settings, extension, mod
         decisions = {f['id']: 'store' for f in view['findings']}
         assert decisions
         result = await submissions.confirm(settings, creds, _store(settings), result['submission_id'], decisions)
+    if mode == 'default':
+        await Worker(settings, creds, lambda: provider).tick()
     assert any(item.value == 'DocImport9!' for item in creds.created)
     raw = next(settings.inbox_dir.glob('*')).read_text()
     assert 'DocImport9!' not in raw

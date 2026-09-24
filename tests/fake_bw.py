@@ -24,6 +24,8 @@ def main():
     args = sys.argv[1:]
     if not args:
         return
+    if args[0] == "sync":
+        print(""); return
     if args[0] == "config":
         print(""); return
     if args[0] == "login":
@@ -60,6 +62,9 @@ def main():
     if args[0] == "list" and args[1] == "items":
         print(json.dumps(load()["items"])); return
     if args[0] == "delete":
+        state = load()
+        state["items"] = [item for item in state["items"] if item["id"] != args[2]]
+        save(state)
         print(""); return
     print("unknown", file=sys.stderr)
     sys.exit(2)

@@ -144,6 +144,8 @@ def health(request: Request):
     ctx = _ctx(request)
     return {
         "status": "ok",
+        "wiki_dir": str(ctx.settings.wiki_dir.resolve()),
+        "private_raw_dir": str(ctx.settings.private_raw_dir.resolve()),
         "vaultwarden_cli": ctx.creds.available(),
         "vaultwarden_configured": ctx.creds.configured(),
         "model": ctx.get_provider() is not None,
@@ -175,6 +177,7 @@ async def ingest(
     request: Request,
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
+    files: list[UploadFile] | None = File(None),
     session_id: str | None = Form(None),
 ):
     ctx = _ctx(request)
@@ -182,10 +185,20 @@ async def ingest(
     if ctx.get_provider() is None:
         raise HTTPException(400, "未配置知识库模型：Wiki 编译任务禁止提交。请先在「设置」页配置并激活一个知识库模型。")
     try:
-        if file is not None:
-            data = await file.read()
+        if file is not None or files:
+            uploads = ([file] if file is not None else []) + (files or [])
+            if len(uploads) > 20:
+                raise ValueError("一批最多 20 个文件")
+            contents = []
+            remaining = ctx.settings.max_upload_mb * 1024 * 1024
+            for upload in uploads:
+                data = await upload.read(remaining + 1)
+                remaining -= len(data)
+                if remaining < 0:
+                    raise ValueError("本批文件总大小超过上传限制")
+                contents.append((upload.filename or "upload.txt", data))
             result = await receiver.ingest(
-                ctx.settings, ctx.creds, filename=file.filename, data=data,
+                ctx.settings, ctx.creds, files=contents,
                 policy_store=_policy_store(request),
                 knowledge_provider_getter=lambda: ctx.get_provider(),
                 security_provider=ctx.get_security_provider(),

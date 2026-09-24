@@ -27,6 +27,9 @@ def build_report(entries, original_name: str, preview: str, instruction: str = "
         entry["source"] = e.source or original_name
         r = refs_by_id.get(e.finding.id)
         if r:
+            entry["private_path"] = r.get("private_path")
+            entry["location"] = r.get("location")
+            entry["source"] = r.get("source") or entry["source"]
             entry["vault"].update(
                 {
                     "item_id": r.get("item_id") or None,

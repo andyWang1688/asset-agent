@@ -100,7 +100,7 @@ async def test_maintain_task_records_changes(settings, maintain_session):
         knowledge_provider_getter=lambda: FakeProvider(FINAL_PLAN), session_id=maintain_session,
     )
     worker = Worker(settings, creds, lambda: FakeProvider(FINAL_PLAN))
-    await worker.run_task(r["task_id"])
+    await worker.tick()
     t = db.get_task(r["task_id"])
     assert t["status"] == "done"
     result = json.loads(t["result"])
@@ -187,7 +187,7 @@ async def test_maintain_prompt_contains_no_secret(settings, maintain_session):
     )
     provider = FakeProvider(FINAL_PLAN)
     worker = Worker(settings, creds, lambda: provider)
-    await worker.run_task(r["task_id"])
+    await worker.tick()
     assert db.get_task(r["task_id"])["status"] == "done"
     assert secret not in json.dumps(provider.calls, ensure_ascii=False)
 

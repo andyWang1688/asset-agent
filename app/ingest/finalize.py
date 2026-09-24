@@ -1,17 +1,21 @@
 """确认后的落盘与任务编排（闸门直通与确认流程共用）：
 
 应用逐项裁决 → 复扫校验（除放行区间外不得残留 Finding）→
-凭证写入（失败入 AES-GCM 加密队列，任务挂起）→ 脱敏 Raw 落盘 → 建来源与任务。
+凭证与脱敏 Raw 写入 → 绑定任务来源。正式任务由持久化补偿日志覆盖所有保存。
+旧内部调用保留加密挂起队列兼容；新 API 的两种模式均走后台事务。
 
-安全不变量：秘密原文不落盘、不进 SQLite 明文、不进日志/异常、不进云端模型。
+安全不变量：秘密原文仅允许进入 Private Raw 原件和保险柜；不进 SQLite 明文、
+日志/异常或知识模型。
 """
 import asyncio
+import base64
 import json
 import re
 import sqlite3
 import time
 
 from .. import crypto, db
+from . import transaction
 from ..config import Settings
 from ..credentials.base import CredentialError, CredentialStore, SecretPayload
 from ..security import redactor
@@ -137,6 +141,8 @@ async def _store_credentials(
     Vaultwarden 失败时进入 AES-GCM 加密队列（任务挂起），队列记录保留条目类型与字段名。
     幂等：按 (值哈希 + 条目类型 + 条目名称 + 字段名) 全量匹配目标身份，
     绝不用「同名条目」吞掉不同秘密，也不复用与报告目标不一致的既有条目。"""
+    if not any(e.action == ACTION_STORE for e in entries):
+        return [], []
     known: dict[tuple, dict] = {}
     for r in db.all_source_refs():
         if r.get("saved") and r.get("item_id"):
@@ -148,6 +154,8 @@ async def _store_credentials(
                 key = (m.value_hash, m.kind, m.name, m.field_name)
                 known.setdefault(key, {"item_id": m.item_id})
     except CredentialError:
+        if transaction.active.get() is not None:
+            raise
         pass  # 保险柜查询失败时仍保留本机已确认的精确条目映射。
 
     refs_out: list[dict] = []
@@ -188,10 +196,13 @@ async def _store_credentials(
             continue
         payload = _secret_payload(e, note)
         try:
-            item = await creds.create_secret(payload)
+            tx = transaction.active.get()
+            item = await tx.create_secret(payload) if tx else await creds.create_secret(payload)
             entry["saved"] = True
             entry["item_id"] = item.item_id
         except CredentialError:
+            if transaction.active.get() is not None:
+                raise
             blob = crypto.seal(
                 settings.local_key(),
                 json.dumps(
@@ -249,6 +260,7 @@ async def finalize(
     sources: dict | None = None,
     reuse_source: bool = False,
     task_id: int | None = None,
+    documents: list | None = None,
 ) -> dict:
     """裁决 → 复扫 → 凭证 → 落盘 → 任务。重复内容幂等（由调用方先查重）。
     edited_text：用户在确认页修改过的脱敏预览——必须重新扫描，
@@ -261,7 +273,7 @@ async def finalize(
             edited_text=edited_text, security_provider=security_provider,
             session_id=session_id, edits=edits, instruction=instruction,
             instruction_findings=instruction_findings, sources=sources,
-            reuse_source=reuse_source, task_id=task_id,
+            reuse_source=reuse_source, task_id=task_id, documents=documents,
         )
 
 
@@ -326,6 +338,7 @@ async def _finalize_locked(
     sources: dict | None = None,
     reuse_source: bool = False,
     task_id: int | None = None,
+    documents: list | None = None,
 ) -> dict:
     instruction_findings = instruction_findings or []
     combined = list(findings) + list(instruction_findings)
@@ -335,6 +348,10 @@ async def _finalize_locked(
         namespace=sha, policy=policy, sources=sources,
     )
     all_entries = file_entries + instr_entries
+
+    if documents and transaction.active.get() is not None:
+        return await _finalize_documents(settings, creds, documents, text, sha, all_entries,
+                                         file_entries, instr_entries, instruction, engine, task_id)
 
     # 两阶段落库：占位（confirmed=0，sha UNIQUE 互斥）先于凭证写入
     source_id, claimed = _claim_source(sha, kind, original_name, reuse_source)
@@ -377,7 +394,11 @@ async def _finalize_locked(
             f"{sanitized}"
         )
         if not reused:
-            raw_path.write_text(raw_content, encoding="utf-8")
+            tx = transaction.active.get()
+            if tx:
+                tx.write_raw(raw_path, raw_content)
+            else:
+                raw_path.write_text(raw_content, encoding="utf-8")
 
         # 放行区间以最终落盘内容为基准（含文件头偏移）
         offset = len(raw_content) - len(sanitized)
@@ -402,6 +423,8 @@ async def _finalize_locked(
         task_id = db.insert_task(source_id, session_id=session_id, input_snapshot=snapshot)
     else:
         db.bind_task_source(task_id, source_id, snapshot)
+    if transaction.active.get() is not None:
+        db.link_task_source(task_id, source_id, 0)
     db.update_task_status(task_id, "credential_pending" if pending_pairs else "pending")
 
     return {
@@ -412,3 +435,55 @@ async def _finalize_locked(
         "refs": refs_out,
         "instruction": instruction_redacted,
     }
+
+
+async def _finalize_documents(settings, creds, documents, text, sha, all_entries,
+                              file_entries, instr_entries, instruction, engine, task_id):
+    from dataclasses import replace
+    tx = transaction.active.get()
+    instruction_safe, instruction_allowed = entries_mod.apply_entries(instruction or "", instr_entries)
+    await rescan_guard(engine, instruction_safe, instruction_allowed, entries=all_entries)
+    # 所有文件先复扫，整批通过再产生任何保存副作用。
+    prepared = []
+    for doc in documents:
+        local = [replace(e, finding=replace(e.finding, span=(e.finding.start-doc['start'], e.finding.end-doc['start'])))
+                 for e in file_entries if doc['start'] <= e.finding.start < e.finding.end <= doc['end']]
+        sanitized, allowed = entries_mod.apply_entries(text[doc['start']:doc['end']], local)
+        await rescan_guard(engine, sanitized, allowed, entries=all_entries)
+        prepared.append((doc, local, sanitized, allowed))
+    ids, all_refs, texts, offsets = [], [], [], []
+    for position, (doc, local, sanitized, allowed) in enumerate(prepared):
+        # 原件哈希相同但审查结果不同是不同来源；同名不同内容也不会覆盖。
+        source_sha = crypto.sha256_hex(doc['sha256'] + sanitized + doc['name'])
+        source_id, claimed = _claim_source(source_sha, doc['kind'], doc['name'], True)
+        reused = bool(db.get_source(source_id)['confirmed'])
+        private_path = tx.archive(doc['name'], base64.b64decode(doc['original']), position, doc['sha256'])
+        owned = local + (instr_entries if position == 0 else [])
+        refs, _ = await _store_credentials(settings, creds, owned, sha, doc['kind'], doc['name'], source_id)
+        for ref in refs:
+            entry = next(e for e in owned if e.finding.id == ref['finding_id'])
+            finding = entry.finding
+            cell_location = next((f"{sheet['name']} · 行 {cell['row']} 列 {cell['col']}"
+                                  for sheet in doc['layout'] for cell in sheet['cells']
+                                  if cell['start'] <= finding.start < cell['end']), None)
+            ref.update(source="整理要求" if entry in instr_entries else doc["name"],
+                       private_path=None if entry in instr_entries else private_path,
+                       location=cell_location or f"字符 {finding.start + 1}–{finding.end}")
+        content = f"# 来源: {doc['name']}\n\n<!-- kind: {doc['kind']} -->\n\n" + sanitized
+        header = len(content) - len(sanitized)
+        shifted = [[a+header, b+header] for a,b in allowed]
+        raw_path = settings.inbox_dir / f"{source_sha[:12]}-{_safe_filename(doc['name'])}.md"
+        if not reused:
+            tx.write_raw(raw_path, content)
+            db.update_source_processed(source_id, str(raw_path), json.dumps(refs, ensure_ascii=False),
+                                       json.dumps(shifted), instruction=instruction_safe)
+        db.link_task_source(task_id, source_id, position, private_path, doc['sha256'])
+        offset = sum(len(t)+2 for t in texts)
+        offsets.extend([[a+offset,b+offset] for a,b in shifted])
+        ids.append(source_id); all_refs.extend(refs); texts.append(content)
+    snapshot = json.dumps(dict(text="\n\n".join(texts), instruction=instruction_safe,
+                               refs=all_refs, allowed_spans=offsets), ensure_ascii=False)
+    db.bind_task_source(task_id, ids[0], snapshot)
+    db.update_task_status(task_id, 'pending')
+    return dict(source_id=ids[0], source_ids=ids, task_id=task_id, refs=all_refs,
+                secrets_count=len(all_refs), instruction=instruction_safe)

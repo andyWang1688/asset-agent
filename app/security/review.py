@@ -19,6 +19,12 @@ def resolve_findings(payload, manual=None):
         raise submissions.SubmissionError("手动标记过多，请分批导入")
     for item in manual or []:
         source, start, end = item.get("source"), item.get("start"), item.get("end")
+        original_source = source
+        document = next((d for d in payload.get("documents", []) if d["id"] == source), None)
+        if document:
+            if type(start) is not int or type(end) is not int or not document["start"] <= start < end <= document["end"]:
+                raise submissions.SubmissionError("选区超出文件范围")
+            source = "document"
         if source not in groups:
             raise submissions.SubmissionError("未知审查来源")
         text = payload["text"] if source == "document" else payload.get("instruction", "")
@@ -26,6 +32,9 @@ def resolve_findings(payload, manual=None):
             raise submissions.SubmissionError("选区无效，请重新选择")
         if any(start < b and end > a for a, b in spans[source]):
             raise submissions.SubmissionError("手动选区不能重叠")
+        if source == 'document' and payload.get('documents') and not any(
+                d['start'] <= start < end <= d['end'] for d in payload['documents']):
+            raise submissions.SubmissionError("选区不能跨文件")
         spans[source].append((start, end))
         remaining = []
         for f in groups[source]:
@@ -35,7 +44,7 @@ def resolve_findings(payload, manual=None):
             else:
                 remaining.append(f)
         remaining.append(Finding(
-            id=f"manual:{source}:{start}:{end}", kind="unknown_suspect", rule="manual",
+            id=f"manual:{original_source}:{start}:{end}", kind="unknown_suspect", rule="manual",
             span=(start, end), confidence=1.0, evidence="用户手动保护",
             suggested_action="store", detector="manual", value=text[start:end],
             key_hint="手动保护内容",
@@ -86,6 +95,21 @@ def inspect(settings, policy_store, submission_id, session_id, decisions=None, e
 
 
 def build_documents(payload, file_entries, instr_entries):
+    if payload.get("documents"):
+        result = []
+        for doc in payload["documents"]:
+            start, end = doc["start"], doc["end"]
+            local = [replace(e, finding=replace(e.finding, span=(e.finding.start-start, e.finding.end-start)))
+                     for e in file_entries if start <= e.finding.start < e.finding.end <= end]
+            part = build_documents({"text": payload["text"][start:end], "review_layout": doc["layout"]}, local, [])[0]
+            part.update(id=doc["id"], name=doc["name"])
+            for unit in part["units"]:
+                unit.update(start=unit["start"]+start, end=unit["end"]+start)
+                unit["id"] = f"{doc['id']}:{unit['start']}:{unit['end']}"
+            result.append(part)
+        if payload.get("instruction"):
+            result.extend(build_documents({"text": "", "instruction": payload["instruction"]}, [], instr_entries))
+        return result
     result = []
     for source, text, group in (("document", payload["text"], file_entries),
                                  ("instruction", payload.get("instruction", ""), instr_entries)):
@@ -121,7 +145,7 @@ def readback_snapshot(payload, file_entries, instr_entries, edited_text=None):
     """只保存裁决后的文本与布局，不附带原文副本；明确放行的值保持原样。"""
     if edited_text is not None:
         # 自由编辑会破坏坐标；调用者必须先完成复扫，再保存为普通文本。
-        payload = {**payload, "text": edited_text, "review_layout": []}
+        payload = {**payload, "text": edited_text, "review_layout": [], "documents": []}
         file_entries = []
     documents = []
     for doc in build_documents(payload, file_entries, instr_entries):

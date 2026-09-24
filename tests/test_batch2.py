@@ -19,6 +19,7 @@ from app.security import redactor, submissions
 from app.security.detectors import ScanEngine
 from app.security.policy import PolicyStore, default_policy
 from tests.fakes import FakeCredentialStore, FakeProvider
+from tests.fakes import ingest_and_finish
 
 SECRET = "Sup3rSecret!"
 PLAN = "{}"
@@ -47,7 +48,7 @@ async def test_private_ref_format_and_no_plaintext(settings, maintain_session):
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "default"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"密码 password={SECRET} 身份证 11010519491231002X",
         policy_store=store, knowledge_provider_getter=lambda: FakeProvider(PLAN),
         session_id=maintain_session,
@@ -71,7 +72,7 @@ async def test_private_ref_metadata_in_report(settings, maintain_session):
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "default"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -106,7 +107,7 @@ async def test_pii_and_unknown_default_store(settings):
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
     sid = _new_session()
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, FakeCredentialStore(), text="联系 user@example.com 手机 13812345678",
         policy_store=store, knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=sid,
     )
@@ -121,7 +122,7 @@ async def test_confirm_applies_edits_to_vault_and_report(settings, maintain_sess
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -145,7 +146,7 @@ async def test_confirm_edits_secure_note_field(settings, maintain_session):
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text="身份证 11010519491231002X", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -162,7 +163,7 @@ async def test_confirm_rejects_secret_in_editable_field(settings, maintain_sessi
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -180,7 +181,7 @@ async def test_confirm_rejects_unknown_finding_edit(settings, maintain_session):
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -259,7 +260,7 @@ async def test_same_name_different_secret_not_swallowed(settings, maintain_sessi
     vault = _Vault(existing)
     store = _store(settings)
     store.update_security_settings({"mode": "default"})
-    await receiver.ingest(
+    await ingest_and_finish(
         settings, vault, text="token=SecretValueBeta88", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -274,7 +275,7 @@ async def test_same_value_hash_reused_idempotent(settings, maintain_session):
     vault = _Vault(existing)
     store = _store(settings)
     store.update_security_settings({"mode": "default"})
-    await receiver.ingest(
+    await ingest_and_finish(
         settings, vault, text=f"token={secret}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -287,7 +288,7 @@ async def test_file_instruction_scanned_and_preserved(settings, maintain_session
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, filename="a.md", data="# 资料\n订单服务说明".encode(),
         instruction="请整理到项目页面，联系 user@example.com",
         policy_store=store, knowledge_provider_getter=lambda: FakeProvider(PLAN),
@@ -305,7 +306,7 @@ async def test_file_instruction_scanned_and_preserved(settings, maintain_session
 async def test_manual_text_has_no_instruction(settings, maintain_session):
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, FakeCredentialStore(), text="普通内容", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )
@@ -318,7 +319,7 @@ async def test_confirm_rejects_wrong_session(settings, maintain_session):
     creds = FakeCredentialStore()
     store = _store(settings)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider(PLAN), session_id=maintain_session,
     )

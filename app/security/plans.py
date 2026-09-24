@@ -10,6 +10,7 @@ import traceback
 import uuid
 
 from .. import crypto, db
+from ..ingest import transaction
 from ..ingest.finalize import GateBlockedError, locate_allow_spans, rescan_guard, validate_decisions
 from ..wiki import compiler
 from ..wiki.tools import ToolBudgetExceeded
@@ -53,6 +54,8 @@ def enqueue(settings, policy_store, submission_id, decisions, *, session_id,
     if provider is None:
         raise submissions.SubmissionError('请先配置知识库模型')
     payload = submissions._decrypt(settings, row)
+    if payload.get('documents') and edited_text is not None:
+        raise submissions.SubmissionError('文件审查请使用选区保护和名称编辑，不支持整体替换正文')
     findings, instructions = resolve_findings(payload, manual)
     dec = validate_decisions(findings + instructions, decisions)
     file_entries, instr_entries = entries.build_all_entries(findings, instructions, dec, edits, namespace=payload['sha256'],
@@ -99,6 +102,7 @@ def failure_message(error):
     # 只输出固定类别，不记录上游响应、模型原文、URL 或密钥。
     import httpx
     from ..llm.provider import LLMError
+    from ..credentials.base import CredentialError
     from .submissions import SubmissionError
 
     cause = error
@@ -121,6 +125,8 @@ def failure_message(error):
         if isinstance(cause, httpx.RequestError):
             return '模型连接失败，请检查模型服务后重新发起维护。'
         cause = cause.__cause__
+    if isinstance(error, CredentialError):
+        return '保险柜保存失败，本轮已停止并回滚；请检查保险柜配置和连接。'
     if isinstance(error, LLMError):
         if getattr(error, 'code', '') == 'reasoning_only':
             return '模型只返回了推理过程，没有返回可执行的维护计划。请重新发起维护。'
@@ -140,6 +146,8 @@ async def process_pending(settings, policy_store, provider_getter, security_prov
         task = db.task_for_report(row['report_id'])
         if not task or task['status'] != 'planning_pending':
             continue
+        tx = None
+        token = None
         try:
             draft = submissions._decrypt(settings, row)['plan_draft']
             queued = state(row)
@@ -154,6 +162,8 @@ async def process_pending(settings, policy_store, provider_getter, security_prov
                                         session_id=row['session_id'], provider=provider_getter(),
                                         security_provider=security_provider_getter(),
                                         on_progress=lambda: db.update_task_status(task['id'], 'drafting'))
+                tx = transaction.Transaction(settings, creds, task['id'])
+                token = transaction.active.set(tx)
                 db.update_task_status(task['id'], 'saving')
                 result = await submissions.confirm(
                     settings, creds, policy_store, row['id'], **draft,
@@ -166,7 +176,28 @@ async def process_pending(settings, policy_store, provider_getter, security_prov
                     db.update_task_status(task['id'], 'done')
                 else:
                     await run_task(task['id'], provider_getter())
-        except Exception as error:
+                if db.get_task(task['id'])['status'] != 'done':
+                    await tx.rollback()
+                    if db.get_task(task['id'])['status'] != 'failed':
+                        db.update_task_status(task['id'], 'failed', error='维护未完成，本轮保存已回滚。')
+                else:
+                    tx.commit()
+        except (Exception, asyncio.CancelledError) as error:
+            if tx is not None and db.get_task(task['id'])['status'] == 'done':
+                # done 是持久化提交标记；只需重试清理日志，不能撤销已经提交的知识。
+                db.log_security('transaction_cleanup_pending', f"任务 #{task['id']} 已完成，等待清理事务日志")
+                return
+            if tx is not None:
+                try:
+                    await asyncio.shield(tx.rollback())
+                except Exception:
+                    fail(row, '维护失败，补偿清理尚未完成；后续维护已暂停。')
+                    db.update_task_status(task['id'], 'failed', error='维护失败，补偿清理尚未完成；后续维护已暂停。')
+                    db.log_security('rollback_failed', f"任务 #{task['id']} 补偿未完成")
+                    return
+            if isinstance(error, asyncio.CancelledError):
+                fail(row, '服务停止，本轮维护已回滚。')
+                raise
             # 已完成保存时由 run_task 记录执行失败；这里处理生成/保存阶段失败。
             fail(row, failure_message(error))
             # 只记录代码位置，不记录异常消息或模型正文，便于定位后续失败。
@@ -177,6 +208,9 @@ async def process_pending(settings, policy_store, provider_getter, security_prov
             origin = frames[-1] if frames else None
             location = f"{origin.name}:{origin.lineno}" if origin else 'unknown'
             db.log_security('maintenance_failed', f"任务 #{task['id']} 失败: {type(error).__name__} at {location}")
+        finally:
+            if token is not None:
+                transaction.active.reset(token)
 
 
 def checked_plan(settings, policy_store, row, decisions, edits, edited_text, token, manual=None):
@@ -240,6 +274,12 @@ async def prepare(settings, policy_store, submission_id, decisions, *, session_i
     model_instruction, _ = redactor.sanitize_llm_output(instruction, policy=snapshot_policy, valid=valid)
     model_text, _ = redactor.sanitize_llm_output(model_text, policy=current_policy, valid=valid)
     model_instruction, _ = redactor.sanitize_llm_output(model_instruction, policy=current_policy, valid=valid)
+    if payload.get('documents'):
+        from .review import build_documents
+        model_text = "\n\n".join(f"## 来源：{d['name']}\n{d['preview']}"
+                                   for d in build_documents(payload, file_entries, []) if d['id'] != 'instruction')
+        for policy in (snapshot_policy, current_policy):
+            model_text, _ = redactor.sanitize_llm_output(model_text, policy=policy, valid=valid)
     task = db.task_for_report(row['report_id'])
     history = compiler.maintenance_context(settings, session_id, task['id'] if task else None)
     try:

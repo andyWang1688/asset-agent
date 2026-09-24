@@ -33,31 +33,31 @@ export function GeneralSection() {
       <SettingsGroup
         title="知守 Memo"
         badge={<Badge variant="outline">v1.0.0</Badge>}
-        description="本地个人资产助手：把私人资料安全收好、整理成知识库，随时可问。资料不出本机。"
+        description="本地个人资产助手：把私人资料安全收好、整理成知识库，随时可问。"
       >
         <div className="px-4 py-5">
           <Wordmark className="h-8 w-auto text-foreground" />
         </div>
       </SettingsGroup>
-      <SettingsGroup title="数据与隐私" description="所有内容仅保存在本机，应用不上传任何资料。">
+      <SettingsGroup title="数据与隐私" description="知识模型只接收安全处理后的资料；上传原件保存在本地目录。">
         <SettingsRow
           label="知识库目录"
           description="Wiki 与索引的存放位置。"
-          control={<span className="font-mono text-xs text-muted-foreground">~/AssetAgent/workspace/wiki</span>}
+          control={<span className="font-mono text-xs text-muted-foreground">{health?.wiki_dir || '加载中…'}</span>}
         />
         <SettingsRow
           label="原件目录（Private Raw）"
-          description="应用只告知位置，不提供浏览、读取或导出。"
-          control={<span className="font-mono text-xs text-muted-foreground">~/AssetAgent/private_raw</span>}
+          description="应用只告知运行环境中的位置，不提供浏览或下载。Docker 部署对应宿主机 workspace/private_raw。"
+          control={<span className="font-mono text-xs text-muted-foreground">{health?.private_raw_dir || '加载中…'}</span>}
         />
         <SettingsRow
           label="密码保险柜"
-          description="敏感值只存于 Vaultwarden，Wiki 中仅保留私密引用。"
+          description="敏感值存入 Vaultwarden；上传原件也会保留，Wiki 仅记录引用。"
           control={
             vaultReady ? (
               <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
                 <CheckCircle2 className="size-3.5" />
-                已连接
+                已配置
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-xs text-amber-600">

@@ -36,6 +36,7 @@ class SecretMetadata:
     provider: str = "vaultwarden"
     kind: str = "login"
     # 内部幂等匹配用（从应用管理的 note 中提取），不作为对外公开元数据
+    transaction_id: str = ""
     value_hash: str = ""
     field_name: str = ""
 

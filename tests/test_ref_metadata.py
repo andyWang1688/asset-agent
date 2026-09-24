@@ -9,6 +9,7 @@ from app import db
 from app.ingest import receiver
 from app.security.policy import PolicyStore
 from tests.fakes import FakeCredentialStore, FakeProvider
+from tests.fakes import ingest_and_finish
 
 SECRET = "Sup3rSecret!"
 
@@ -22,7 +23,7 @@ async def test_ref_metadata_returns_safe_fields_only(settings, maintain_session)
     creds = FakeCredentialStore()
     store = PolicyStore(settings.policy_file)
     store.update_security_settings({"mode": "default"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider("{}"), session_id=maintain_session,
     )
@@ -46,7 +47,7 @@ async def test_ref_metadata_rejects_unsaved_pending(settings, maintain_session):
     creds = FakeCredentialStore()
     store = PolicyStore(settings.policy_file)
     store.update_security_settings({"mode": "confirm"})
-    r = await receiver.ingest(
+    r = await ingest_and_finish(
         settings, creds, text=f"password={SECRET}", policy_store=store,
         knowledge_provider_getter=lambda: FakeProvider("{}"), session_id=maintain_session,
     )

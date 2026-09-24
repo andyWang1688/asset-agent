@@ -1,8 +1,10 @@
 """接收与任务编排：内存扫描 → 闸门（有 Finding 时进入待确认加密队列）→ 落盘 → 编译任务。
 
-安全不变量：秘密原文不落盘、不进日志、不进 LLM；任何持久化动作（Raw/SQLite/
-Vaultwarden/云端模型）都发生在确认之后（或策略显式关闭闸门时）。
+安全不变量：知识模型只接收安全处理后的资料；确认前仅加密暂存。
+确认后由后台任务保存原件、敏感值、脱敏 Raw 和 Wiki。
 """
+import base64
+import hashlib
 import json
 from dataclasses import replace
 
@@ -26,6 +28,7 @@ async def ingest(
     text: str | None = None,
     filename: str | None = None,
     data: bytes | None = None,
+    files: list[tuple[str, bytes]] | None = None,
     policy_store: PolicyStore | None = None,
     knowledge_provider_getter=None,
     security_provider=None,
@@ -46,22 +49,46 @@ async def ingest(
     # Session 固定模式闸门：资料提交只允许维护会话（ask 会话只读，不能写）。
     if session_id is None or db.session_mode(session_id) != db.SESSION_MAINTAIN:
         raise ValueError("仅维护会话可提交资料：请先创建一个维护模式的会话")
+    documents = []
     review_layout = []
-    if text is not None:
-        kind, text = "text", text.strip()
-        original_name = "pasted.txt"
-        instruction = None  # 手动文字本身就是 Source，无独立整理要求
-        is_file = False
-    else:
-        kind, text = parse_upload(filename or "", data or b"", settings.max_upload_mb, review_layout)
-        text = text.strip()
-        original_name = filename or "upload.txt"
+    uploads = files or ([(filename or "upload.txt", data or b"")] if text is None else [])
+    if uploads:
+        if len(uploads) > 20 or sum(len(content) for _, content in uploads) > settings.max_upload_mb * 1024 * 1024:
+            raise ValueError(f"一批最多 20 个文件，总大小不超过 {settings.max_upload_mb}MB")
+        identities = [(name, hashlib.sha256(content).hexdigest()) for name, content in uploads]
+        if len(identities) != len(set(identities)):
+            raise ValueError("同一文件被重复选择，请移除重复附件")
+        parts = []
+        offset = 0
+        for index, (name, content) in enumerate(uploads):
+            layout = []
+            try:
+                file_kind, extracted = parse_upload(name, content, settings.max_upload_mb, layout)
+            except ValueError as error:
+                raise ValueError(f"第 {index + 1} 个文件：{error}") from None
+            documents.append(dict(id=f"file-{index}" if len(uploads) > 1 else "document", name=name, kind=file_kind,
+                                  start=offset, end=offset + len(extracted), layout=layout,
+                                  original=base64.b64encode(content).decode(),
+                                  sha256=hashlib.sha256(content).hexdigest()))
+            parts.append(extracted)
+            offset += len(extracted) + 2
+        text = "\n\n".join(parts)
+        if len(text) > 2_000_000:
+            raise ValueError("本批提取文本过长，请拆分后上传")
+        kind = documents[0]["kind"] if len(documents) == 1 else "batch"
+        original_name = documents[0]["name"]
         instruction = (instruction or "").strip() or None
         is_file = True
+        review_layout = documents[0]["layout"] if len(documents) == 1 else []
+    else:
+        kind, text = "text", (text or "").strip()
+        original_name = "pasted.txt"
+        instruction = None
+        is_file = False
     if not text:
         raise ValueError("内容为空")
 
-    sha = crypto.sha256_hex(text)
+    sha = crypto.sha256_hex(json.dumps([(d["sha256"], d["name"]) for d in documents])) if documents else crypto.sha256_hex(text)
     # 幂等：已处理（confirmed=1）内容直接返回既有来源，不重复创建凭证/Wiki 页面；
     # 失败轮重投例外：同一内容在任务失败后重发起维护，复用来源但另起报告与任务；
     # confirmed=0 占位由 finalize 的 claim 阶段处理（崩溃遗留复用或冲突返回）
@@ -79,22 +106,29 @@ async def ingest(
     # 输入先在内存扫描：任何介质写入之前；基础检测器失败必须阻断。
     # security 增强层失败仅回退本地检测结果（可选层）。
     try:
-        findings = await engine.scan_async(text)
+        if documents:
+            findings = []
+            for doc in documents:
+                hits = await engine.scan_async(text[doc['start']:doc['end']])
+                findings.extend(replace(f, id=f"{doc['id']}:{f.id}",
+                                        span=(f.start+doc['start'], f.end+doc['start'])) for f in hits)
+        else:
+            findings = await engine.scan_async(text)
     except Exception as e:  # 基础检测器失败：阻断（绝不带着未扫描的明文继续）
         db.log_security("detector_failed", f"检测器失败已阻断提交: {type(e).__name__}")
         raise ValueError("检测器失败，本次提交已阻断（未保存、未发送）") from e
 
-    # 上传文件名也是用户输入：进入原始文件头前扫描并脱敏（避免绕过安全检测）。
-    if is_file and original_name and original_name != "upload.txt":
+    # 文件名独立扫描；模型与报告只接收安全名称，原件使用安全名称保留扩展名。
+    for document in documents:
         try:
-            name_findings = await engine.scan_async(original_name)
+            hits = await engine.scan_async(document["name"])
         except Exception as e:
-            db.log_security("detector_failed", f"文件名检测失败已阻断提交: {type(e).__name__}")
-            raise ValueError("文件名检测失败，本次提交已阻断（未保存、未发送）") from e
-        if name_findings:
-            original_name, _ = finalize_mod.apply_decisions(
-                original_name, name_findings, {f.id: "redact" for f in name_findings}
-            )
+            raise ValueError("文件名检测失败，本批提交已阻断") from e
+        if hits:
+            document["name"], _ = finalize_mod.apply_decisions(
+                document["name"], hits, {f.id: "redact" for f in hits})
+    if documents:
+        original_name = documents[0]["name"] + (f" 等 {len(documents)} 个文件" if len(documents) > 1 else "")
 
     # 文件附带的整理要求（instruction）：走同一检测/保存决定链，带明确来源定位；
     # 绝不静默丢弃，也绝不当作文件原文。
@@ -125,60 +159,36 @@ async def ingest(
         original_name = text_source_name(preview)
     if instruction is not None:
         redacted_instruction, _ = entries_mod.apply_entries(instruction, instr_entries)
-    if gate == "always":
-        existing_sub = db.submission_by_sha256(submissions.submission_key(sha, instruction), session_id)
-        if existing_sub:
-            return {"pending_confirmation": True,
-                    **submissions.view(settings, existing_sub)}
-        if db.submission_count_waiting() >= settings.pending_submission_limit:
-            raise ValueError("待确认队列已满，请先处理或取消已有提交")
-        draft = report_mod.build_report(all_entries, original_name, preview,
-                                        instruction=redacted_instruction)
-        report_id = db.insert_report(
-            session_id, None, "pending", "confirm", kind, original_name, sha,
-            json.dumps(draft["summary"], ensure_ascii=False),
-            json.dumps(draft["entries"], ensure_ascii=False), draft["preview"],
-            redacted_instruction or "",
-        )
-        sid = submissions.create_submission(
-            settings, text, findings, sha, kind, original_name, policy=policy,
-            session_id=session_id, report_id=report_id,
-            instruction=instruction, instruction_findings=instruction_findings,
-            is_file=is_file, review_layout=review_layout,
-        )
-        db.update_report(report_id, submission_id=sid)
-        row = db.get_submission(sid)
-        return {"pending_confirmation": True, "report_id": report_id,
-                **submissions.view(settings, row)}
-
-    # 默认模式（gate=never）：按默认动作直接处理，无等待确认。
-    try:
-        result = await finalize_mod.finalize(
-            settings, creds, text=text, sha=sha, kind=kind, original_name=original_name,
-            findings=findings, decisions=None, engine=engine, policy=policy,
-            session_id=session_id, instruction=instruction,
-            instruction_findings=instruction_findings, sources=sources,
-            reuse_source=is_file,
-        )
-    except finalize_mod.DuplicateSourceError as dup:
-        return {"source_id": dup.source_id, "duplicate": True, "message": "内容已存在，未重复处理", "secrets": []}
-    # 报告补全保险柜字段并锁定（自动模式：直接执行并保留报告快照，无等待确认）。
-    final = report_mod.build_report(
-        all_entries, original_name, entries_mod.apply_entries(text, file_entries)[0],
-        instruction=result.get("instruction") or "", refs=result.get("refs"),
-    )
-    from ..security.review import readback_snapshot
-
+    existing_sub = db.submission_by_sha256(submissions.submission_key(sha, instruction), session_id)
+    if existing_sub:
+        if existing_sub['status'] == 'processing':
+            task = db.task_for_report(existing_sub['report_id'])
+            return dict(submission_id=existing_sub['id'], report_id=existing_sub['report_id'], task_id=task['id'])
+        if gate != "always":
+            raise ValueError("同一批资料已在等待确认，请先处理已有报告")
+        return {"pending_confirmation": True,
+                **submissions.view(settings, existing_sub)}
+    if db.submission_count_waiting() >= settings.pending_submission_limit:
+        raise ValueError("待确认队列已满，请先处理或取消已有提交")
+    draft = report_mod.build_report(all_entries, original_name, preview,
+                                    instruction=redacted_instruction)
     report_id = db.insert_report(
-        session_id, None, "auto", "auto", kind, original_name, sha,
-        summary=json.dumps(final["summary"], ensure_ascii=False),
-        entries=json.dumps(final["entries"], ensure_ascii=False),
-        preview=final["preview"],
-        review_snapshot=json.dumps(readback_snapshot(
-            {"text": text, "instruction": instruction or "", "review_layout": review_layout},
-            file_entries, instr_entries), ensure_ascii=False),
-        instruction=result.get("instruction") or "",
+        session_id, None, "pending", "confirm" if gate == "always" else "auto", kind, original_name, sha,
+        json.dumps(draft["summary"], ensure_ascii=False),
+        json.dumps(draft["entries"], ensure_ascii=False), draft["preview"],
+        redacted_instruction or "",
     )
-    db.set_task_report(result["task_id"], report_id)
-    result["report_id"] = report_id
-    return result
+    sid = submissions.create_submission(
+        settings, text, findings, sha, kind, original_name, policy=policy,
+        session_id=session_id, report_id=report_id,
+        instruction=instruction, instruction_findings=instruction_findings,
+        is_file=is_file, review_layout=review_layout, documents=documents,
+    )
+    db.update_report(report_id, submission_id=sid)
+    row = db.get_submission(sid)
+    if gate != "always":
+        from ..security import plans
+        return plans.enqueue(settings, store, sid, decisions_default, session_id=session_id,
+                             provider=knowledge_provider_getter())
+    return {"pending_confirmation": True, "report_id": report_id,
+            **submissions.view(settings, row)}
