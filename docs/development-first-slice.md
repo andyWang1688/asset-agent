@@ -1,4 +1,6 @@
-# 首版开发切片：运行与范围
+# 本地开发：运行与实现范围
+
+本文已按 1.0 发布代码更新；历史切片验收仍保留在 `docs/verification/`。发布能力与限制以 `docs/releases/v1.0.0.md` 为准。
 
 ## 运行
 
@@ -49,11 +51,11 @@ cd frontend
 pnpm gen:api   # openapi-typescript ./api-schema.json -o ./src/lib/apiTypes.ts
 ```
 
-## 当前首版范围（已实现）
+## 当前实现范围
 
 - 后端 app/wiki/ + app/query/：LLM Wiki 主链路。
   - 问答：WikiQuestionAnswerEngine 用受限工具循环（index/list/read/search-text(BM25)/final），引用只来自真正读到的页面，不依赖向量/embedding/重排。
-  - 维护：compiler.compile_source 用同一受限循环先读 index 与相关页面，再产出 final.plan 写页；apply_plan 整体校验路径/动作/重复/内容后统一写入，记录变更与冲突。
+  - 维护：compiler.compile_source 用同一受限循环先读 index 与相关页面，再生成简短维护计划和逐页正文；校验路径/动作/重复/内容后写入，记录变更与冲突。
   - app/wiki/tools.py：路径白名单 + 内容预算 + 符号链接/越权拒绝；进入模型前按真实安全策略 + 登记引用检查；只读，不写 Raw/Wiki/保险柜/设置，不触网络/shell。
   - app/query/bm25.py：纯 Python BM25，不装载 torch/向量模型。
 - 任务结果：tasks.result 记录新增/更新页面与冲突，前端任务详情可点击打开对应 Wiki 页。
@@ -61,7 +63,7 @@ pnpm gen:api   # openapi-typescript ./api-schema.json -o ./src/lib/apiTypes.ts
 
 ## 所需依赖
 
-- 后端：`fastapi`、`uvicorn`、`cryptography`、`httpx`、`pyyaml`、`regex`、`pypdf`、`python-multipart`、`reportlab`。主链路（LLM Wiki）不加载 torch / llama_index；legacy 检索/embedding 依赖仅在显式检索设置入口调用时惰性导入。
+- 后端：`fastapi`、`uvicorn`、`cryptography`、`httpx`、`pyyaml`、`regex`、`pypdf`、`python-multipart`、`reportlab`。主链路（LLM Wiki）不加载 torch / llama_index；legacy 检索/embedding 依赖尚未从安装包彻底删除；其设置入口已移除，兼容 API 不是 1.0 主流程。
 - 前端：`pnpm` + Node 22；依赖见 `frontend/package.json`。
 
 ## 测试替身限制
@@ -72,4 +74,12 @@ pnpm gen:api   # openapi-typescript ./api-schema.json -o ./src/lib/apiTypes.ts
 
 ## 暂缓（未做）
 
-UIE-mini、Excel/OCR、多文件批次、完整 Private Raw 生命周期、复杂跨系统回滚、legacy 向量/混合检索依赖彻底删除。
+UIE-mini、OCR、legacy 向量/混合检索依赖彻底删除。Excel/CSV/Word/PDF 校验、提取与审查已经实现。
+
+## 1.0 批次与事务
+
+- `POST /api/ingest` 接受多个 `files`（兼容单个 `file`）；最多 20 个附件、总大小受 MAX_UPLOAD_MB 限制。文件逐个校验后统一检测，一份加密提交保留各自坐标与原始字节。
+- 两种模式均排入后台计划任务，自动模式仅省去人工确认。`task_sources` 记录每个附件来源与原件定位，知识模型只接收安全文本。
+- `app/ingest/transaction.py` 在保存前持久化加密补偿日志；异常时删除新凭证、新原件、新 Raw，恢复 Wiki、索引和来源表。成功的历史数据不删除，已有原件按哈希复用。
+- 启动/后台 tick 优先处理遗留日志，补偿受阻则暂停后续维护，不自动重新执行失败任务。保持单进程运行。
+- 原件目录默认 `workspace/private_raw`，可用 `PRIVATE_RAW_DIR` 指定；不要放进 Raw/Wiki 目录，不提供读取接口。

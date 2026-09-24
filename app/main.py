@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     await worker.stop()
 
 
-app = FastAPI(title="AssetAgent", lifespan=lifespan)
+app = FastAPI(title="AssetAgent", version="1.0.0", lifespan=lifespan)
 app.include_router(router)
 
 

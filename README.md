@@ -1,174 +1,141 @@
-# AssetAgent · 资产 Agent
+# 知守 Memo · AssetAgent
 
-> **AssetAgent is a local-first personal asset knowledge agent.** It collects asset documents through chat, gates every sensitive finding behind a human confirmation step, stores credentials exclusively in Vaultwarden, compiles sanitized sources into a structured Markdown Wiki, and answers natural-language questions over it. Single-user, localhost-only, no vector database — and secret plaintext never reaches any LLM.
+个人使用、由 AI 维护的知识库。把资料交给维护对话，系统先检查敏感内容，再把处理后的资料整理成互相链接的 Markdown Wiki；需要时，在问答对话里查找答案和出处。
 
-个人资产智能体：把资料扔进输入框，系统自动 识别并隔离秘密 → 确认闸门逐项裁决 → 凭证存入 Vaultwarden / PII 仅脱敏 → 后台编译成结构化 Markdown Wiki → 之后用自然语言问答找回。
+[产品说明](docs/PRODUCT.md) · [1.0 发布说明](docs/releases/v1.0.0.md) · [本地开发](docs/development-first-slice.md)
+
+## 如何工作
 
 ```text
-粘贴/上传资料 ──▶ 本地扫描(正则→上下文→熵) ──▶ 确认闸门(逐项裁决)
-                      │                            │
-                      │                  凭证 ──▶ Vaultwarden（仅引用回写）
-                      │                  PII  ──▶ [REDACTED:rule]
-                      ▼                            ▼
-              自然语言问答 ◀── RAG ── Wiki ◀── 后台 Worker 编译（云端模型只见脱敏文本）
+维护：文字 / 一批文件 → 格式校验与文本提取 → 本地敏感检测
+                                          ↓
+                         确认模式：双栏审查，确认后创建任务
+                         自动模式：按默认决定直接处理
+                                          ↓
+                         后台计划 → 原件归档 / 保险柜保存 / 脱敏 Raw / Wiki
+                         任一步失败：撤销本轮保存，保留失败任务
+
+问答：问题安全检查 → 知识模型读 Wiki 目录 → 按需读页面 / BM25 搜索 → 带出处回答
 ```
 
-- 单用户、本机 Web + Docker；无多用户、无公网暴露、无密码原文读取；向量索引为本地可删除的文件级派生物
-- **安全不变量**：秘密原文不进入 LLM 请求/响应、Wiki、对话记录、日志
-- 模型在「设置」页按角色配置（DeepSeek / GLM / OpenAI / Claude / 通义 / Kimi / 任意 OpenAI 兼容端点），换模型不改代码：
-  - **知识库（knowledge，必配）**：统一负责 Wiki 编译与知识问答；未配置/未激活时禁止提交编译任务、禁止发起问答（fail-closed，UI 明确提示）；每角色至多激活一个
-  - **安全增强（security，可选）**：接入本地检测管线之后，只能新增或加严识别结果，失败自动回退本地检测；默认仅允许 localhost/内网端点，发送内容先做等长掩码脱敏
-- 对话历史按会话分组（DeepSeek 式：日期分组 / 置顶 / 重命名 / 删除），会话视图消息流滚动、输入框钉底
+- **问答与维护分开**：新会话选择一次模式，中途不切换；问答不上传文件、不修改 Wiki、不创建任务。
+- **确认一次，后台执行**：确认模式先审查本机原文与发送预览，可以保护/取消保护、修改引用名称。点击“确认并开始维护”后立即进入任务页，计划生成也是任务阶段。
+- **Wiki 是知识成果**：AI 维护页面、关联、来源、目录和变更日志，应用内只读；修改知识需使用维护对话。
+- **不需要检索模型**：主流程不使用向量数据库、Embedding 或重排模型；BM25 是内置文本搜索工具，没有单独设置入口。
+- **模型统一配置**：知识模型必配；本机或内网部署的安全模型可选。安全策略只管理检测规则与处理方式。
+
+应用面向本机单用户，后端必须保持单进程。若配置云端知识模型，安全处理后的资料、问题和相关 Wiki 内容会发送到该模型服务；“本地优先”不等于完全离线。敏感识别可能漏检，确认模式也需要用户核对。
+
+> **原件与任务**：上传原件按原始字节归档到 Private Raw；多个附件共用一次审查和一个任务。失败时通过持久化补偿恢复本轮保存；保险柜清理受阻时暂停后续维护，连接恢复后继续清理。图片与 OCR 暂不支持。
 
 ## 快速开始
 
+需要 Git、Docker 和 Docker Compose。下面的配置会在本机源码构建镜像，首次构建需要联网和较大的依赖下载；本版本没有发布预构建镜像或桌面安装包。
+
 ```bash
-./scripts/setup.sh                 # 生成本地密钥（含待确认队列密钥）、自签 TLS 证书与 .env
-docker compose up -d --build       # 启动 frontend（Nginx，127.0.0.1:8000）+ backend + vaultwarden
+git clone https://github.com/andyWang1688/asset-agent.git
+cd asset-agent
+git checkout v1.0.0
+./scripts/setup.sh
+docker compose up -d --build
 ```
 
-1. 创建 Vaultwarden 账号（二选一）：
-   - 打开 http://127.0.0.1:8081 网页注册（推荐，密钥派生由官方客户端完成）
-   - 自动化：`python scripts/register_vaultwarden_account.py <邮箱> <主密码> https://127.0.0.1:8081`
-2. 把账号写进凭证文件（两种方式二选一）：
+1. 打开 **https://127.0.0.1:8081** 注册 Vaultwarden 账号。使用本项目生成的自签证书，需核对并信任本机证书。账号和主密码由你设置，不是 AI 自动生成的默认账号。
+2. 把 Vaultwarden 邮箱与主密码写入本机凭证文件，再重启后端。以下交互方式避免把主密码写进 shell 历史：
    ```bash
-   # 主密码方式
-   printf 'your@email.com' > secrets/bw_email
-   printf '你的主密码' > secrets/bw_password
-   # 或 API Key 方式（在 Vaultwarden 网页端“账户设置→安全→密钥”创建）
-   printf 'user.xxx' > secrets/bw_clientid
-   printf 'xxx' > secrets/bw_clientsecret
+   bash -c 'umask 077; read -r -p "Vaultwarden 邮箱: " email; read -r -s -p "主密码: " password; printf "\n"; printf "%s" "$email" > secrets/bw_email; printf "%s" "$password" > secrets/bw_password; unset password'
    docker compose restart backend
    ```
-3. 打开 http://127.0.0.1:8000 →「设置」页添加模型（预设自动填充 API 地址与模型名，填 Key 即可；「知识库」角色必配并激活，「安全增强」角色可选）
-4. 「对话」页选择维护模式，粘贴资料或上传 Markdown / TXT / PDF / Excel（`.xlsx`、`.xls`）/ CSV / Word（`.docx`）；提取文本后统一走安全检测与确认流程，问答模式不支持上传。
-5. 识别到敏感信息时进入确认闸门逐项裁决（存入 Vaultwarden 并脱敏 / 仅脱敏 / 误报放行），确认后任务进入队列
-6. 「任务」页看到 `done` 后，「知识库」页浏览资产页，「对话」页（询问知识模式）提问
+3. 打开 **http://127.0.0.1:8000**，在“设置 → 模型配置”添加并激活知识模型；安全模型不是必需项。
+4. 在“安全策略”选择处理方式。希望发送前检查内容时，选择**确认模式**；当前默认模式为自动处理。
+5. 新建维护对话，输入文字或上传一批文件。确认模式下，审查左右内容后点击“确认并开始维护”；自动模式直接按默认决定处理。
+6. 在任务页查看进度和结果。成功后可浏览 Wiki，或新建问答对话提问；失败则按原因在维护对话中重新提交。
 
-> 说明：Vaultwarden 在 Compose 内以自签证书提供 HTTPS（`certs/` 由 setup.sh 生成，bw CLI 强制 HTTPS），
-> CA 经 `secrets/ca.crt` 注入 backend 容器信任；Vaultwarden 对外仍只绑定 127.0.0.1。
-> 浏览器只访问 `http://127.0.0.1:8000`（frontend/Nginx），`/api/*` 由 Nginx 同源反向代理到 backend 容器（backend 不映射宿主机端口）。
+Vaultwarden 中的密码、证件等原值由你通过 Vaultwarden 客户端查看。应用中的私密引用只展示定位元数据，不是读取密码的入口。
 
-### 文件导入范围
+## 文件要求
 
-- Excel：读取全部工作表（含隐藏表），保留表名、单元格坐标与列名；首个非空行作为表头。`.xlsx` 保留公式文本但不执行，`.xls` 读取已保存的计算结果。
-- CSV：支持 UTF-8、带 BOM 的 UTF-8、GB18030，以及逗号、分号、制表符分隔。
-- Word：读取正文段落、表格（含嵌套表格）与页眉页脚；旧版 `.doc` 请先另存为 `.docx`。
-- PDF：读取文字并标注页码；图片、扫描件、Office 内嵌图片均不做 OCR，不读取附件或执行宏；加密或损坏的文件会被拒绝。
-- 导入是提取文本再整理，不是完整还原版式；不提取 Word 批注、修订记录、脚注或文本框等附属内容。空文件或超出解析限制的文件会提示错误，不创建维护任务。
+文件先校验，合规后才提取文本并进入敏感检查；不是完整还原 Office/PDF 版式。
 
-## 目录结构
+| 格式 | 支持范围与要求 |
+| --- | --- |
+| Markdown / TXT | UTF-8 文本；手动输入同样走安全流程，显示为短摘要命名的 `.txt` 资料卡片 |
+| Excel `.xlsx` / `.xls` | 全部工作表，含隐藏表；单行、非空、不重复表头，不接受合并单元格；`.xlsx` 不接受图片/图表；不执行公式，`.xlsx` 读公式文本，`.xls` 读已保存结果 |
+| CSV | UTF-8、UTF-8 BOM、GB18030；逗号/分号/制表符分隔；表头与各行列数需一致 |
+| Word `.docx` | 正文、表格、页眉页脚；拒绝图片、文本框、嵌入对象、未接受的修订；不提取批注/脚注等附属内容；`.doc` 需另存为 `.docx` |
+| PDF | 仅纯文本 PDF；拒绝加密文档、扫描页、图片页和无文本页面；保留页码 |
+
+每批最多 20 个文件，总大小默认上限 10 MB；表格最多 200,000 个单元格，提取文本最多 2,000,000 字符。图片与 OCR 暂不支持；同一批不接受重复选择同一文件。
+
+## 资料与安全边界
+
+- 正则、关键词上下文、熵值由程序检测；安全模型可选，只能补充或加严检测，失败时回退程序结果。
+- 确认模式每轮都显示双栏审查，即使没有检测到敏感值；自动模式不显示预览，按默认决定执行。
+- 保存到 Vaultwarden 的值在 Raw/Wiki 中用 `[🔒 名称](private:引用ID)` 代替；仅脱敏项保留替换标记。取消保护属于明确放行，需要核对其影响。
+- 报告名称、说明和模型输出继续接受安全校验；已登记引用不含原值。程序检测不代表能保证零遗漏。
+- 确认前，提取文本与上传原件一起加密暂存；拒绝或过期时销毁本次暂存。确认后才归档原件，手动文字不额外生成原件。
+- Wiki 模型没有原件/保险柜原值读取工具，不执行资料中的命令；对话删除不删除已形成的知识。
+- 任务没有重试、取消或删除按钮。失败补偿只删除本轮新建的保险柜条目与文件，并恢复旧 Wiki 和来源记录；复用的历史条目与原件不删除。补偿记录保留到清理成功，应用重启会先恢复未完成事务。
+
+## 数据目录与备份
+
+Docker Compose 默认位置：
 
 ```text
-frontend/               # React 19 + TypeScript + Vite 6 + Tailwind 4 + Radix（独立构建/独立容器）
-├── src/                #   features/chat|wiki|tasks|settings、components/ui、hooks、lib(api/markdown/types)
-├── nginx.conf          #   SPA 托管 + /api 反向代理到 backend
-└── Dockerfile          #   多阶段构建（node → nginx）
-app/                    # FastAPI 纯 API 后端（ingest / 确认闸门 / worker / wiki / 安全管线）
 workspace/
-├── raw/inbox/          # 脱敏后的来源副本（秘密已是 [SECRET_REF:xxx]，PII 是 [REDACTED:rule]）
-├── wiki/               # AI 维护的知识页（事实源，可人工编辑、Git 版本化）
-│   ├── index.md / log.md
-│   └── concepts|entities|projects|sources|analyses/
-├── schema/AGENTS.md    # Wiki 维护规则（也作为编译系统提示词）
-└── .asset-assistant/   # SQLite + wiki-index.json + wiki-vector-index.json（均为可重建派生索引）+ config/policy.yaml
-assetagent-architecture.html  # 架构总图（本地安全知识编译架构）
+├── private_raw/     # 未脱敏的上传原件，知识模型不读取
+├── raw/inbox/       # 安全处理后的提取文本，不是上传文件的原始二进制
+├── wiki/            # Markdown 知识页、index.md、log.md
+└── schema/AGENTS.md # Wiki 编写规则
+
+data/               # SQLite、策略、索引及加密事务补偿日志
+secrets/            # 本地加密密钥、保险柜登录配置、受信任 CA
+certs/              # 本地 TLS 证书与私钥
+Docker 卷 vw-data   # Vaultwarden 数据（实际卷名通常带 Compose 项目前缀）
 ```
 
-## 安全设计
+非 Docker 运行时，`DATA_DIR` 默认是 `workspace/.asset-assistant`，以运行配置为准。通用设置显示实际运行路径。Docker 中的 `/app/workspace/private_raw` 对应仓库的 `workspace/private_raw`；应用没有原件浏览/下载接口。
 
-| 环节 | 措施 |
-|---|---|
-| 输入扫描 | 内存先扫描、后持久化：正则（可在 `app/security/rules.py` 追加规则）+ 上下文关键词 + Shannon 熵，统一 Finding（credential / pii / unknown_suspect），按 span/类别合并去重，后层只新增或加严 |
-| security 增强检测 | 可选模型接入本地检测（Regex → Context → Entropy）之后：只能新增或加严 Finding（合并只取最高类别/置信度），失败/超时/非法输出一律回退本地检测结果；仅允许 localhost/内网本地端点（禁止公网调用、无放开开关；域名不按后缀直通，一律解析并要求全部结果为本地地址），发送内容先经等长掩码脱敏，绝不把未脱敏输入发给公网模型 |
-| knowledge 必配闸门 | 知识库模型未配置/未激活时：`/api/ingest` 拒绝提交（不落盘、不建任务）、确认接口在创建任务前拒绝（待确认记录保留，配置后重试）、`/api/query` 拒绝提问、Worker 不消费任务（保持 pending），UI 在输入/问答/设置页明确提示 |
-| 模型角色约束 | 每角色至多一个激活由 `model_configs(role) WHERE is_active=1` 部分唯一索引 + 单事务原子切换共同保证（切换瞬间不存在双激活窗口） |
-| 确认闸门 | 发现 Finding 即进入一次性确认页：按类别汇总、规则/置信度/建议动作、掩码上下文、完整脱敏预览；逐项裁决（存 Vaultwarden 并脱敏 / 仅脱敏 / 误报放行）；有未处置 Finding 时拒绝确认，绝不调用云端模型 |
-| 安全策略 | `data/config/policy.yaml`（设置页读写，Wiki LLM 只读注入）：闸门模式、禁用内置规则、自定义正则（长度/输入长度/执行时间受限，validator 仅内置白名单）、熵参数、类别默认动作；策略与审计不得含秘密 |
-| 秘密隔离 | credential 仅写入 Vaultwarden（幂等：同名同来源条目复用）；PII/疑似项仅脱敏为 `[REDACTED:rule]`；Wiki/对话只保留 `[SECRET_REF:name]` 与元数据；业务层无读取秘密原文的接口 |
-| Vaultwarden 故障 | 任务挂起（credential_pending），秘密原文仅以 AES-GCM 密文进入 `pending_secrets` 队列（TTL 7 天，密钥来自 `secrets/local.key`），后台自动重试，成功前不调用云端模型 |
-| 待确认队列 | 等待确认期间原文以 AES-256-GCM 加密暂存（密钥 `PENDING_QUEUE_KEY_FILE`，未配置回退 local.key），TTL 7 天自动销毁；取消/过期清除密文；成功后仅保留脱敏 Raw、原文哈希与 secret_ref |
-| 编译前复扫 | Worker 编译前对 Raw 复扫（放行区间除外），残留 Finding 阻断云端调用；未经确认的来源一律不编译 |
-| 模型响应 | 返回浏览器前再次扫描，命中片段删除并记安全事件；问题中的凭证信息直接拦截；原文不入日志 |
-| 文档注入 | 资料一律视为数据：不改变系统规则、不执行命令、不触发外部操作 |
-| 模型 API Key | 页面配置后 AES-GCM 加密落 SQLite，接口不回显 |
-| 部署 | frontend 只绑定 127.0.0.1:8000；backend 不映射宿主机端口（仅 Docker 内网）；vaultwarden 只绑定 127.0.0.1:8081；Nginx 同源代理并透传 Origin/Referer，写接口拒绝跨源请求（CSRF 防护）；凭证与密钥经宿主机受限文件挂载（`secrets/` 目录，勿提交 Git） |
-| 运行模型 | **单进程/单副本**（uvicorn 无 `--workers`）：确认闸门与落盘互斥为进程内锁；两阶段落库（`confirmed=0` 占位经 `sources.sha256 UNIQUE` 抢占，先于凭证写入），重复确认幂等返回、崩溃遗留占位 10 分钟后自动复用；跨进程并发时 Vaultwarden 写入仍无分布式锁，禁止多 worker/多副本部署 |
+备份需包含 `workspace/`、`data/`、`secrets/`、`certs/` 以及 Vaultwarden 的加密备份。建议先停应用写入再复制数据目录；运行中的 SQLite 使用一致性备份方法，不要只复制主数据库而遗漏 WAL。备份应加密，密钥遗失会导致加密配置/队列不可恢复。
 
-## 备份
+**不要删除 SQLite 后仅靠 Markdown“恢复全部数据”**：Markdown 可以重建知识索引，但恢复不了会话、任务、模型配置和私密引用登记。任何清理脚本都应先阅读其范围，尤其保险柜清理可能影响应用创建的真实条目，不属于升级步骤。
 
-`workspace/`（Wiki + Raw 索引 + SQLite）为普通文件，直接复制即可；SQLite 损坏时删除 `data/app.db*` 后重启，可从 Markdown 重建索引（设置页「重建索引」或 `POST /api/wiki/rebuild`）。
-Vaultwarden 数据在卷 `vw-data` 中：备份时用其自带的导出（加密导出），不要直接复制卷文件；备份盘应加密。
+## 部署与开发
 
-> ⚠️ 运行中的 SQLite 禁止跨进程直连：`data/app.db` 处于 WAL 模式，若用宿主机 `sqlite3`/Python 直接打开运行中的库（或不同 SQLite 版本交叉访问），可能损坏 WAL。巡检/备份请先停容器，或改走只读 API（`/api/health`、`/api/tasks`、`/api/security/events` 等）。
-
-> ⚠️ 密钥文件格式：`local.key` / `queue.key` 只接受两种格式——原始 32 字节，或 64 字符 hex（可带末尾换行）。原始 32 字节不做任何 trim（首尾为空白字节的随机密钥同样有效），请勿用会加 BOM/换行的工具生成原始格式。
-
-## 清理演示数据
-
-联调/验收产生的测试产物（mock Wiki 页、Raw 副本、待确认提交、Vaultwarden 测试条目）可用脚本清理：
+- Web 入口仅绑定 `127.0.0.1:8000`，Vaultwarden 仅绑定 `127.0.0.1:8081`；后端只在 Docker 内网暴露。
+- 不要改为公网监听，不要增加后端 worker 或副本；应用不是多用户服务。
+- 用户数据、密钥、证书不随 Git 或 Release 分发。
+- 依赖中仍保留旧检索相关包，当前 Wiki 主流程不加载这些模型；暂不等于安装体积已完全轻量化。
 
 ```bash
-scripts/cleanup_demo_data.sh                     # 预览将执行的操作
-scripts/cleanup_demo_data.sh --yes               # 执行（文件 + 待确认提交 + 索引重建）
-scripts/cleanup_demo_data.sh --yes --vaultwarden # 同时删除 Vaultwarden 中本应用创建的条目（需主密码方式登录）
-```
-
-`--vaultwarden` 通过容器内官方 bw CLI 操作，仅匹配 note 以「由资产 Agent 自动保存」（兼容旧版「由资产助手自动保存」）开头的条目；API Key 登录方式请手工清理（http://127.0.0.1:8081），或重置 `vw-data` 卷（先做加密导出备份）。
-
-## 本地开发
-
-```bash
-# 后端（使用项目 .venv，勿用全局 Python）
-uv venv --python 3.12 .venv && source .venv/bin/activate
+# 后端（Python 3.12，项目虚拟环境）
 uv sync --frozen
-python -m pytest                 # 单测/集成（Fake LLM / Fake bw）
-ALLOWED_ORIGINS=http://127.0.0.1:8000,http://127.0.0.1:5173 uvicorn app.main:app --reload   # http://127.0.0.1:8000
+.venv/bin/python -m pytest -q
+ALLOWED_ORIGINS=http://127.0.0.1:8000,http://127.0.0.1:5173 \
+  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
-# 前端（Vite dev server 将 /api 代理到本机 FastAPI）
+# 前端（另开终端，Node 22 + pnpm 11.7.0）
 cd frontend
-pnpm install
-pnpm dev                         # http://127.0.0.1:5173
+pnpm install --frozen-lockfile
+pnpm dev
+# 检查：pnpm test && pnpm typecheck && pnpm lint && pnpm build
 ```
 
-> 说明：本地前端开发时浏览器 Origin 为 `http://127.0.0.1:5173`，需通过 `ALLOWED_ORIGINS` 加入白名单；
-> 生产部署（Docker）无需该配置——浏览器始终同源访问 `http://127.0.0.1:8000`（Nginx 代理）。
+本地开发入口是 `http://127.0.0.1:5173`。不要同时启动占用 8000 端口的 Docker 前端和本地后端。
 
-## 前端工程命令
+### 主要配置
 
-```bash
-cd frontend
-pnpm install                    # 安装依赖
-pnpm dev                        # 本地开发（/api 代理到 127.0.0.1:8000）
-pnpm lint                       # ESLint
-pnpm typecheck                  # tsc --noEmit
-pnpm test                       # Vitest（Markdown URL 白名单 / API 错误解析）
-pnpm build                      # 生产构建（dist/）
-pnpm gen:api                    # 由 FastAPI OpenAPI 重新生成 src/lib/apiTypes.ts
-```
+| 变量 | 用途 |
+| --- | --- |
+| `WORKSPACE_DIR` / `DATA_DIR` | Wiki/Raw 与运行数据目录 |
+| `PRIVATE_RAW_DIR` | 原件目录，默认 workspace/private_raw；须与 Raw/Wiki 分开 |
+| `LOCAL_KEY_FILE` / `PENDING_QUEUE_KEY_FILE` | 本地配置/待确认文本加密密钥；支持原始 32 字节、64 字符 hex 或解码为 32 字节的 base64 |
+| `POLICY_FILE` | 安全策略文件 |
+| `VAULTWARDEN_URL` | 保险柜服务地址，Compose 使用内网 HTTPS |
+| `BW_EMAIL` / `BW_PASSWORD` | 保险柜邮箱和主密码，可用对应 `_FILE` 注入 |
+| `MAX_UPLOAD_MB` | 每批文件总大小上限，默认 10 MB |
+| `HTTP_TIMEOUT` | 模型请求超时秒数，默认 180 |
+| `CHAT_MEMORY_ROUNDS` | 问答历史轮数，默认 6 |
+| `ALLOWED_ORIGINS` | 浏览器访问白名单，开发模式需加入 5173 |
 
-## 环境变量
-
-| 变量 | 说明 |
-|---|---|
-| `WORKSPACE_DIR` / `DATA_DIR` | 工作区 / 数据目录 |
-| `LOCAL_KEY_FILE` | 本地密钥文件（32 字节 hex） |
-| `PENDING_QUEUE_KEY_FILE` | 待确认队列 AES-256-GCM 密钥文件（缺省回退 `LOCAL_KEY_FILE`；支持 `_FILE` 间接层） |
-| `POLICY_FILE` | 安全策略文件路径（默认 `<DATA_DIR>/config/policy.yaml`） |
-| `PENDING_SUBMISSION_LIMIT` | 待确认提交上限（默认 20） |
-| `VAULTWARDEN_URL` | Vaultwarden 地址 |
-| `BW_EMAIL` / `BW_PASSWORD` | Vaultwarden 主密码登录（或 `BW_CLIENTID` / `BW_CLIENTSECRET` API Key 登录） |
-| `HTTP_TIMEOUT` `MAX_UPLOAD_MB` `QUEUE_TTL_SECONDS` `QUEUE_RETRY_SECONDS` | 模型超时 / 上传上限 / 队列 TTL / 重试周期 |
-| `RERANKER` | 混合引擎的重排器：`local`（默认本地 cross-encoder 精排）或 `off`（停用，退回纯召回） |
-| `RERANKER_MODEL` | 重排 cross-encoder 模型（默认 `BAAI/bge-reranker-base`） |
-| `CHAT_MEMORY_ROUNDS` | 每次提问从 chat_log 水合的最近问答轮数（默认 6；`0` 关闭记忆） |
-| `EMBEDDING_PROVIDER` | `local`（默认）或显式 `cloud`；云端 embedding 不会因填写 URL/Key 自动启用 |
-| `EMBEDDING_LOCAL_BACKEND` | `sentence-transformers`（默认，本地 BGE）/ `ollama`（本地 Ollama） |
-| `EMBEDDING_MODEL` / `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | embedding 模型、端点与密钥（仅显式 cloud 时使用远程端点） |
-| `EMBEDDING_LOCAL_ONLY` | 默认 `1`：只用本地缓存的模型（建索引内容不出本机、不自动下载）；设 `0` 允许首次自动下载 |
-
-以上均支持 `_FILE` 后缀（如 `BW_PASSWORD_FILE=/run/secrets/bw_password`，Docker Secret 方式）。
-
-## API 摘要
-
-`POST /api/ingest`（文本/文件，可能返回待确认提交）· `GET/POST /api/pending/submissions[/{id}]` + `/{id}/confirm` + `/{id}/cancel`（确认闸门）· `POST /api/query`（支持 `session_id` 归组会话）· `GET /api/chat/history`（按会话返回 title/pinned）· `POST /api/chat/session/title|pin|adopt` · `DELETE /api/chat/session` · `GET /api/wiki/*` · `GET /api/tasks` + `POST /api/tasks/{id}/retry` · `GET /api/secrets`（仅元数据）· `GET/POST /api/settings/models`（按角色：knowledge 必配 / security 可选增强）· `GET/POST /api/settings/policy`（安全策略）· `GET /api/security/events`
+不需要配置 Embedding、重排或向量库。
