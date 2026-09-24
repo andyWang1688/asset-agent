@@ -45,6 +45,7 @@ export function useMaintenance(sessionId: string | null) {
 
   // 有非终态任务时轮询（真实拉取，不模拟进度）；无活动任务或卸载即清理
   const hasActive = tasks.some((t) => t.status !== 'done' && t.status !== 'failed')
+    || reports.some((r) => r.status === 'pending' && (r.plan_status === 'queued' || r.plan_status === 'generating'))
   useEffect(() => {
     if (!sessionId || !hasActive) return
     const timer = setInterval(() => { void load() }, 2500)

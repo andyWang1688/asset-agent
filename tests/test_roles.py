@@ -316,8 +316,13 @@ def test_api_confirm_blocked_without_knowledge_model(tmp_path, monkeypatch):
         assert db.get_submission(sid)["status"] == "waiting"  # 待确认记录保留
         assert db.list_tasks() == []
         # 恢复知识库模型后重试成功
-        holder["p"] = FakeProvider("OK")
-        conf2 = client.post(f"/api/pending/submissions/{sid}/confirm",
-                            json={"decisions": {fid: "store"}, "session_id": sid0})
-        assert conf2.status_code == 200 and "task_id" in conf2.json()
+        holder["p"] = FakeProvider(json.dumps({"action": "final", "plan": {
+            "source_summary": {"path": "sources/check.md", "title": "来源", "content": "# 来源"},
+            "pages": [], "conflicts": [],
+        }}))
+        body = {"decisions": {fid: "store"}, "session_id": sid0}
+        plan = client.post(f"/api/pending/submissions/{sid}/confirm", json=body)
+        assert plan.status_code == 202, plan.text
+        client.portal.call(main.app.state.ctx.worker.tick)
+        assert db.get_task(plan.json()['task_id'])['status'] == 'done'
         assert db.list_tasks() != []

@@ -46,6 +46,18 @@ class DuplicateSourceError(Exception):
         super().__init__(f"内容已存在（来源 #{source_id}）")
 
 
+def retry_source_id(sha: str) -> int | None:
+    """失败轮重投：内容已入库但该来源最新维护任务失败 → 返回可复用的来源 id。
+    每轮维护仍生成独立报告与任务；其余情形（处理中/已完成/无任务）继续按重复内容幂等返回。"""
+    row = db.get_source_by_sha256(sha)
+    if not row or not row["confirmed"]:
+        return None
+    latest = db.latest_task_for_source(row["id"])
+    if latest is not None and latest["status"] == "failed":
+        return row["id"]
+    return None
+
+
 def _safe_filename(name: str) -> str:
     return re.sub(r"[^\w.\-]+", "_", name or "pasted.txt")[:80] or "pasted.txt"
 
@@ -126,13 +138,17 @@ async def _store_credentials(
     幂等：按 (值哈希 + 条目类型 + 条目名称 + 字段名) 全量匹配目标身份，
     绝不用「同名条目」吞掉不同秘密，也不复用与报告目标不一致的既有条目。"""
     known: dict[tuple, dict] = {}
+    for r in db.all_source_refs():
+        if r.get("saved") and r.get("item_id"):
+            key = (r.get("value_hash"), r.get("vault_kind"), r.get("vault_name"), r.get("field_name"))
+            known.setdefault(key, {"item_id": r["item_id"]})
     try:
         for m in await creds.list_items():
             if m.value_hash:
                 key = (m.value_hash, m.kind, m.name, m.field_name)
                 known.setdefault(key, {"item_id": m.item_id})
     except CredentialError:
-        known = {}  # 元数据不可用不阻断：写入时按失败入队
+        pass  # 保险柜查询失败时仍保留本机已确认的精确条目映射。
 
     refs_out: list[dict] = []
     pending_pairs: list[tuple[int, str]] = []
@@ -231,6 +247,8 @@ async def finalize(
     instruction: str | None = None,
     instruction_findings: list | None = None,
     sources: dict | None = None,
+    reuse_source: bool = False,
+    task_id: int | None = None,
 ) -> dict:
     """裁决 → 复扫 → 凭证 → 落盘 → 任务。重复内容幂等（由调用方先查重）。
     edited_text：用户在确认页修改过的脱敏预览——必须重新扫描，
@@ -243,6 +261,7 @@ async def finalize(
             edited_text=edited_text, security_provider=security_provider,
             session_id=session_id, edits=edits, instruction=instruction,
             instruction_findings=instruction_findings, sources=sources,
+            reuse_source=reuse_source, task_id=task_id,
         )
 
 
@@ -258,14 +277,18 @@ def _parse_db_time(s: str) -> float:
         return time.time()
 
 
-def _claim_source(sha: str, kind: str, original_name: str) -> tuple[int, bool]:
+def _claim_source(sha: str, kind: str, original_name: str, reuse_source: bool = False) -> tuple[int, bool]:
     """两阶段落库第一步：以 confirmed=0 占位抢占 sha（UNIQUE 跨进程互斥）。
-    抢到（或复用崩溃遗留占位）后才允许写凭证；返回 (source_id, 是否新建)。"""
+    抢到（或复用崩溃遗留占位）后才允许写凭证；返回 (source_id, 是否新建)。
+    失败轮重投复用已确认来源：不新建、不占位，但同样另起报告与任务。"""
     try:
         return db.insert_source(sha, kind, original_name, "", "[]", confirmed=0), True
     except sqlite3.IntegrityError:
         row = db.get_source_by_sha256(sha)
         if row and row["confirmed"]:
+            reuse = retry_source_id(sha)
+            if reuse_source or reuse is not None:
+                return row["id"], False
             raise DuplicateSourceError(row["id"]) from None
         if row and time.time() - _parse_db_time(row["created_at"]) > _RECLAIM_SECONDS:
             return row["id"], False  # 复用崩溃遗留占位（幂等重试）
@@ -301,6 +324,8 @@ async def _finalize_locked(
     instruction: str | None = None,
     instruction_findings: list | None = None,
     sources: dict | None = None,
+    reuse_source: bool = False,
+    task_id: int | None = None,
 ) -> dict:
     instruction_findings = instruction_findings or []
     combined = list(findings) + list(instruction_findings)
@@ -312,7 +337,8 @@ async def _finalize_locked(
     all_entries = file_entries + instr_entries
 
     # 两阶段落库：占位（confirmed=0，sha UNIQUE 互斥）先于凭证写入
-    source_id, claimed = _claim_source(sha, kind, original_name)
+    source_id, claimed = _claim_source(sha, kind, original_name, reuse_source)
+    reused = bool(db.get_source(source_id)["confirmed"])
     try:
         if edited_text is not None:
             # 用户修改了脱敏预览：以修改后文本为准，且必须重新扫描（即使原提交无 Finding）
@@ -333,11 +359,11 @@ async def _finalize_locked(
         # 整理要求（附件附带文字）单独脱敏：不混入文件 Raw，但按同一决定链保存。
         instruction_redacted = ""
         if instruction is not None:
-            instruction_redacted, _ = entries_mod.apply_entries(instruction, instr_entries)
+            instruction_redacted, instruction_allowed = entries_mod.apply_entries(instruction, instr_entries)
             if instr_entries:
                 if engine is None:
                     engine = ScanEngine(policy or {}, security_provider=security_provider)
-                await rescan_guard(engine, instruction_redacted, [], entries=all_entries)
+                await rescan_guard(engine, instruction_redacted, instruction_allowed, entries=all_entries)
 
         refs_out, pending_pairs = await _store_credentials(
             settings, creds, all_entries, sha, kind, original_name, source_id=source_id
@@ -350,30 +376,32 @@ async def _finalize_locked(
             f"<!-- kind: {kind}, sha256: {sha}, ingested_at: {time.strftime('%Y-%m-%d %H:%M:%S')} -->\n\n"
             f"{sanitized}"
         )
-        raw_path.write_text(raw_content, encoding="utf-8")
+        if not reused:
+            raw_path.write_text(raw_content, encoding="utf-8")
 
         # 放行区间以最终落盘内容为基准（含文件头偏移）
-        allowed_spans: list[tuple[int, int]] = []
-        cursor = 0
-        for e in sorted([x for x in file_entries if x.action == ACTION_ALLOW], key=lambda x: x.finding.span[0]):
-            i = raw_content.find(e.value, cursor)
-            if i >= 0:
-                allowed_spans.append((i, i + len(e.value)))
-                cursor = i + len(e.value)
+        offset = len(raw_content) - len(sanitized)
+        allowed_spans = [(a + offset, b + offset) for a, b in allowed_san]
 
         # 两阶段落库第二步：写入路径/引用/放行区间并标记已通过闸门
-        db.update_source_processed(
-            source_id,
-            str(raw_path),
-            json.dumps(refs_out, ensure_ascii=False),
-            json.dumps([list(s) for s in allowed_spans]),
-            instruction=instruction_redacted or "",
-        )
+        if not reused:
+            db.update_source_processed(
+                source_id, str(raw_path), json.dumps(refs_out, ensure_ascii=False),
+                json.dumps([list(s) for s in allowed_spans]), instruction=instruction_redacted or "",
+            )
     except Exception:
-        _rollback_claim(sha, source_id, claimed)
+        if not reused:
+            _rollback_claim(sha, source_id, claimed)
         raise
 
-    task_id = db.insert_task(source_id, session_id=session_id)
+    snapshot = json.dumps({
+        "text": raw_content, "instruction": instruction_redacted, "refs": refs_out,
+        "allowed_spans": [list(s) for s in allowed_spans],
+    }, ensure_ascii=False) if reused else "{}"
+    if task_id is None:
+        task_id = db.insert_task(source_id, session_id=session_id, input_snapshot=snapshot)
+    else:
+        db.bind_task_source(task_id, source_id, snapshot)
     db.update_task_status(task_id, "credential_pending" if pending_pairs else "pending")
 
     return {

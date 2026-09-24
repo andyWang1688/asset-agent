@@ -9,7 +9,7 @@ import { useChat } from '@/hooks/use-chat'
 import { useSubmissions } from '@/hooks/use-submissions'
 import { useMaintenance } from '@/hooks/use-maintenance'
 import { api, errMsg } from '@/lib/api'
-import type { IngestResult, ReportSnapshot, SubmissionView, TaskRow } from '@/lib/types'
+import type { IngestResult, MaintenanceReceipt, ReportSnapshot, SubmissionView, TaskRow } from '@/lib/types'
 import { fmtTime } from '@/lib/format'
 import { Composer, type ChatMode } from './composer'
 import { ConfirmSheet } from './confirm-sheet'
@@ -38,11 +38,12 @@ const TASK_STATE_LABEL: Record<'processing' | 'done' | 'failed', string> = {
 }
 
 /** 维护轮次：来源/脱敏预览/报告摘要/任务状态/失败原因；待确认可打开确认闸门 */
-function RoundCard({ report, task, onConfirm }: { report: ReportSnapshot; task?: TaskRow; onConfirm?: (id: number) => void }) {
+export function RoundCard({ report, task, onConfirm }: { report: ReportSnapshot; task?: TaskRow; onConfirm?: (id: number) => void }) {
   const [open, setOpen] = useState(false)
   const state = taskState(task?.status)
+  const { setTab } = useApp()
   const statusBadge =
-    report.status === 'pending' ? (
+    report.status === 'pending' && !task ? (
       <Badge className="border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-300">待确认</Badge>
     ) : report.status === 'rejected' ? (
       <Badge className="border-transparent bg-destructive/10 text-destructive">已拒绝</Badge>
@@ -54,7 +55,7 @@ function RoundCard({ report, task, onConfirm }: { report: ReportSnapshot; task?:
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <b className="text-sm font-semibold">{report.original_name || '手动输入'}</b>
+        <b className="max-w-full truncate text-sm font-semibold sm:max-w-80" title={report.original_name || '手动输入'}>{report.original_name || '手动输入'}</b>
         {statusBadge}
         {state && (
           <span className="inline-flex items-center gap-1.5">
@@ -73,11 +74,13 @@ function RoundCard({ report, task, onConfirm }: { report: ReportSnapshot; task?:
       {open && (
         <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed">{report.preview || '（无内容）'}</pre>
       )}
+      {!task && report.status === 'pending' && report.plan_error && <p role="alert" className="mt-2 text-xs text-destructive">{report.plan_error}</p>}
       {task?.error && <p className="mt-2 text-xs text-destructive">失败原因：{String(task.error).split('\n')[0]}</p>}
-      {report.status === 'pending' && report.submission_id != null && (
+      {task && <Button variant="outline" size="sm" className="mt-3" onClick={() => setTab('tasks')}>查看任务 #{task.id}</Button>}
+      {!task && report.status === 'pending' && report.submission_id != null && (
         <div className="mt-3">
           <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => onConfirm?.(report.submission_id!)}>
-            确认
+            继续审查
           </Button>
         </div>
       )}
@@ -156,7 +159,7 @@ function ChatEmpty({
 
 /** 对话页：新对话空状态（模式在输入框内）+ 问答消息流 / 维护轮次 + 确认闸门 */
 export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
-  const { health, navigateSettings, pendingSession, consumeOpenSession } = useApp()
+  const { health, navigateSettings, pendingSession, consumeOpenSession, setTab } = useApp()
   const { messages, asking, ask, sessionId, mode, draftMode, setDraftMode, openSessionById, hydrating } = chat
 
   const [value, setValue] = useState('')
@@ -246,12 +249,13 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
   }, [sending, asking, sendDisabled, mode, draftMode, ask, value, file, chat, submissions, maintenance])
 
   const onConfirmed = useCallback(
-    (r: IngestResult) => {
+    (r: MaintenanceReceipt) => {
       submissions.closeView()
+      setTab('tasks')
       void Promise.all([maintenance.load(), submissions.load()])
       void r
     },
-    [submissions, maintenance],
+    [submissions, maintenance, setTab],
   )
 
   const onCancelled = useCallback(() => {

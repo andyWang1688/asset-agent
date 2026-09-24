@@ -13,7 +13,7 @@ export interface ChatMessage {
   semantic?: boolean
   pending?: boolean
   error?: string
-  /** 流式思考轨迹：推理原文增量与工具动作按发生顺序排列 */
+  /** 安全处理轨迹：程序生成的阶段提示与工具动作按发生顺序排列 */
   trace?: TraceItem[]
   thinkingMs?: number
 }
@@ -47,6 +47,8 @@ export function useChat() {
   const [mode, setMode] = useState<SessionMode | null>(null)
   const [draftMode, setDraftMode] = useState<SessionMode>('ask')
   const [hydrating, setHydrating] = useState(() => readSessionId() != null)
+  /** 每完成一次回答自增：供历史列表重新拉取摘要（会话内的消息已由后端水合） */
+  const [historyVersion, setHistoryVersion] = useState(0)
   const gen = useRef(0)
 
   // 刷新/重新打开：只恢复 Session ID，再从后端取真实模式与历史；未知已删除会话回草稿。
@@ -57,11 +59,12 @@ export function useChat() {
       return
     }
     let cancelled = false
+    const myGen = gen.current
     void (async () => {
       try {
         const sessions = await api.listSessions()
         const s = sessions.find((x) => x.session_id === sid)
-        if (cancelled) return
+        if (cancelled || myGen !== gen.current) return
         if (!s) {
           writeSessionId(null)
           setSessionId(null)
@@ -75,7 +78,7 @@ export function useChat() {
         setSessionTitle(s.title ?? null)
         if (s.mode === 'ask') {
           const rows = await api.chatHistory()
-          if (cancelled) return
+          if (cancelled || myGen !== gen.current) return
           const mine = rows.filter((r) => r.session_id === sid).sort((a, b) => a.id - b.id)
           setMessages(mine.map((r) => ({ q: r.question, a: r.answer, cites: r.citations || [] })))
         } else {
@@ -83,9 +86,9 @@ export function useChat() {
         }
       } catch {
         /* 网络失败：保留草稿，不把空库当已删除 */
-        if (!cancelled) { setSessionId(null); setMode(null); setSessionTitle(null); setMessages([]) }
+        if (!cancelled && myGen === gen.current) { setSessionId(null); setMode(null); setSessionTitle(null); setMessages([]) }
       } finally {
-        if (!cancelled) setHydrating(false)
+        if (!cancelled && myGen === gen.current) setHydrating(false)
       }
     })()
     return () => {
@@ -97,6 +100,7 @@ export function useChat() {
    *  创建请求返回时校验代数，过期结果不覆盖已打开的新会话。 */
   const ensureSession = useCallback(
     async (m: SessionMode): Promise<{ sessionId: string; mode: SessionMode }> => {
+      if (hydrating) throw new Error('会话正在恢复，请稍候')
       if (sessionId && mode) {
         if (mode !== m) throw new Error('会话模式已锁定，不能切换')
         return { sessionId, mode }
@@ -110,7 +114,7 @@ export function useChat() {
       writeSessionId(created.session_id)
       return { sessionId: created.session_id, mode: created.mode }
     },
-    [sessionId, mode],
+    [sessionId, mode, hydrating],
   )
 
   const ask = useCallback(
@@ -182,6 +186,7 @@ export function useChat() {
           setMessages((prev) => prev.slice(0, -1))
           return '回答中断，请重试'
         }
+        setHistoryVersion((v) => v + 1)
         return null
       } catch (e) {
         if (myGen !== gen.current) return null
@@ -197,6 +202,7 @@ export function useChat() {
   /** 从对话历史打开一个已有会话（模式由历史面板传入，但以后端为准，这里仅作恢复） */
   const openSession = useCallback((sid: string, m: SessionMode, msgs: ChatMessage[], title?: string | null) => {
     gen.current += 1
+    setHydrating(false)
     setAsking(false)
     setSessionId(sid)
     setMode(m)
@@ -207,9 +213,12 @@ export function useChat() {
 
   /** 从任务详情等入口回到原会话：按 session_id 恢复，模式从后端取回。 */
   const openSessionById = useCallback(async (sid: string) => {
+    if (sid === sessionId && (asking || hydrating)) return
     gen.current += 1
     const myGen = gen.current
     setAsking(false)
+    setMode(null)
+    setHydrating(true)
     setSessionId(sid)
     setSessionTitle(null)
     setMessages([])
@@ -237,12 +246,15 @@ export function useChat() {
       }
     } catch {
       if (myGen === gen.current) setMode(null) // 恢复失败回草稿，不误清新会话
+    } finally {
+      if (myGen === gen.current) setHydrating(false)
     }
-  }, [])
+  }, [sessionId, asking, hydrating])
 
   /** 新对话：回到草稿选择阶段（只有明确点“新对话”才调用） */
   const newChat = useCallback(() => {
     gen.current += 1
+    setHydrating(false)
     setAsking(false)
     setSessionId(null)
     setSessionTitle(null)
@@ -261,6 +273,7 @@ export function useChat() {
     setDraftMode,
     sessionTitle,
     hydrating,
+    historyVersion,
     openSession,
     openSessionById,
     newChat,

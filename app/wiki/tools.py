@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 from .. import db
@@ -67,6 +68,7 @@ class WikiTools:
         self.max_read_chars = max_read_chars
         self.used_chars = 0
         self.read_pages: set[str] = set()
+        self._delivered: set[tuple[str, bytes]] = set()
         self._pages: list[dict] | None = None
         self._safe_paths: set[str] | None = None
         self._bm25: bm25.BM25 | None = None
@@ -99,27 +101,31 @@ class WikiTools:
             "pages": [{"path": p["path"], "title": self._scrub(p.get("title", "") or "")} for p in pages],
         }
 
+    def _deliver(self, path: str, content: str) -> dict:
+        clean = self._scrub(content)
+        key = (path, hashlib.sha256(clean.encode()).digest())
+        if key in self._delivered:
+            return {"path": path, "already_read": True, "note": "相同正文已在上文提供，请使用已读内容。"}
+        if self.used_chars + len(clean) > self.max_read_chars:
+            raise ToolBudgetExceeded("读取内容超过预算，已中止")
+        self.used_chars += len(clean)
+        self._delivered.add(key)
+        return {"path": path, "content": clean}
+
     def read_index(self) -> dict:
-        """读 index.md 导航入口（固定文件，不在 ALLOWED_DIRS 页面内）。
-        resolve 后限制在知识根目录内，拒绝符号链接逃逸。"""
+        """读导航入口；同一版本不重复注入上下文或消耗预算。"""
         root = self.settings.wiki_dir.resolve()
         p = (root / "index.md").resolve()
         if not p.is_relative_to(root):
             raise ToolError("index 越界")
         content = p.read_text(encoding="utf-8", errors="replace") if p.is_file() else ""
-        self.used_chars += len(content)
-        if self.used_chars > self.max_read_chars:
-            raise ToolBudgetExceeded("读取内容超过预算，已中止")
-        return {"path": "index.md", "content": self._scrub(content)}
+        return self._deliver("index.md", content)
 
     def read_page(self, path: str) -> dict:
         target = _safe_page(self.settings, path)
-        content = target.read_text(encoding="utf-8", errors="replace")
-        self.used_chars += len(content)
-        if self.used_chars > self.max_read_chars:
-            raise ToolBudgetExceeded("读取内容超过预算，已中止")
+        result = self._deliver(path, target.read_text(encoding="utf-8", errors="replace"))
         self.read_pages.add(path)
-        return {"path": path, "content": self._scrub(content)}
+        return result
 
     def search(self, query: str, limit: int = 5) -> dict:
         if self._bm25 is None:
@@ -127,12 +133,9 @@ class WikiTools:
         hits = self._bm25.search(query, limit=limit)
         out = []
         for h in hits:
-            content = h.get("content", "") or ""
-            self.used_chars += len(content)
-            if self.used_chars > self.max_read_chars:
-                raise ToolBudgetExceeded("读取内容超过预算，已中止")
+            result = self._deliver(h["path"], h.get("content", "") or "")
             self.read_pages.add(h["path"])
-            out.append({"path": h["path"], "title": self._scrub(h.get("title", "") or ""), "content": self._scrub(content)})
+            out.append({**result, "title": self._scrub(h.get("title", "") or "")})
         return {"results": out}
 
     def serialize(self) -> str:

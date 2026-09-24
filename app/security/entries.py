@@ -94,7 +94,7 @@ def build_entries(findings: list[Finding], decisions: dict, edits: dict | None =
         e = edits.get(f.id) or {}
         source = (sources or {}).get(f.id, "")
         name = _clean_editable(e.get("name"), names.get(f.value, f.rule), "可读名称", findings, policy)
-        description = _clean_editable(e.get("description"), f.evidence, "说明", findings, policy)
+        description = _clean_editable(e.get("description"), "", "说明", findings, policy)
         type_ = e.get("type") or f.kind
         if type_ not in KINDS:
             raise ValueError(f"类型必须是 {KINDS} 之一")
@@ -136,15 +136,34 @@ def _placeholder(e: Entry) -> str | None:
 _VALUE_SENTINEL = "\x00ref\x00"
 
 
-def apply_entries(text: str, entries: list[Entry]) -> tuple[str, list[tuple[int, int]]]:
+def apply_entries(text: str, entries: list[Entry], *, repeated_entries: list[Entry] | None = None,
+                  preview_spans: list[dict] | None = None) -> tuple[str, list[tuple[int, int]]]:
     """按条目脱敏：store → [🔒 name](private:ref_id)；redact → [REDACTED:rule]；allow → 保留。
     返回 (脱敏文本, 放行区间)。"""
-    for e in sorted(entries, key=lambda x: -x.finding.span[0]):
+    # 只对未裁决区间做同值兜底；显式放行只作用于原文中的这个位置。
+    repeated = entries if repeated_entries is None else repeated_entries
+    parts: list[str] = []
+    allowed: list[tuple[int, int]] = []
+    cursor = length = 0
+    for e in sorted(entries, key=lambda x: x.finding.span[0]):
+        start, end = e.finding.span
+        gap = mask_repeated_values(text[cursor:start], repeated)
+        parts.append(gap)
+        length += len(gap)
         ph = _placeholder(e)
+        value = text[start:end] if ph is None else ph
+        if preview_spans is not None:
+            preview_spans.append({"finding_id": e.finding.id, "start": length, "end": length + len(value)})
         if ph is None:
-            continue
-        text = text[: e.finding.span[0]] + ph + text[e.finding.span[1] :]
+            allowed.append((length, length + len(value)))
+        parts.append(value)
+        length += len(value)
+        cursor = end
+    parts.append(mask_repeated_values(text[cursor:], repeated))
+    return "".join(parts), allowed
 
+
+def mask_repeated_values(text: str, entries: list[Entry]) -> str:
     # 值兜底全量替换（同一值在其他位置重复出现）
     for e in sorted(
         [x for x in entries if x.value and redactor.should_mask_value(x.value)],
@@ -159,20 +178,7 @@ def apply_entries(text: str, entries: list[Entry]) -> tuple[str, list[tuple[int,
             if i % 2 == 0:
                 parts[i] = part.replace(e.value, sentinel)
         text = "".join(parts).replace(sentinel, ph)
-    return text, _locate_allowed(text, entries)
-
-
-def _locate_allowed(text: str, entries: list[Entry]) -> list[tuple[int, int]]:
-    allowed: list[tuple[int, int]] = []
-    cursor = 0
-    for e in sorted(
-        [x for x in entries if x.action == ACTION_ALLOW], key=lambda x: x.finding.span[0]
-    ):
-        i = text.find(e.value, cursor)
-        if i >= 0:
-            allowed.append((i, i + len(e.value)))
-            cursor = i + len(e.value)
-    return allowed
+    return text
 
 
 def entry_to_report(e: Entry) -> dict:

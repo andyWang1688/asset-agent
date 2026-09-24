@@ -26,7 +26,9 @@ MODEL_ROLES = (ROLE_KNOWLEDGE, ROLE_SECURITY)
 
 
 class LLMError(Exception):
-    pass
+    def __init__(self, message: str, *, code: str = ''):
+        super().__init__(message)
+        self.code = code
 
 
 PRESETS: dict[str, tuple[str, str, str]] = {
@@ -82,7 +84,10 @@ class OpenAICompatProvider:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 r = await client.post(url, json=payload, headers=headers)
                 r.raise_for_status()
-                msg = r.json()["choices"][0]["message"]
+                choice = r.json()["choices"][0]
+                if choice.get("finish_reason") == "length":
+                    raise LLMError("模型输出达到 max_tokens 上限", code="output_limit")
+                msg = choice["message"]
                 content = msg.get("content") or ""
         except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError) as e:
             raise LLMError(f"模型请求失败: {type(e).__name__}: {str(e)[:300]}") from e
@@ -91,7 +96,7 @@ class OpenAICompatProvider:
             if msg.get("reasoning_content"):
                 raise LLMError(
                     "模型未返回正文（仅输出推理内容）：推理模型可能把 max_tokens 全部花在思考上，"
-                    "请增大 max_tokens 或改用非推理模型"
+                    "请增大 max_tokens 或改用非推理模型", code="reasoning_only"
                 )
             raise LLMError("模型返回空内容")
         return content
@@ -134,7 +139,10 @@ class OpenAICompatProvider:
                         if not data or data == "[DONE]":
                             continue
                         try:
-                            delta = json.loads(data)["choices"][0]["delta"]
+                            choice = json.loads(data)["choices"][0]
+                            if choice.get("finish_reason") == "length":
+                                raise LLMError("模型输出达到 max_tokens 上限", code="output_limit")
+                            delta = choice["delta"]
                         except (json.JSONDecodeError, KeyError, IndexError, TypeError):
                             continue
                         piece = delta.get("reasoning_content")
@@ -152,7 +160,7 @@ class OpenAICompatProvider:
             if reasoning_seen:
                 raise LLMError(
                     "模型未返回正文（仅输出推理内容）：推理模型可能把 max_tokens 全部花在思考上，"
-                    "请增大 max_tokens 或改用非推理模型"
+                    "请增大 max_tokens 或改用非推理模型", code="reasoning_only"
                 )
             raise LLMError("模型返回空内容")
         return content
@@ -183,7 +191,10 @@ class AnthropicProvider:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 r = await client.post(url, json=body, headers=headers)
                 r.raise_for_status()
-                blocks = r.json()["content"]
+                result = r.json()
+                if result.get("stop_reason") == "max_tokens":
+                    raise LLMError("模型输出达到 max_tokens 上限", code="output_limit")
+                blocks = result["content"]
                 content = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
         except (httpx.HTTPError, KeyError, ValueError, TypeError) as e:
             raise LLMError(f"模型请求失败: {type(e).__name__}: {str(e)[:300]}") from e

@@ -92,6 +92,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pending/submissions/{submission_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pending Submission Review */
+        post: operations["pending_submission_review_api_pending_submissions__submission_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/pending/submissions/{submission_id}/confirm": {
         parameters: {
             query?: never;
@@ -103,6 +120,23 @@ export interface paths {
         put?: never;
         /** Pending Submission Confirm */
         post: operations["pending_submission_confirm_api_pending_submissions__submission_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pending/submissions/{submission_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pending Submission Plan */
+        post: operations["pending_submission_plan_api_pending_submissions__submission_id__plan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -390,6 +424,27 @@ export interface paths {
         put?: never;
         /** Query */
         post: operations["query_api_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/query/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Query Stream
+         * @description 问答流：SSE 只发送安全阶段提示与动作名，结束后给最终（已脱敏）答案。
+         *     模型未配置、问题被凭证闸门拦截等错误也走流内 error 事件（前端按消息展示）。
+         */
+        post: operations["query_stream_api_query_stream_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -860,6 +915,11 @@ export interface components {
             edited_text?: string | null;
             /** Session Id */
             session_id: string;
+            /**
+             * Manual
+             * @default []
+             */
+            manual: components["schemas"]["ManualMarkBody"][];
         };
         /** CustomRuleBody */
         CustomRuleBody: {
@@ -896,6 +956,15 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** ManualMarkBody */
+        ManualMarkBody: {
+            /** Source */
+            source: string;
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
         };
         /** ModelBody */
         ModelBody: {
@@ -990,6 +1059,27 @@ export interface components {
              * @default false
              */
             cloud_ack: boolean;
+        };
+        /** ReviewBody */
+        ReviewBody: {
+            /** Session Id */
+            session_id: string;
+            /** Decisions */
+            decisions?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Edits
+             * @default {}
+             */
+            edits: {
+                [key: string]: components["schemas"]["FindingEditBody"];
+            };
+            /**
+             * Manual
+             * @default []
+             */
+            manual: components["schemas"]["ManualMarkBody"][];
         };
         /** SecurityEntropyBody */
         SecurityEntropyBody: {
@@ -1191,6 +1281,41 @@ export interface operations {
             };
         };
     };
+    pending_submission_review_api_pending_submissions__submission_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     pending_submission_confirm_api_pending_submissions__submission_id__confirm_post: {
         parameters: {
             query?: never;
@@ -1205,6 +1330,37 @@ export interface operations {
                 "application/json": components["schemas"]["ConfirmBody"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pending_submission_plan_api_pending_submissions__submission_id__plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -1810,6 +1966,39 @@ export interface operations {
         };
     };
     query_api_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_stream_api_query_stream_post: {
         parameters: {
             query?: never;
             header?: never;

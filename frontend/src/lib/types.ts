@@ -60,7 +60,18 @@ export interface Finding {
   vault: { kind: string; name: string; field_name: string }
 }
 
+export type PlanStatus = 'queued' | 'generating' | 'ready' | 'failed'
+
+export interface MaintenanceReceipt {
+  submission_id: number
+  task_id: number
+  report_id: number
+}
+
 export interface SubmissionView {
+  draft?: { decisions: Record<string, string>; edits: FindingEdits; manual: ManualMark[]; edited_text?: string | null } | null
+  plan_status?: PlanStatus | null
+  plan_error?: string | null
   submission_id: number
   status: string
   session_id: string | null
@@ -70,6 +81,53 @@ export interface SubmissionView {
   summary: Record<string, number>
   findings: Finding[]
   preview: string
+}
+
+export interface ReviewUnit {
+  id: string
+  text: string
+  preview: string
+  finding_ids: string[]
+  preview_spans?: { finding_id: string; start: number; end: number }[]
+  start: number
+  end: number
+  row?: number
+  col?: number
+  sheet?: number
+}
+
+export interface ReviewDocument {
+  id: string
+  name: string
+  text: string
+  preview: string
+  units: ReviewUnit[]
+  sheets: { name: string }[]
+}
+
+export interface ManualMark { source: string; start: number; end: number }
+
+export interface ReviewFinding {
+  id: string
+  source: string
+  start: number
+  end: number
+  name: string
+  description: string
+  action: string
+  private_ref: string | null
+}
+
+export interface ReviewResponse {
+  documents: ReviewDocument[]
+  findings: ReviewFinding[]
+  revision: string
+}
+
+export interface MaintenancePlan {
+  source_summary?: { path: string; title: string; content: string }
+  pages: { action: 'create' | 'update'; path: string; title: string; content: string }[]
+  conflicts: { between: string[]; note: string }[]
 }
 
 export interface PendingSubmission {
@@ -135,7 +193,7 @@ export interface WikiDoc {
 
 export interface TaskRow {
   id: number
-  source_id: number
+  source_id: number | null
   session_id: string | null
   report_id: number | null
   status: string
@@ -171,6 +229,12 @@ export interface ReportEntry {
   }
 }
 
+export interface ReviewSnapshot {
+  documents?: (Omit<ReviewDocument, 'text' | 'units'> & {
+    units: Omit<ReviewUnit, 'text' | 'start' | 'end'>[]
+  })[]
+}
+
 export interface ReportSnapshot {
   id: number
   session_id: string | null
@@ -184,6 +248,10 @@ export interface ReportSnapshot {
   entries: ReportEntry[]
   preview: string
   instruction: string
+  review_snapshot?: ReviewSnapshot
+  maintenance_plan?: MaintenancePlan | null
+  plan_status?: PlanStatus | null
+  plan_error?: string | null
   created_at: string
   confirmed_at: string | null
 }

@@ -12,7 +12,7 @@ from . import crypto, db
 from .config import Settings
 from .credentials.base import CredentialError, SecretPayload
 from .llm.provider import get_security_provider
-from .security import redactor
+from .security import plans, redactor
 from .security.detectors import ScanEngine, overlaps
 from .security.policy import PolicyStore
 from .wiki import compiler
@@ -27,6 +27,7 @@ class Worker:
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
+        plans.recover_interrupted()
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
@@ -48,13 +49,19 @@ class Worker:
     async def tick(self) -> None:
         await self._expire_submissions()
         await self._flush_pending()
+        await self._process_plans()
         await self._process_tasks()
+
+    async def _process_plans(self) -> None:
+        await plans.process_pending(self.settings, PolicyStore(self.settings.policy_file),
+                                    self.get_provider, self.get_security_provider, self.creds, self.run_task)
 
     async def _expire_submissions(self) -> None:
         now = time.time()
         for row in db.list_submissions("waiting"):
             age = now - _parse_time(row["created_at"])
             if age > self.settings.queue_ttl_seconds:
+                plans.fail(row, "待确认资料已过期，请重新提交。")
                 db.resolve_submission(row["id"], "expired")  # 清除密文
                 db.log_security(
                     "submission_expired",
@@ -124,11 +131,16 @@ class Worker:
             db.update_task_status(task_id, "failed", error="来源未经确认，已阻止编译")
             db.log_security("gate_blocked", f"任务 #{task_id} 的来源未通过确认闸门")
             return
+        snapshot = json.loads(t["input_snapshot"] or "{}")
         try:
-            text = Path(src["path"]).read_text(encoding="utf-8")
+            text = snapshot["text"] if snapshot else Path(src["path"]).read_text(encoding="utf-8")
         except OSError as e:
             db.update_task_status(task_id, "failed", error=f"读取来源失败: {type(e).__name__}")
             return
+        if snapshot:
+            src = dict(src)
+            src.update(instruction=snapshot["instruction"], secret_refs=json.dumps(snapshot["refs"]),
+                       allowed_spans=json.dumps(snapshot["allowed_spans"]))
         # 编译前复扫：除确认放行区间外残留 Finding → 阻断云端调用
         # （本地检测 + 可选 security 增强层；增强层失败回退本地结果）
         try:
@@ -143,9 +155,19 @@ class Worker:
             return
         db.update_task_status(task_id, "processing")
         try:
-            result = await compiler.compile_source(self.settings, provider, src, text)
+            report = db.get_report(t["report_id"]) if t["report_id"] else None
+            prepared = json.loads(report["maintenance_plan"] or "{}") if report else {}
+            if prepared:
+                result = compiler.apply_prepared_plan(self.settings, prepared, src["id"])
+            else:
+                src = dict(src)
+                src['maintenance_context'] = compiler.maintenance_context(self.settings, t['session_id'], task_id)
+                result = await compiler.compile_source(self.settings, provider, src, text)
             db.set_task_result(task_id, json.dumps(result, ensure_ascii=False))
             db.update_task_status(task_id, "done")
+        except compiler.PlanChangedError as e:
+            db.update_task_status(task_id, "failed", error=str(e))
+            db.log_security("compile_failed", f"任务 #{task_id} 的计划已失效")
         except Exception as e:
             # 终态失败，不自动重试、不挂处理中；错误信息只给安全原因，不回显模型错误正文。
             db.update_task_status(task_id, "failed", error=f"{type(e).__name__}")

@@ -258,7 +258,10 @@ def test_session_report_api_contract(tmp_path, monkeypatch):
     monkeypatch.setenv("VAULTWARDEN_URL", "http://127.0.0.1:8081")
     creds = FakeCredentialStore()
     monkeypatch.setattr(main, "VaultwardenAdapter", lambda settings: creds)
-    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider(PLAN))
+    monkeypatch.setattr(main, "get_active_provider", lambda settings: FakeProvider(json.dumps({"action": "final", "plan": {
+        "source_summary": {"path": "sources/check.md", "title": "来源", "content": "# 来源"},
+        "pages": [], "conflicts": [],
+    }})))
 
     with TestClient(main.app) as client:
         a = client.post("/api/chat/sessions", json={"mode": "ask"}).json()
@@ -277,8 +280,11 @@ def test_session_report_api_contract(tmp_path, monkeypatch):
         assert len(reps) == 1 and reps[0]["status"] == "pending"
 
         fid = ing["findings"][0]["id"]
-        conf = client.post(f"/api/pending/submissions/{ing['submission_id']}/confirm",
-                           json={"decisions": {fid: "store"}, "session_id": m["session_id"]}).json()
+        body = {"decisions": {fid: "store"}, "session_id": m["session_id"]}
+        plan = client.post(f"/api/pending/submissions/{ing['submission_id']}/confirm", json=body)
+        assert plan.status_code == 202, plan.text
+        client.portal.call(main.app.state.ctx.worker.tick)
+        conf = plan.json()
         assert conf["task_id"]
         rep = client.get(f"/api/reports/{ing['report_id']}").json()
         assert rep["status"] == "confirmed"

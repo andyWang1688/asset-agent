@@ -88,3 +88,32 @@ def test_complete_content_wins_over_reasoning(monkeypatch):
     monkeypatch.setattr("app.llm.provider.httpx.AsyncClient", _FakeClient)
     out = _run({"role": "assistant", "content": "OK", "reasoning_content": "思考"})
     assert out == "OK"
+
+
+def test_complete_rejects_length_limited_response_even_if_valid_json(monkeypatch):
+    class Limited(_Resp):
+        def json(self):
+            return {'choices': [{'message': {'content': '{"action":"final"}'}, 'finish_reason': 'length'}]}
+    _FakeClient.holder = {'resp': Limited({})}
+    monkeypatch.setattr('app.llm.provider.httpx.AsyncClient', _FakeClient)
+    with pytest.raises(LLMError) as exc:
+        asyncio.run(OpenAICompatProvider(CFG).complete('s', 'u'))
+    assert exc.value.code == 'output_limit'
+
+
+def test_stream_rejects_truncated_response(monkeypatch):
+    import httpx
+    class StreamResponse:
+        def raise_for_status(self): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def aiter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}'
+            yield 'data: {"choices":[{"delta":{},"finish_reason":"length"}]}'
+            yield 'data: [DONE]'
+    class StreamClient(_FakeClient):
+        def stream(self, *args, **kwargs): return StreamResponse()
+    monkeypatch.setattr(httpx, 'AsyncClient', StreamClient)
+    with pytest.raises(LLMError) as exc:
+        asyncio.run(OpenAICompatProvider(CFG).stream_complete('s', 'u'))
+    assert exc.value.code == 'output_limit'

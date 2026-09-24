@@ -143,7 +143,8 @@ async def test_write_action_rejected(settings):
         json.dumps({"action": "write", "path": "projects/x.md", "content": "bad"}),
         json.dumps({"action": "final", "plan": {}}),
     ])
-    await compiler.compile_source(settings, provider, {"id": 1}, "资料")
+    with pytest.raises(ValueError, match="未包含任何页面"):
+        await compiler.compile_source(settings, provider, {"id": 1}, "资料")
     assert not (settings.wiki_dir / "projects" / "x.md").exists()
 
 

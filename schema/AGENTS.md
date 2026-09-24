@@ -24,10 +24,12 @@
 
 ## 维护计划格式（final.plan）
 {
-  "source_summary": {"title": "...", "path": "sources/<日期>-<主题>.md", "content": "来源摘要页完整 Markdown"},
-  "pages": [{"action": "create|update", "path": "...", "title": "...", "content": "页面完整 Markdown"}],
+  "source_summary": {"title": "...", "path": "sources/<日期>-<主题>.md", "purpose": "简短来源摘要要点"},
+  "pages": [{"action": "create|update", "path": "...", "title": "...", "purpose": "简短维护要点"}],
   "conflicts": [{"between": ["path1", "path2"], "note": "冲突说明"}]
 }
+计划阶段只输出清单，不输出正文，不逐行复述资料；同主题归并，最多24页。随后系统逐页请求 Markdown 正文，此时只返回当前页正文，不返回 JSON 或工具动作。Raw 保留完整脱敏资料，Wiki 负责归纳、引用与关联，不复制整份表格。
+
 ## 页面维护规则
 - 同主题资料：更新已有页面（action=update），不得无条件新建重复页面；判断依据是现有页面路径与标题。
 - 每个资产页顶部记录来源：`> 来源：[[sources/xxx.md|来源标题]]`，多个来源列出多条。

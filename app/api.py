@@ -15,7 +15,7 @@ from .credentials.base import CredentialError
 from .ingest import receiver
 from .llm import provider as llm
 from .query import service as query_service
-from .security import submissions
+from .security import submissions, plans, review
 from .security.policy import PolicyStore
 from .security.rules import VALIDATORS
 from .wiki import compiler
@@ -45,11 +45,28 @@ class FindingEditBody(BaseModel):
     field_name: str | None = None
 
 
+class ManualMarkBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str
+    start: int
+    end: int
+
+
+class ReviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    session_id: str
+    decisions: dict[str, str] | None = None
+    edits: dict[str, FindingEditBody] = {}
+    manual: list[ManualMarkBody] = []
+
+
 class ConfirmBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     decisions: dict[str, str] = {}
     edits: dict[str, FindingEditBody] = {}
     edited_text: str | None = None
     session_id: str
+    manual: list[ManualMarkBody] = []
 
 
 class PolicyBody(BaseModel):
@@ -228,26 +245,52 @@ def pending_submission_view(request: Request, submission_id: int):
         raise HTTPException(400, str(e)) from e
 
 
-@router.post("/api/pending/submissions/{submission_id}/confirm")
+@router.post("/api/pending/submissions/{submission_id}/review")
+def pending_submission_review(request: Request, submission_id: int, body: ReviewBody):
+    from fastapi.responses import JSONResponse
+
+    ctx = _ctx(request)
+    try:
+        result = review.inspect(
+            ctx.settings, _policy_store(request), submission_id, body.session_id,
+            body.decisions, {k: v.model_dump(exclude_none=True) for k, v in body.edits.items()},
+            [m.model_dump() for m in body.manual],
+        )
+        return JSONResponse(result, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+    except ValueError:
+        # 原文只存在成功的本机审查响应；不把客户端输入拼进错误提示。
+        raise HTTPException(400, "无法生成审查内容：请检查会话、选区和名称，或重新打开资料") from None
+
+
+@router.post("/api/pending/submissions/{submission_id}/confirm", status_code=202)
 async def pending_submission_confirm(request: Request, submission_id: int, body: ConfirmBody):
     ctx = _ctx(request)
     try:
-        return await submissions.confirm(
-            ctx.settings, ctx.creds, _policy_store(request), submission_id, body.decisions,
-            edited_text=body.edited_text, security_provider=ctx.get_security_provider(),
-            knowledge_provider_getter=lambda: ctx.get_provider(),
-            edits={k: v.model_dump(exclude_none=True) for k, v in body.edits.items()},
-            session_id=body.session_id,
-        )
+        async with plans.operation_lock():
+            return plans.enqueue(
+                ctx.settings, _policy_store(request), submission_id, body.decisions,
+                session_id=body.session_id, provider=ctx.get_provider(),
+                edits={k: v.model_dump(exclude_none=True) for k, v in body.edits.items()},
+                edited_text=body.edited_text, manual=[m.model_dump() for m in body.manual],
+            )
     except submissions.SubmissionError as e:
         raise HTTPException(400, str(e)) from e
+    except ValueError:
+        raise HTTPException(400, "审查内容校验未通过，请检查选择和名称") from None
+
+
+@router.post("/api/pending/submissions/{submission_id}/plan")
+async def pending_submission_plan(submission_id: int):
+    # 旧页面不得把“生成计划”的授权静默升级成执行维护。
+    raise HTTPException(410, "维护计划已并入任务，请刷新页面后审查并确认开始维护")
 
 
 @router.post("/api/pending/submissions/{submission_id}/cancel")
-def pending_submission_cancel(request: Request, submission_id: int):
+async def pending_submission_cancel(request: Request, submission_id: int):
     ctx = _ctx(request)
     try:
-        submissions.cancel(ctx.settings, submission_id)
+        async with plans.operation_lock():
+            submissions.cancel(ctx.settings, submission_id)
     except submissions.SubmissionError as e:
         raise HTTPException(400, str(e)) from e
     return {"cancelled": True}
@@ -434,6 +477,9 @@ def _report_row(r) -> dict:
         "entries": _json_loads_default(r["entries"]),
         "preview": r["preview"] or "",
         "instruction": r["instruction"] or "",
+        "maintenance_plan": _json_loads_default(r["maintenance_plan"]).get("plan"),
+        "plan_status": _json_loads_default(r["maintenance_plan"]).get("status"),
+        "plan_error": _json_loads_default(r["maintenance_plan"]).get("error"),
         "created_at": r["created_at"],
         "confirmed_at": r["confirmed_at"],
     }
@@ -490,7 +536,7 @@ async def query(request: Request, body: QueryBody):
 
 @router.post("/api/query/stream")
 async def query_stream(request: Request, body: QueryBody):
-    """问答流：SSE 上抛模型推理增量与工具动作，结束后给最终（已脱敏）答案。
+    """问答流：SSE 只发送安全阶段提示与动作名，结束后给最终（已脱敏）答案。
     模型未配置、问题被凭证闸门拦截等错误也走流内 error 事件（前端按消息展示）。"""
     ctx = _ctx(request)
     provider = ctx.get_provider()
@@ -509,8 +555,9 @@ async def query_stream(request: Request, body: QueryBody):
             await queue.put({"type": "answer", "answer": result["answer"], "citations": result["citations"]})
         except ValueError as e:
             await queue.put({"type": "error", "message": str(e)})
-        except llm.LLMError as e:
-            await queue.put({"type": "error", "message": str(e)})
+        except llm.LLMError:
+            # Provider 的异常可能携带响应/URL 中的原文，不作为进度事件外发。
+            await queue.put({"type": "error", "message": "模型请求或输出异常，本次问答未完成"})
         except Exception as e:  # 兜底：异常必须转成流内错误，不能让连接悬挂
             await queue.put({"type": "error", "message": f"服务器错误：{type(e).__name__}"})
         finally:

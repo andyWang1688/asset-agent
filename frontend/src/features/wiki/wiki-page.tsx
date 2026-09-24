@@ -26,6 +26,11 @@ function fileName(path: string): string {
   return path.split('/').pop() || path
 }
 
+function isKnowledgePage(page: Wiki['pages'][number]): boolean {
+  const name = fileName(page.path)
+  return name !== 'index.md' && name !== 'log.md'
+}
+
 function catLabelOf(path: string): string {
   for (const c of WIKI_CATS) {
     if (path.startsWith(c.key + '/')) return c.label
@@ -50,10 +55,7 @@ function WikiTree({ wiki, onNavigate }: { wiki: Wiki; onNavigate?: () => void })
   const [closed, setClosed] = useState<Set<string>>(new Set())
   const q = query.trim().toLowerCase()
 
-  const visible = pages.filter((p) => {
-    const name = fileName(p.path)
-    return name !== 'index.md' && name !== 'log.md'
-  })
+  const visible = pages.filter(isKnowledgePage)
 
   return (
     <div className="flex h-full flex-col">
@@ -72,7 +74,7 @@ function WikiTree({ wiki, onNavigate }: { wiki: Wiki; onNavigate?: () => void })
               p.path.startsWith(cat.key + '/') &&
               (!q || p.path.toLowerCase().includes(q) || (p.title || '').toLowerCase().includes(q)),
           )
-          if (q && docs.length === 0) return null
+          if (docs.length === 0) return null
           const isClosed = closed.has(cat.key)
           return (
             <div key={cat.key} className="mb-1">
@@ -141,20 +143,23 @@ function WikiReaderSkeleton() {
 }
 
 function WikiReader({ wiki }: { wiki: Wiki }) {
-  const { doc, pages, loading, error } = wiki
+  const { doc, pages, loaded, loading, error } = wiki
   const { openPrivateRef } = useApp()
 
-  if (loading) return <WikiReaderSkeleton />
+  if (!loaded || loading) return <WikiReaderSkeleton />
 
   if (!doc) {
+    const hasPages = pages.some(isKnowledgePage)
     return (
       <Empty className="h-full">
         <EmptyHeader>
           <EmptyMedia variant="icon">
             <FileText />
           </EmptyMedia>
-          <EmptyTitle>暂无文档</EmptyTitle>
-          <EmptyDescription>{error || '选择左侧的知识页开始阅读。'}</EmptyDescription>
+          <EmptyTitle>{error ? '加载失败' : hasPages ? '选择知识页' : '知识库暂无内容'}</EmptyTitle>
+          <EmptyDescription>
+            {error || (hasPages ? '从目录中选择知识页开始阅读。' : '新建维护对话，输入或上传资料，AI 整理后会显示在这里。')}
+          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     )
@@ -184,6 +189,7 @@ export function WikiPage() {
   const wiki = useWiki()
   const isMobile = useIsMobile(820)
   const [showNav, setShowNav] = useState(false)
+  const hasPages = wiki.pages.some(isKnowledgePage)
 
   // 问答引用 / Wiki 内链跳转：切换到知识库并打开对应文档
   useEffect(() => {
@@ -196,7 +202,7 @@ export function WikiPage() {
 
   return (
     <div className={cn('flex min-h-0 w-full flex-1', isMobile ? 'flex-col' : 'flex-row')}>
-      {isMobile && (
+      {hasPages && isMobile && (
         <div className="flex shrink-0 items-center border-b px-2 py-1.5">
           <Button variant="ghost" size="sm" aria-expanded={showNav} onClick={() => setShowNav((v) => !v)}>
             <Menu data-icon="inline-start" />
@@ -204,7 +210,7 @@ export function WikiPage() {
           </Button>
         </div>
       )}
-      {(!isMobile || showNav) && (
+      {hasPages && (!isMobile || showNav) && (
         <aside className={cn('shrink-0 border-r', isMobile ? 'h-[40vh] w-full border-b border-r-0' : 'w-60')}>
           <WikiTree wiki={wiki} onNavigate={isMobile ? () => setShowNav(false) : undefined} />
         </aside>

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 import app.api as api_module
 import app.main as main
+from app import db
 from tests.fakes import FakeCredentialStore, FakeProvider, StreamingSequenceProvider
 
 PLAN = json.dumps(
@@ -110,11 +111,13 @@ def test_api_flow(tmp_path, monkeypatch):
         fid = view["findings"][0]["id"]
         assert "Sup3rSecret!" not in json.dumps(view)
 
-        confirmed = client.post(
-            f"/api/pending/submissions/{sid}/confirm",
-            json={"decisions": {fid: "store"}, "session_id": maintain_sid},
-        ).json()
-        assert confirmed["secrets_count"] == 1 and confirmed["secrets"][0]["saved"] is True
+        body = {"decisions": {fid: "store"}, "session_id": maintain_sid}
+        plan = client.post(f"/api/pending/submissions/{sid}/confirm", json=body)
+        assert plan.status_code == 202, plan.text
+        client.portal.call(main.app.state.ctx.worker.tick)
+        task = db.get_task(plan.json()['task_id'])
+        assert task['status'] == 'done', task['error']
+        assert len(creds.created) == 1
         assert creds.created[0].value == "Sup3rSecret!"
 
         # 后台 worker 在 TestClient 的 event loop 中运行，轮询任务状态

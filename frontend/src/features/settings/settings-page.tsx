@@ -21,7 +21,6 @@ import type { ModelRow as ModelRowType } from '@/lib/types'
 import { ModelRow, type ModelRowActions } from './model-row'
 import { ModelSheet } from './model-sheet'
 import { GeneralSection } from './general-section'
-import { RetrievalSection } from './retrieval-section'
 import { SecurityEventsSection } from './security-events-section'
 import { SecurityPolicySection } from './security-policy-section'
 import { SettingsGroup, SettingsRow } from './settings-ui'
@@ -29,7 +28,6 @@ import type { SettingsModule } from './settings-navigation'
 
 const MODULES: { id: SettingsModule; label: string }[] = [
   { id: 'models', label: '模型配置' },
-  { id: 'retrieval', label: '检索配置' },
   { id: 'security', label: '安全策略' },
   { id: 'events', label: '安全事件' },
   { id: 'general', label: '通用' },
@@ -38,11 +36,13 @@ const MODULES: { id: SettingsModule; label: string }[] = [
 function ModelsPanel({
   knowledge,
   security,
-  actions,
+  knowledgeActions,
+  securityActions,
 }: {
   knowledge: ModelRowType[]
   security: ModelRowType[]
-  actions: ModelRowActions
+  knowledgeActions: ModelRowActions
+  securityActions: ModelRowActions
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -51,7 +51,7 @@ function ModelsPanel({
         badge={<Badge variant="outline">必配</Badge>}
         description="负责 Wiki 编译与知识问答；未配置或未激活时，提交资料与提问会被阻止。"
         action={
-          <Button size="sm" variant="outline" onClick={actions.onAdd}>
+          <Button size="sm" variant="outline" onClick={knowledgeActions.onAdd}>
             <Plus data-icon="inline-start" />
             添加模型
           </Button>
@@ -67,13 +67,13 @@ function ModelsPanel({
             }
             description="可添加 DeepSeek、GLM、OpenAI、Claude、通义、Kimi 或 OpenAI 兼容端点。"
             control={
-              <Button size="sm" variant="outline" onClick={actions.onAdd}>
+              <Button size="sm" variant="outline" onClick={knowledgeActions.onAdd}>
                 添加模型
               </Button>
             }
           />
         ) : (
-          knowledge.map((model) => <ModelRow key={model.id} m={model} {...actions} />)
+          knowledge.map((model) => <ModelRow key={model.id} m={model} {...knowledgeActions} />)
         )}
       </SettingsGroup>
 
@@ -82,7 +82,7 @@ function ModelsPanel({
         badge={<Badge variant="outline">可选</Badge>}
         description="本地 AI 辅检，只加严不放松；未配置时继续使用本地检测，仅允许本机或内网端点。"
         action={
-          <Button size="sm" variant="outline" onClick={actions.onAdd}>
+          <Button size="sm" variant="outline" onClick={securityActions.onAdd}>
             <Plus data-icon="inline-start" />
             添加模型
           </Button>
@@ -98,13 +98,13 @@ function ModelsPanel({
             }
             description="使用本地正则与熵值检测。"
             control={
-              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={actions.onAdd}>
+              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={securityActions.onAdd}>
                 添加
               </Button>
             }
           />
         ) : (
-          security.map((model) => <ModelRow key={model.id} m={model} {...actions} />)
+          security.map((model) => <ModelRow key={model.id} m={model} {...securityActions} />)
         )}
       </SettingsGroup>
     </div>
@@ -154,12 +154,14 @@ export function SettingsPage() {
         />
 
         {activeModule === 'models' && (
-          <ModelsPanel knowledge={models.knowledge} security={models.security} actions={groupProps('knowledge')} />
+          <ModelsPanel
+            knowledge={models.knowledge}
+            security={models.security}
+            knowledgeActions={groupProps('knowledge')}
+            securityActions={groupProps('security')}
+          />
         )}
-        {activeModule === 'retrieval' && <RetrievalSection />}
-        {activeModule === 'security' && (
-          <SecurityPolicySection securityModels={models.security} securityModelActions={groupProps('security')} />
-        )}
+        {activeModule === 'security' && <SecurityPolicySection />}
         {activeModule === 'events' && <SecurityEventsSection />}
         {activeModule === 'general' && <GeneralSection />}
       </div>

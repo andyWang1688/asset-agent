@@ -176,3 +176,34 @@ describe('会话模式锁定', () => {
     expect(last.thinkingMs).toBeTypeOf('number')
   })
 })
+
+it('点击正在回答的当前会话不会丢弃流式消息', async () => {
+  let finish!: () => void
+  let handlers!: StreamHandlersStub
+  apiMock.streamQuery.mockImplementation((_q: string, _sid: string, h: StreamHandlersStub) => {
+    handlers = h
+    return new Promise<void>((resolve) => { finish = resolve })
+  })
+  await render()
+  await act(async () => { await latest!.ensureSession('ask') })
+  let asking!: Promise<unknown>
+  await act(async () => { asking = latest!.ask('进行中的问题') })
+  await act(async () => { await latest!.openSessionById('s-1') })
+  expect(latest!.asking).toBe(true)
+  expect(latest!.messages[0].q).toBe('进行中的问题')
+  await act(async () => { handlers.onAnswer?.({ answer: '回答完成', citations: [] }); finish(); await asking })
+  expect(latest!.messages[0].a).toBe('回答完成')
+})
+
+it('历史水合期间禁止按旧会话模式提交', async () => {
+  let resolve!: (rows: unknown[]) => void
+  apiMock.listSessions.mockImplementation(() => new Promise((r) => { resolve = r }))
+  await render()
+  let opened!: Promise<void>
+  await act(async () => { opened = latest!.openSessionById('history-maintain') })
+  expect(latest!.hydrating).toBe(true)
+  await expect(latest!.ensureSession('ask')).rejects.toThrow('会话正在恢复')
+  await act(async () => { resolve([{ session_id: 'history-maintain', mode: 'maintain' }]); await opened })
+  expect(latest!.mode).toBe('maintain')
+  expect(latest!.hydrating).toBe(false)
+})

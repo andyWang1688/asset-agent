@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react'
-import { CircleAlert, Plus, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api, errMsg } from '@/lib/api'
-import type { EntropySensitivity, ModelRow, SecurityMode, SecuritySettingsView } from '@/lib/types'
-import { ModelRow as ModelRowItem, type ModelRowActions } from './model-row'
+import type { EntropySensitivity, SecurityMode, SecuritySettingsView } from '@/lib/types'
 import { RegexRulesSection } from './regex-rules-section'
 import { SettingsGroup, SettingsRow } from './settings-ui'
 
@@ -17,14 +15,8 @@ const MODES: { value: SecurityMode; label: string; description: string }[] = [
   { value: 'confirm', label: '确认模式', description: '每份资料入库前先过确认页，逐份看一眼。' },
 ]
 
-/** 安全策略：处理方式 + 基础检测 + 安全增强模型 + 正则规则；settings 视图（含 mode）在此自加载与回滚 */
-export function SecurityPolicySection({
-  securityModels,
-  securityModelActions,
-}: {
-  securityModels: ModelRow[]
-  securityModelActions: ModelRowActions
-}) {
+/** 安全策略：处理方式与基础检测；模型统一在模型配置管理。 */
+export function SecurityPolicySection() {
   const [settings, setSettings] = useState<SecuritySettingsView | null>(null)
   const [keyword, setKeyword] = useState('')
   const [saving, setSaving] = useState(false)
@@ -184,39 +176,6 @@ export function SecurityPolicySection({
           </div>
           {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
         </div>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="安全增强模型"
-        badge={<Badge variant="outline">可选</Badge>}
-        description="本地 AI 辅检，只加严不放松；未配置时继续使用本地检测，仅允许本机或内网端点。"
-        action={
-          securityModels.length > 0 ? (
-            <Button size="sm" variant="outline" onClick={securityModelActions.onAdd}>
-              <Plus data-icon="inline-start" />
-              添加模型
-            </Button>
-          ) : undefined
-        }
-      >
-        {securityModels.length === 0 ? (
-          <SettingsRow
-            label={
-              <span className="inline-flex items-center gap-1.5 text-amber-600">
-                <CircleAlert className="size-3.5" />
-                未配置
-              </span>
-            }
-            description="使用本地正则与熵值检测。"
-            control={
-              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={securityModelActions.onAdd}>
-                添加
-              </Button>
-            }
-          />
-        ) : (
-          securityModels.map((model) => <ModelRowItem key={model.id} m={model} {...securityModelActions} />)
-        )}
       </SettingsGroup>
 
       <RegexRulesSection />

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT DEFAULT 'pending',
   error TEXT,
   result TEXT DEFAULT '{}',
+  input_snapshot TEXT DEFAULT '{}',
   retries INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now','localtime')),
   updated_at TEXT DEFAULT (datetime('now','localtime'))
@@ -125,7 +126,9 @@ CREATE TABLE IF NOT EXISTS reports (
   preview TEXT DEFAULT '',
   instruction TEXT DEFAULT '',
   created_at TEXT DEFAULT (datetime('now','localtime')),
-  confirmed_at TEXT
+  confirmed_at TEXT,
+  maintenance_plan TEXT DEFAULT '{}',
+  review_snapshot TEXT DEFAULT '{}'
 );
 """
 
@@ -206,6 +209,8 @@ def _migrate() -> None:
         _c().execute("ALTER TABLE tasks ADD COLUMN report_id INTEGER")
     if "result" not in tcols:
         _c().execute("ALTER TABLE tasks ADD COLUMN result TEXT DEFAULT '{}'")
+    if "input_snapshot" not in tcols:
+        _c().execute("ALTER TABLE tasks ADD COLUMN input_snapshot TEXT DEFAULT '{}'")
     pcols = {r["name"] for r in _c().execute("PRAGMA table_info(pending_submissions)")}
     if "session_id" not in pcols:
         _c().execute("ALTER TABLE pending_submissions ADD COLUMN session_id TEXT")
@@ -214,6 +219,10 @@ def _migrate() -> None:
     rcols = {r["name"] for r in _c().execute("PRAGMA table_info(reports)")}
     if "instruction" not in rcols:
         _c().execute("ALTER TABLE reports ADD COLUMN instruction TEXT DEFAULT ''")
+    if "maintenance_plan" not in rcols:
+        _c().execute("ALTER TABLE reports ADD COLUMN maintenance_plan TEXT DEFAULT '{}'")
+    if "review_snapshot" not in rcols:
+        _c().execute("ALTER TABLE reports ADD COLUMN review_snapshot TEXT DEFAULT '{}'")
     for role in ("knowledge", "security"):
         rows = _c().execute(
             "SELECT id FROM model_configs WHERE role=? AND is_active=1 ORDER BY id", (role,)
@@ -303,6 +312,10 @@ def all_source_refs() -> list[dict]:
             out.extend(json.loads(row["secret_refs"] or "[]"))
         except json.JSONDecodeError:
             continue
+    # 重复来源的每轮安全快照只在裁决/复扫后创建；不能信任待确认报告。
+    for row in _r("SELECT t.input_snapshot FROM tasks t JOIN sources s ON s.id=t.source_id "
+                  "WHERE s.confirmed=1 AND t.input_snapshot != '{}'"):
+        out.extend(json.loads(row["input_snapshot"] or "{}").get("refs", []))
     return out
 
 
@@ -310,10 +323,11 @@ def list_sources(limit: int = 100):
     return _r("SELECT * FROM sources ORDER BY id DESC LIMIT ?", (limit,))
 
 
-def insert_task(source_id: int, session_id: str | None = None, report_id: int | None = None) -> int:
+def insert_task(source_id: int, session_id: str | None = None, report_id: int | None = None,
+                input_snapshot: str = "{}") -> int:
     return _w(
-        "INSERT INTO tasks(source_id, session_id, report_id) VALUES(?,?,?)",
-        (source_id, session_id, report_id),
+        "INSERT INTO tasks(source_id, session_id, report_id, input_snapshot) VALUES(?,?,?,?)",
+        (source_id, session_id, report_id, input_snapshot),
     ).lastrowid
 
 
@@ -338,7 +352,7 @@ def get_task(task_id: int):
 
 
 def list_tasks(statuses=None, limit: int = 100):
-    q = "SELECT t.*, s.original_name, s.kind FROM tasks t LEFT JOIN sources s ON s.id=t.source_id "
+    q = "SELECT t.*, COALESCE(s.original_name,r.original_name) AS original_name, COALESCE(s.kind,r.kind) AS kind FROM tasks t LEFT JOIN sources s ON s.id=t.source_id LEFT JOIN reports r ON r.id=t.report_id "
     args = []
     if statuses:
         q += "WHERE t.status IN (%s) " % ",".join("?" * len(statuses))
@@ -348,8 +362,22 @@ def list_tasks(statuses=None, limit: int = 100):
     return _r(q, args)
 
 
+def maintenance_history(session_id: str, before_task_id: int):
+    return _r(
+        "SELECT t.id,t.status,t.result,t.error,r.preview,r.instruction FROM tasks t "
+        "JOIN reports r ON r.id=t.report_id "
+        "WHERE t.session_id=? AND r.session_id=? AND t.id<? AND t.status IN ('done','failed') "
+        "AND r.status IN ('confirmed','auto') ORDER BY t.id DESC LIMIT 3",
+        (session_id, session_id, before_task_id),
+    )
+
+
 def tasks_by_source(source_id: int):
     return _r("SELECT * FROM tasks WHERE source_id=?", (source_id,))
+
+
+def latest_task_for_source(source_id: int):
+    return _r1("SELECT * FROM tasks WHERE source_id=? ORDER BY id DESC LIMIT 1", (source_id,))
 
 
 def insert_pending(source_id, name: str, sha256: str, payload: str) -> int:
@@ -433,6 +461,29 @@ def list_submissions(status: str | None = None):
 def submission_count_waiting() -> int:
     row = _r1("SELECT COUNT(*) AS n FROM pending_submissions WHERE status='waiting'")
     return row["n"] if row else 0
+
+
+def queue_submission_plan(submission_id: int, payload: str, state: str, review_snapshot: str = "{}") -> int | None:
+    """一次确认原子创建任务并锁定密文草稿；后台成功/失败后销毁密文。"""
+    with _lock:
+        with _c():
+            row = _c().execute("SELECT report_id,session_id FROM pending_submissions WHERE id=? AND status='waiting'", (submission_id,)).fetchone()
+            if not row:
+                return None
+            report = _c().execute("UPDATE reports SET maintenance_plan=?,review_snapshot=? WHERE id=? AND status='pending'", (state, review_snapshot, row['report_id']))
+            if not report.rowcount:
+                return None
+            task = _c().execute("INSERT INTO tasks(session_id,report_id,status) VALUES(?,?,'planning_pending')", (row['session_id'], row['report_id']))
+            _c().execute("UPDATE pending_submissions SET payload=?, status='processing' WHERE id=?", (payload, submission_id))
+        return task.lastrowid
+
+
+def task_for_report(report_id: int):
+    return _r1("SELECT * FROM tasks WHERE report_id=? ORDER BY id DESC LIMIT 1", (report_id,))
+
+
+def bind_task_source(task_id: int, source_id: int, snapshot: str) -> None:
+    _w("UPDATE tasks SET source_id=?,input_snapshot=? WHERE id=?", (source_id, snapshot, task_id))
 
 
 def resolve_submission(submission_id: int, status: str) -> None:
@@ -636,12 +687,12 @@ def delete_retrieval_config() -> None:
 
 def insert_report(session_id: str | None, submission_id: int | None, status: str, mode: str,
                   kind: str, original_name: str, sha256: str, summary: str, entries: str,
-                  preview: str, instruction: str = "") -> int:
+                  preview: str, instruction: str = "", review_snapshot: str = "{}") -> int:
     confirmed_at = "datetime('now','localtime')" if status in ("confirmed", "auto") else "NULL"
     return _w(
         "INSERT INTO reports(session_id,submission_id,status,mode,kind,original_name,sha256,"
-        "summary,entries,preview,instruction,confirmed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?," + confirmed_at + ")",
-        (session_id, submission_id, status, mode, kind, original_name, sha256, summary, entries, preview, instruction),
+        "summary,entries,preview,instruction,review_snapshot,confirmed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?," + confirmed_at + ")",
+        (session_id, submission_id, status, mode, kind, original_name, sha256, summary, entries, preview, instruction, review_snapshot),
     ).lastrowid
 
 
@@ -651,7 +702,8 @@ def get_report(report_id: int):
 
 def update_report(report_id: int, *, status: str | None = None, submission_id: int | None = None,
                   summary: str | None = None, entries: str | None = None,
-                  preview: str | None = None, instruction: str | None = None) -> None:
+                  preview: str | None = None, instruction: str | None = None,
+                  maintenance_plan: str | None = None, review_snapshot: str | None = None) -> None:
     """报告字段更新；仅 pending 态可改。终态（confirmed/auto/rejected）原子锁定：
     用条件更新 WHERE status='pending' 保证失败不改原值，锁定后任何字段/状态修改均被拒绝。"""
     sets: list[str] = []
@@ -676,6 +728,12 @@ def update_report(report_id: int, *, status: str | None = None, submission_id: i
     if instruction is not None:
         sets.append("instruction=?")
         args.append(instruction)
+    if maintenance_plan is not None:
+        sets.append("maintenance_plan=?")
+        args.append(maintenance_plan)
+    if review_snapshot is not None:
+        sets.append("review_snapshot=?")
+        args.append(review_snapshot)
     if not sets:
         return
     args.append(report_id)
@@ -717,8 +775,12 @@ def report_view(report_id: int) -> dict | None:
         "sha256": (row["sha256"] or "")[:16],
         "summary": _json_loads_default(row["summary"]),
         "entries": _json_loads_default(row["entries"]),
+        "review_snapshot": _json_loads_default(row["review_snapshot"]),
         "preview": row["preview"] or "",
         "instruction": row["instruction"] or "",
+        "maintenance_plan": _json_loads_default(row["maintenance_plan"]).get("plan"),
+        "plan_status": _json_loads_default(row["maintenance_plan"]).get("status"),
+        "plan_error": _json_loads_default(row["maintenance_plan"]).get("error"),
         "created_at": row["created_at"],
         "confirmed_at": row["confirmed_at"],
     }

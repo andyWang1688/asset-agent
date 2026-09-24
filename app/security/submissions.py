@@ -17,6 +17,7 @@ from ..ingest.finalize import (
     finalize,
     locate_allow_spans,
     rescan_guard,
+    retry_source_id,
     validate_decisions,
 )
 from ..security import report as report_mod
@@ -88,7 +89,7 @@ def _lock_report(row, findings, instruction_findings, decisions, edits, sources,
     all_entries = file_entries + instr_entries
     preview = edited_text if edited_text is not None else entries_mod.apply_entries(text, file_entries)[0]
     instruction_redacted = ""
-    if instruction is not None and instr_entries:
+    if instruction is not None:
         instruction_redacted, _ = entries_mod.apply_entries(instruction, instr_entries)
     rep = report_mod.build_report(all_entries, original_name, preview,
                                   instruction=instruction_redacted, refs=refs)
@@ -117,11 +118,15 @@ def _audit_decision(f: Finding, action: str) -> None:
     )
 
 
+def submission_key(sha: str, instruction: str | None) -> str:
+    return crypto.sha256_hex(sha + "\0" + instruction) if instruction else sha
+
+
 def create_submission(settings: Settings, text: str, findings: list[Finding], sha: str,
                       kind: str, original_name: str, policy: dict | None = None,
                       session_id: str | None = None, report_id: int | None = None,
                       instruction: str | None = None,
-                      instruction_findings: list | None = None) -> int:
+                      instruction_findings: list | None = None, is_file: bool = False, review_layout: list | None = None) -> int:
     payload = {
         "version": PAYLOAD_VERSION,
         "text": text,
@@ -132,6 +137,8 @@ def create_submission(settings: Settings, text: str, findings: list[Finding], sh
         # 提交时策略快照：确认复扫使用快照，防止等待期间策略被放宽而漏检
         "policy": policy or {},
         "instruction": instruction or "",
+        "is_file": is_file,
+        "review_layout": review_layout or [],
         "instruction_findings": [finding_to_dict(f) for f in (instruction_findings or [])],
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -140,8 +147,9 @@ def create_submission(settings: Settings, text: str, findings: list[Finding], sh
         json.dumps(payload, ensure_ascii=False).encode("utf-8"),
     )
     summary = json.dumps(summary_counts(findings))
-    db.delete_stale_submissions(sha, session_id)  # 同一会话取消/过期后可重新提交；不影响其他会话
-    sid = db.insert_submission(sha, kind, original_name, blob, summary,
+    request_key = submission_key(sha, instruction)
+    db.delete_stale_submissions(request_key, session_id)  # 不同整理要求是独立的待确认提交。
+    sid = db.insert_submission(request_key, kind, original_name, blob, summary,
                                session_id=session_id, report_id=report_id)
     db.log_security(
         "submission_created",
@@ -198,11 +206,10 @@ def view(settings: Settings, row) -> dict:
     sources = {f.id: "整理要求" for f in instruction_findings}
 
     default_decisions = {f.id: f.suggested_action for f in combined}
-    file_entries = entries_mod.build_entries(findings, default_decisions, namespace=sha,
-                                             policy=policy, sources=sources)
+    file_entries, instr_entries = entries_mod.build_all_entries(findings, instruction_findings,
+        default_decisions, namespace=sha, policy=policy, sources=sources)
     preview, _ = entries_mod.apply_entries(text, file_entries)
-    entries_by_id = {e.finding.id: e for e in entries_mod.build_entries(
-        combined, default_decisions, namespace=sha, policy=policy, sources=sources)}
+    entries_by_id = {e.finding.id: e for e in file_entries + instr_entries}
 
     findings_out = []
     for f in combined:
@@ -229,6 +236,8 @@ def view(settings: Settings, row) -> dict:
                 "vault": {"kind": e.vault_kind, "name": e.vault_name, "field_name": e.field_name},
             }
         )
+    from . import plans
+    prepared = plans.state(row)
     created = row["created_at"] or ""
     return {
         "submission_id": row["id"],
@@ -240,21 +249,26 @@ def view(settings: Settings, row) -> dict:
         "summary": counts,
         "findings": findings_out,
         "preview": preview,
+        "draft": payload.get("plan_draft"),
+        "plan_status": prepared.get("status"),
+        "plan_error": prepared.get("error"),
     }
 
 
 async def confirm(settings: Settings, creds: CredentialStore, policy_store: PolicyStore,
                   submission_id: int, decisions: dict, edited_text: str | None = None,
                   edits: dict | None = None, session_id: str | None = None,
-                  security_provider=None, knowledge_provider_getter=None) -> dict:
+                  security_provider=None, knowledge_provider_getter=None,
+                  plan_token: str | None = None, require_plan: bool = False, manual: list | None = None, task_id: int | None = None) -> dict:
     """逐项裁决 → 复扫校验 → 落盘/凭证/任务。仍有未处置 Finding 时不得调用云端模型。
     edited_text：用户在确认页修改过的脱敏预览，提交后必须重新扫描。
     knowledge 模型未配置时在创建任务前拒绝确认（提交保持待确认，配置后重试）。"""
     row = db.get_submission(submission_id)
-    if not row or row["status"] != "waiting":
+    expected_status = "processing" if task_id is not None else "waiting"
+    if not row or row["status"] != expected_status:
         raise SubmissionError("提交不存在或已处理")
     # Session 固定模式闸门：确认也要求所属会话仍是维护会话（伪造 ask 会话不能写）。
-    if row["session_id"] is None or db.session_mode(row["session_id"]) != db.SESSION_MAINTAIN:
+    if task_id is None and (row["session_id"] is None or db.session_mode(row["session_id"]) != db.SESSION_MAINTAIN):
         raise SubmissionError("提交不属于维护会话，已阻止确认")
     # 确认必须带匹配的维护 Session 上下文，不能仅凭 submission_id 执行。
     if session_id is not None and session_id != row["session_id"]:
@@ -275,8 +289,9 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
     kind = payload["kind"]
     original_name = payload["original_name"]
     instruction = payload.get("instruction") or None
-    findings = [finding_from_dict(d) for d in payload.get("findings") or []]
-    instruction_findings = [finding_from_dict(d) for d in payload.get("instruction_findings") or []]
+    from .review import resolve_findings
+
+    findings, instruction_findings = resolve_findings(payload, manual)
     combined = list(findings) + instruction_findings
     sources = {f.id: "整理要求" for f in instruction_findings}
 
@@ -315,9 +330,15 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
             db.log_security("confirm_rejected", f"提交 #{submission_id} 复扫异常: {type(e).__name__}")
             raise SubmissionError("检测器失败，本次确认已阻止") from e
 
+    if require_plan or plan_token is not None:
+        from .plans import checked_plan
+
+        checked_plan(settings, policy_store, row, dec, edits, edited_text, plan_token, manual)
+
     existing = db.get_source_by_sha256(sha)
-    if existing and existing["confirmed"]:
-        # 已处理内容幂等返回；confirmed=0 的占位交由 finalize 的 claim 阶段处理（复用/冲突）
+    if existing and existing["confirmed"] and not payload.get("is_file") and retry_source_id(sha) is None:
+        # 已处理内容幂等返回；失败轮重投除外（复用来源，另起报告与任务）；
+        # confirmed=0 的占位交由 finalize 的 claim 阶段处理（复用/冲突）
         db.resolve_submission(submission_id, "confirmed")
         _lock_report(row, findings, instruction_findings, dec, edits, sources, sha, policy,
                      original_name, text, None, [], instruction)
@@ -331,6 +352,7 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
             edited_text=edited_text, security_provider=security_provider,
             session_id=row["session_id"], edits=edits, instruction=instruction,
             instruction_findings=instruction_findings, sources=sources,
+            reuse_source=bool(payload.get("is_file")), task_id=task_id,
         )
     except DuplicateSourceError as dup:
         db.resolve_submission(submission_id, "confirmed")

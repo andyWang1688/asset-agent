@@ -15,7 +15,7 @@ function actionLabel(item: Extract<TraceItem, { kind: 'action' }>): string {
     case 'read':
       return `读取 ${item.path ?? '页面'}`
     case 'search':
-      return `搜索「${item.query ?? ''}」`
+      return item.query ? `搜索「${item.query}」` : '搜索知识库'
     case 'retry':
       return '输出格式异常，正在重试'
     default:
@@ -23,7 +23,7 @@ function actionLabel(item: Extract<TraceItem, { kind: 'action' }>): string {
   }
 }
 
-/** 推理原文：限高滚动并跟随最新增量；运行中带流式光标 */
+/** 安全进度提示：不展示模型推理原文。 */
 function ReasoningText({ text, live }: { text: string; live: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -87,7 +87,7 @@ export function ThoughtBlock({ trace, running, ms }: { trace?: TraceItem[]; runn
     <Collapsible open={open} onOpenChange={setOpen} className="mb-2">
       <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
         <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
-        已深度思考{seconds != null ? ` · ${seconds} 秒` : ''}
+        处理记录{seconds != null ? ` · ${seconds} 秒` : ''}
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="pt-2">

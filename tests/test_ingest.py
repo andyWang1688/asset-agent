@@ -100,6 +100,59 @@ async def test_ingest_duplicate(settings):
     assert len(db.list_tasks()) == 1
 
 
+class FailingProvider:
+    async def complete(self, *args, **kwargs):
+        raise RuntimeError("模型不可用")
+
+
+async def test_failed_round_resubmit_starts_new_round(settings):
+    """失败轮重投：复用来源与 Raw，但每轮另起报告与任务，不再被内容去重拦截。"""
+    creds = FakeCredentialStore()
+    _store(settings).update_security_settings({"mode": "default"})
+    sid = _new_session()
+    upload = {"filename": "notes.md", "data": "读书会周二九点半。".encode()}
+    first = await receiver.ingest(settings, creds, instruction="请整理为项目页。",
+                                  knowledge_provider_getter=lambda: FakeProvider(PLAN),
+                                  session_id=sid, **upload)
+    worker = Worker(settings, creds, lambda: FailingProvider())
+    await worker.run_task(first["task_id"])
+    assert db.get_task(first["task_id"])["status"] == "failed"
+
+    second = await receiver.ingest(settings, creds, instruction="请重新整理为概念页。",
+                                   knowledge_provider_getter=lambda: FakeProvider(PLAN),
+                                   session_id=sid, **upload)
+    assert second.get("duplicate") is not True
+    assert second["source_id"] == first["source_id"]  # 复用来源，不新建 Source
+    assert second["task_id"] != first["task_id"]  # 新任务
+    assert len(db.list_tasks()) == 2
+    assert len(db.list_reports()) == 2
+    assert db.get_source(first["source_id"])["instruction"] == "请整理为项目页。"
+    assert json.loads(db.get_task(second["task_id"])["input_snapshot"])["instruction"] == "请重新整理为概念页。"
+
+
+async def test_failed_round_resubmit_confirm_mode_creates_new_submission(settings):
+    """确认模式下失败重投：允许新建提交，确认后复用来源并另起任务。"""
+    creds = FakeCredentialStore()
+    sid = _new_session()
+    upload = {"filename": "notes.md", "data": "读书会周二九点半。".encode()}
+    kw = {"knowledge_provider_getter": lambda: FakeProvider(PLAN), "session_id": sid, **upload}
+    first = await receiver.ingest(settings, creds, instruction="请整理为项目页。", **kw)
+    assert first["pending_confirmation"] is True
+    r1 = await submissions.confirm(settings, creds, _store(settings), first["submission_id"], {})
+    worker = Worker(settings, creds, lambda: FailingProvider())
+    await worker.run_task(r1["task_id"])
+    assert db.get_task(r1["task_id"])["status"] == "failed"
+
+    second = await receiver.ingest(settings, creds, instruction="请重新整理为概念页。", **kw)
+    assert second["pending_confirmation"] is True
+    assert second["submission_id"] != first["submission_id"]
+    r2 = await submissions.confirm(settings, creds, _store(settings), second["submission_id"], {})
+    assert r2.get("duplicate") is not True
+    assert r2["source_id"] == r1["source_id"]
+    assert len(db.list_sources()) == 1
+    assert len(db.list_tasks()) == 2
+
+
 async def test_ingest_vault_down_pending_queue(settings):
     creds = FakeCredentialStore(fail=True)
     r = await receiver.ingest(
@@ -128,3 +181,36 @@ async def test_ingest_vault_down_pending_queue(settings):
     assert db.get_task(result["task_id"])["status"] == "done"
     assert creds.created[0].value == "Sup3rSecret!"
     assert db.list_pending("pending") == []
+
+
+@pytest.mark.parametrize('extension', ['xlsx', 'xls', 'docx', 'pdf', 'csv'])
+@pytest.mark.parametrize('mode', ['confirm', 'default'])
+async def test_document_formats_share_security_pipeline(settings, extension, mode):
+    from tests.document_samples import sample_file
+
+    creds = FakeCredentialStore()
+    provider = FakeProvider(PLAN)
+    _store(settings).update_security_settings({'mode': mode})
+    result = await receiver.ingest(
+        settings, creds, filename=f'资料.{extension}', data=sample_file(extension),
+        session_id=_new_session(), knowledge_provider_getter=lambda: provider,
+    )
+    if mode == 'confirm':
+        assert result['pending_confirmation'] is True
+        assert creds.created == [] and db.list_tasks() == [] and provider.calls == []
+        assert not list(settings.inbox_dir.glob('*'))
+        view = submissions.view(settings, db.get_submission(result['submission_id']))
+        assert 'DocImport9!' not in json.dumps(view, ensure_ascii=False)
+        decisions = {f['id']: 'store' for f in view['findings']}
+        assert decisions
+        result = await submissions.confirm(settings, creds, _store(settings), result['submission_id'], decisions)
+    assert any(item.value == 'DocImport9!' for item in creds.created)
+    raw = next(settings.inbox_dir.glob('*')).read_text()
+    assert 'DocImport9!' not in raw
+    assert 'private:pr_' in raw
+    worker = Worker(settings, creds, lambda: provider)
+    await worker.run_task(result['task_id'])
+    assert db.get_task(result['task_id'])['status'] == 'done'
+    assert (settings.wiki_dir / 'projects/p.md').exists()
+    assert provider.calls
+    assert 'DocImport9!' not in json.dumps(provider.calls, ensure_ascii=False)

@@ -54,7 +54,7 @@ async def test_private_ref_format_and_no_plaintext(settings, maintain_session):
     )
     rep = db.report_view(r["report_id"])
     assert "[🔒 password](private:pr_" in rep["preview"]
-    assert "[🔒 id_card-" in rep["preview"]  # PII 同样以私密引用保留并脱敏
+    assert "[🔒 身份证号](private:pr_" in rep["preview"]  # PII 同样以私密引用保留并脱敏
     assert SECRET not in json.dumps(rep, ensure_ascii=False)
     assert "11010519491231002X" not in json.dumps(rep, ensure_ascii=False)
     # 每个 store 条目有稳定 ref_id，且与值无可逆关系
@@ -295,7 +295,7 @@ async def test_file_instruction_scanned_and_preserved(settings, maintain_session
     )
     rep = db.report_view(r["report_id"])
     assert "user@example.com" not in rep["instruction"]
-    assert "[🔒 email-" in rep["instruction"]  # 敏感值默认保留（私密引用）而非销毁
+    assert "[🔒 邮箱](private:pr_" in rep["instruction"]  # 敏感值默认保留（私密引用）而非销毁
     assert "请整理到项目页面" in rep["instruction"]
     # 文件原文未被 instruction 污染：原文件内容不含 instruction 原文
     view = submissions.view(settings, db.get_submission(r["submission_id"]))

@@ -41,13 +41,21 @@ docker compose up -d --build       # 启动 frontend（Nginx，127.0.0.1:8000）
    docker compose restart backend
    ```
 3. 打开 http://127.0.0.1:8000 →「设置」页添加模型（预设自动填充 API 地址与模型名，填 Key 即可；「知识库」角色必配并激活，「安全增强」角色可选）
-4. 「对话」页（收集资料模式）粘贴/上传资料（Markdown / TXT / PDF，PDF 仅支持可提取文本）
+4. 「对话」页选择维护模式，粘贴资料或上传 Markdown / TXT / PDF / Excel（`.xlsx`、`.xls`）/ CSV / Word（`.docx`）；提取文本后统一走安全检测与确认流程，问答模式不支持上传。
 5. 识别到敏感信息时进入确认闸门逐项裁决（存入 Vaultwarden 并脱敏 / 仅脱敏 / 误报放行），确认后任务进入队列
 6. 「任务」页看到 `done` 后，「知识库」页浏览资产页，「对话」页（询问知识模式）提问
 
 > 说明：Vaultwarden 在 Compose 内以自签证书提供 HTTPS（`certs/` 由 setup.sh 生成，bw CLI 强制 HTTPS），
 > CA 经 `secrets/ca.crt` 注入 backend 容器信任；Vaultwarden 对外仍只绑定 127.0.0.1。
 > 浏览器只访问 `http://127.0.0.1:8000`（frontend/Nginx），`/api/*` 由 Nginx 同源反向代理到 backend 容器（backend 不映射宿主机端口）。
+
+### 文件导入范围
+
+- Excel：读取全部工作表（含隐藏表），保留表名、单元格坐标与列名；首个非空行作为表头。`.xlsx` 保留公式文本但不执行，`.xls` 读取已保存的计算结果。
+- CSV：支持 UTF-8、带 BOM 的 UTF-8、GB18030，以及逗号、分号、制表符分隔。
+- Word：读取正文段落、表格（含嵌套表格）与页眉页脚；旧版 `.doc` 请先另存为 `.docx`。
+- PDF：读取文字并标注页码；图片、扫描件、Office 内嵌图片均不做 OCR，不读取附件或执行宏；加密或损坏的文件会被拒绝。
+- 导入是提取文本再整理，不是完整还原版式；不提取 Word 批注、修订记录、脚注或文本框等附属内容。空文件或超出解析限制的文件会提示错误，不创建维护任务。
 
 ## 目录结构
 

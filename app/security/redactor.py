@@ -33,7 +33,7 @@ def _ref_name(f: Finding) -> str:
         clean = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff_-]+", "-", f.key_hint).strip("-").lower()
         if clean and len(clean) <= 40:
             return clean
-    return f"{f.rule}-{sha256_hex(f.value)[:8]}"
+    return {"entropy_token": "待确认内容", "email": "邮箱", "phone": "手机号", "id_card": "身份证号"}.get(f.rule, "敏感内容")
 
 
 def placeholder(f: Finding, ref_name: str | None = None) -> str:
@@ -52,11 +52,12 @@ def _dedupe_names(findings: list[Finding]) -> dict[str, str]:
     used: dict[str, int] = {}
     for value, f in by_value.items():
         name = _ref_name(f)
-        n = used.get(name, 0)
-        if n:
-            name = f"{name}-{n + 1}"
-        used.setdefault(name, 0)
-        used[name] += 1
+        base = name
+        n = 1
+        while name in used:
+            n += 1
+            name = f"{base}-{n}"
+        used[name] = 1
         names[value] = name
     return names
 

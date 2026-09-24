@@ -1,331 +1,200 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowLeft, FileText, Table2, LockKeyhole, LockKeyholeOpen, RotateCcw, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { ChevronRight } from 'lucide-react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Textarea } from '@/components/ui/textarea'
 import { api, errMsg } from '@/lib/api'
+import type { MaintenanceReceipt, ReviewFinding, ReviewUnit, ReviewResponse, SubmissionView } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { fmtTime } from '@/lib/format'
-import type { Finding, IngestResult, SubmissionView } from '@/lib/types'
+import { columnName, findingAction, protectSelection, type ReviewDraft } from './review-state'
+import { ReviewDocumentPane } from './review-document-pane'
 
-const ACTION_LABELS: Record<string, string> = {
-  store: '存入保险柜并脱敏',
-  redact: '仅脱敏（销毁原值）',
-  allow: '标记误报并放行',
-}
-const KIND_LABELS: Record<string, string> = {
-  credential: '凭证',
-  pii: '个人信息',
-  unknown_suspect: '疑似',
-}
-const TYPE_OPTIONS = ['credential', 'pii', 'unknown_suspect']
-const VAULT_KINDS = ['login', 'secure_note']
-
-interface Edits {
-  type: string
-  name: string
-  description: string
-  vault_kind: string
-  vault_name: string
-  field_name: string
-}
-
-interface ConfirmSheetProps {
+interface Props {
   view: SubmissionView | null
   loading: boolean
   onClose: () => void
-  onConfirmed: (r: IngestResult) => void
+  onConfirmed: (result: MaintenanceReceipt) => void
   onCancelled: () => void
 }
 
-/** 敏感信息确认闸门：按真实后端字段渲染，支持类型/名称/说明/动作/保险柜条目类型与名称/字段编辑，
- *  以及脱敏预览编辑。程序控制字段（id/span/ref_id/置信度/上下文）只读。 */
-export function ConfirmSheet({ view, loading, onClose, onConfirmed, onCancelled }: ConfirmSheetProps) {
-  const [preview, setPreview] = useState('')
-  const [editingPreview, setEditingPreview] = useState(false)
-  const [previewModified, setPreviewModified] = useState(false)
-  const [edits, setEdits] = useState<Record<string, Partial<Edits>>>({})
-  const [decisions, setDecisions] = useState<Record<string, string>>({})
-  const [customizing, setCustomizing] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [rejectOpen, setRejectOpen] = useState(false)
+/** Keyed child destroys decrypted content and invalidates async work when closed or switched. */
+export function ConfirmSheet(props: Props) {
+  return props.view ? <ReviewSession key={`${props.view.session_id}:${props.view.submission_id}`} {...props} view={props.view} /> : null
+}
+
+function ReviewSession({ view, loading, onClose, onConfirmed, onCancelled }: Props & { view: SubmissionView }) {
+  const [draft, setDraft] = useState<ReviewDraft>(() => view.draft ?? ({ decisions: Object.fromEntries(view.findings.map((f) => [f.id, f.suggested_action])), edits: {}, manual: [] }))
+  const [review, setReview] = useState<ReviewResponse | null>(null)
+  const [checkedDraft, setCheckedDraft] = useState<ReviewDraft | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
+  const [editingId, setEditingId] = useState('')
+  const [history, setHistory] = useState<ReviewDraft[]>([])
+  const [docId, setDocId] = useState('document')
+  const [sheet, setSheet] = useState('0')
+  const [query, setQuery] = useState('')
   const [error, setError] = useState('')
+  const [reviewError, setReviewError] = useState('')
+  const [reload, setReload] = useState(0)
+  const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const alive = useRef(true)
+  const panes = useRef<(HTMLDivElement | null)[]>([])
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
+  // Edits stay local while typing. Only the local review endpoint sees them; never the LLM.
   useEffect(() => {
-    if (!view) return
-    setPreview(view.preview || '')
-    setEditingPreview(false)
-    setPreviewModified(false)
-    setCustomizing(false)
-    setError('')
-    setSubmitting(false)
-    const nextDecisions: Record<string, string> = {}
-    for (const f of view.findings) {
-      nextDecisions[f.id] = f.suggested_action
+    if (loading) return
+    let active = true
+    const timer = setTimeout(() => {
+      api.reviewSubmission(view.submission_id, view.session_id || '', draft.decisions, draft.edits, draft.manual).then((result) => {
+        if (!active) return
+        setReview(result); setCheckedDraft(draft); setReviewError('')
+      }).catch((e) => { if (active) setReviewError(errMsg(e)) })
+    }, 120)
+    return () => { active = false; clearTimeout(timer) }
+  }, [draft, loading, reload, view.submission_id, view.session_id])
+
+  const current = checkedDraft === draft && !reviewError && !!review
+  const documents = review?.documents ?? []
+  const doc = documents.find((d) => d.id === docId) ?? documents[0]
+  const navigation = documents.flatMap((d) => d.sheets.length
+    ? d.sheets.map((s, index) => ({ key: `${d.id}:${index}`, docId: d.id, sheet: String(index), name: s.name, table: true }))
+    : [{ key: `${d.id}:0`, docId: d.id, sheet: '0', name: d.id === 'instruction' ? '附带文字' : view.original_name || '输入文字', table: false }])
+  const activeName = navigation.find((n) => n.docId === doc?.id && n.sheet === sheet)?.name
+  const selections = doc?.units.filter((u) => selected.includes(u.id)).map((unit) => ({ source: doc.id, unit })) ?? []
+  const findings = review?.findings ?? []
+  const chosen = findings.filter((f) => selections.some(({ unit }) => unit.finding_ids.includes(f.id)))
+  const editItems = selections.flatMap<{ id: string; unit: ReviewUnit; finding?: ReviewFinding }>(({ unit }) => {
+    const matches = findings.filter((f) => unit.finding_ids.includes(f.id)).sort((a, b) => a.start - b.start)
+    return matches.length ? matches.map((finding) => ({ id: `${unit.id}:${finding.id}`, unit, finding })) : [{ id: unit.id, unit, finding: undefined }]
+  })
+  const editingIndex = Math.max(0, editItems.findIndex((item) => item.id === editingId))
+  const editing = editItems[editingIndex]
+  const fragment = editing?.finding
+  const protectedFragment = fragment && findingAction(fragment, draft) !== 'allow'
+
+  // Observe natural content height, not the shared row height, to avoid resize feedback.
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return
+    const contents = panes.current.flatMap((pane) => [...(pane?.querySelectorAll<HTMLElement>('[data-review-row-content]') ?? [])])
+    const align = () => {
+      const heights = new Map<string, number>()
+      for (const content of contents) {
+        const key = content.dataset.reviewRowContent!
+        heights.set(key, Math.max(heights.get(key) ?? 48, content.getBoundingClientRect().height))
+      }
+      for (const pane of panes.current) for (const row of pane?.querySelectorAll<HTMLElement>('[data-review-row]') ?? []) {
+        row.style.height = `${Math.ceil(heights.get(row.dataset.reviewRow!) ?? 48) + 1}px`
+      }
     }
-    setEdits({})
-    setDecisions(nextDecisions)
-  }, [view])
-
-  const findings = useMemo(() => view?.findings || [], [view])
-  const counts = useMemo(() => view?.summary || {}, [view])
-  const total = findings.length
-
-  const patch = useCallback((id: string, part: Partial<Edits>) => {
-    setEdits((prev) => ({ ...prev, [id]: { ...prev[id], ...part } }))
-    // 改动固定字段会改变占位符/引用：不再以旧预览覆盖，交给后端按最终条目重生成
-    setPreviewModified(false)
-  }, [])
-
-  const submit = useCallback(async () => {
-    if (!view) return
-    setSubmitting(true)
-    setError('')
+    const observer = new ResizeObserver(align)
+    contents.forEach((content) => observer.observe(content)); align()
+    return () => observer.disconnect()
+  }, [review, selected, doc?.id, sheet])
+  useEffect(() => {
+    for (const pane of panes.current) {
+      const target = pane?.querySelector<HTMLElement>('[data-active-fragment="true"]') ?? pane?.querySelector<HTMLElement>('[data-review-unit][aria-pressed="true"]')
+      target?.closest('button')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+      target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    }
+  }, [editing?.id])
+  const invalid = findings.some((f) => findingAction(f, draft) !== 'allow' && !(draft.edits[f.id]?.name ?? f.name).trim())
+  const locked = busy !== null
+  function change(next: ReviewDraft) {
+    if (locked) return
+    setHistory((h) => [...h.slice(-29), draft]); setDraft(next); setError(''); setReviewError('')
+  }
+  function mark(protect: boolean, ids = selected) {
+    if (!current || !doc) return
+    change(protectSelection(draft, doc.units.filter((u) => ids.includes(u.id)).map((unit) => ({ source: doc.id, unit })), protect, findings))
+  }
+  function undo() {
+    const last = history.at(-1)
+    if (!last || locked) return
+    setDraft(last); setHistory((h) => h.slice(0, -1)); setReviewError(''); setError('')
+  }
+  function pick(ids: string[], additive: boolean) {
+    setSelected((old) => additive ? [...new Set([...old, ...ids])] : ids)
+    setEditingId('')
+  }
+  function sync(index: number, target: HTMLElement) {
+    const other = panes.current[1 - index]
+    if (!other || (target !== panes.current[index] && target.dataset.slot !== 'table-container')) return
+    const destination = target.dataset.slot === 'table-container' ? other.querySelector<HTMLElement>('[data-slot="table-container"]') : other
+    if (destination) {
+      if (destination.scrollTop !== target.scrollTop) destination.scrollTop = target.scrollTop
+      if (destination.scrollLeft !== target.scrollLeft) destination.scrollLeft = target.scrollLeft
+    }
+  }
+  async function confirm() {
+    if (!current || invalid || locked) return
+    setBusy('confirm'); setError('')
     try {
-      const r = await api.confirmSubmission(view.submission_id, decisions, view.session_id || '', edits, previewModified ? preview : undefined)
-      toast.success(`已确认，来源 #${r.source_id}，任务 #${r.task_id}`)
-      onConfirmed(r)
-    } catch (e) {
-      setError(errMsg(e))
-    } finally {
-      setSubmitting(false)
-    }
-  }, [view, decisions, edits, previewModified, preview, onConfirmed])
-
-  const cancel = useCallback(async () => {
-    if (!view) return
-    try {
-      await api.cancelSubmission(view.submission_id)
-      toast('已拒绝，密文已销毁。')
-      onCancelled()
-    } catch (e) {
-      setError(errMsg(e))
-    }
-  }, [view, onCancelled])
-
-  const summary = useMemo(
-    () =>
-      total === 0
-        ? '未检测到敏感内容'
-        : `共 ${total} 项 · 凭证 ${counts.credential || 0} · 个人信息 ${counts.pii || 0} · 疑似 ${counts.unknown_suspect || 0}`,
-    [total, counts],
-  )
-
-  return (
-    <Sheet open={!!view} onOpenChange={(open) => { if (!open) onClose() }}>
-      <SheetContent
-        showCloseButton={false}
-        className="w-[520px] max-w-full sm:w-[520px]"
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
-      >
-        <SheetHeader>
-          <SheetTitle>敏感信息确认</SheetTitle>
-          <SheetDescription>
-            {view ? `提交 #${view.submission_id}` + (view.original_name ? ` · ${view.original_name}` : '') + (view.created_at ? ` · ${fmtTime(view.created_at)}` : '') : ''}
-          </SheetDescription>
-        </SheetHeader>
-
-        {loading ? (
-          <div className="flex flex-1 items-center justify-center">
-            <span className="text-sm text-muted-foreground">加载中…</span>
+      const result = await api.confirmSubmission(view.submission_id, draft.decisions, view.session_id || '', draft.edits, draft.edited_text ?? undefined, draft.manual)
+      if (alive.current) { toast.success('维护任务已创建，正在后台处理'); onConfirmed(result) }
+    } catch (e) { if (alive.current) { setError(errMsg(e)) } }
+    finally { if (alive.current) setBusy(null) }
+  }
+  async function reject() {
+    if (locked) return
+    setBusy('reject'); setError('')
+    try { await api.cancelSubmission(view.submission_id); if (alive.current) onCancelled() }
+    catch (e) { if (alive.current) setError(errMsg(e)) }
+    finally { if (alive.current) setBusy(null) }
+  }
+  return <Sheet open onOpenChange={(open) => { if (!open && !busy) onClose() }}>
+    <SheetContent showCloseButton={false} className="left-1/2 -translate-x-1/2 -translate-y-1/2 gap-0 overflow-hidden rounded-xl border p-0 data-[side=right]:inset-y-auto data-[side=right]:right-auto data-[side=right]:top-1/2 data-[side=right]:h-[min(88svh,880px)] data-[side=right]:w-[94vw] data-[side=right]:sm:max-w-[1440px]" onInteractOutside={(e) => e.preventDefault()}>
+      <SheetHeader className="shrink-0 flex-row items-center justify-between border-b px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3"><Button size="icon-sm" variant="ghost" aria-label="返回对话" disabled={busy !== null} onClick={onClose}><ArrowLeft /></Button><div className="min-w-0"><SheetTitle>资料审查</SheetTitle><SheetDescription className="truncate">{view.original_name || '手动输入'}</SheetDescription></div></div>
+        <div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已保护 {findings.filter((f) => findingAction(f, draft) !== 'allow').length} 处</span><Input className="h-8 w-36" aria-label="查找内容" placeholder="查找内容" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
+      </SheetHeader>
+      <div className="flex min-h-0 flex-1">
+        <nav aria-label="审查目录" className="flex w-36 shrink-0 flex-col gap-1 overflow-y-auto border-r bg-muted/20 p-2 lg:w-44">
+          {navigation.map((item) => <Button key={item.key} variant="ghost" size="sm" aria-current={item.docId === doc?.id && item.sheet === sheet ? 'page' : undefined} title={item.name} className="w-full justify-start aria-[current=page]:bg-accent" onClick={() => { setDocId(item.docId); setSheet(item.sheet); setSelected([]) }}>
+            {item.table ? <Table2 data-icon="inline-start" /> : <FileText data-icon="inline-start" />}<span className="truncate">{item.name}</span>
+          </Button>)}
+        </nav>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {!review ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">{reviewError ? '审查内容加载失败' : '正在准备资料…'}</div> : <div className="grid min-h-0 flex-1 grid-cols-2 divide-x">
+        {(['source', 'ai'] as const).map((mode, index) => <div key={mode} className="flex min-h-0 min-w-0 flex-col">
+          <h3 className={cn('flex items-center justify-between border-b px-4 py-2 text-sm font-semibold', mode === 'ai' ? 'bg-amber-500/10' : 'bg-muted/30')}><span>{mode === 'source' ? '本机原文' : '发送给 AI'}</span><Badge variant="outline">{mode === 'source' ? '提取内容 · 只读' : current ? '发送预览' : '正在更新'}</Badge></h3>
+          <div key={`${doc?.id}:${sheet}`} ref={(el) => { panes.current[index] = el }} onScrollCapture={(e) => sync(index, e.target as HTMLElement)} className="min-h-0 flex-1 overflow-auto" data-review-pane={mode}>
+            {doc && <ReviewDocumentPane doc={doc} sheet={Number(sheet)} mode={mode} query={query} selected={selected} disabled={locked} onSelect={pick} findings={findings} activeFinding={fragment?.id} />}
           </div>
-        ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-            <p className={cn('mb-3 text-[13px]', total === 0 ? 'font-semibold text-foreground' : 'text-muted-foreground')}>{summary}</p>
-            <div className="mb-3 flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setCustomizing((o) => !o)}>
-                {customizing ? '收起逐项设置' : '按我说的做'}
-              </Button>
-              <span className="text-xs text-muted-foreground">同意将按系统建议一次处理全部发现。</span>
-            </div>
-
-            {customizing && (
-              <div className="flex flex-col gap-2">
-                {findings.map((f) => (
-                  <FindingCard
-                    key={f.id}
-                    f={f}
-                    edits={edits[f.id]}
-                    decisions={decisions}
-                    onPatch={(part) => patch(f.id, part)}
-                    onDecision={(a) => setDecisions((p) => ({ ...p, [f.id]: a }))}
-                  />
-                ))}
-              </div>
-            )}
-
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">{total === 0 ? '资料预览' : '脱敏预览'}</h3>
-                {customizing && (
-                  <button type="button" className="text-[13px] text-foreground hover:underline" onClick={() => setEditingPreview((o) => !o)}>
-                    {editingPreview ? '完成修改' : '编辑预览'}
-                  </button>
-                )}
-              </div>
-              <Textarea
-                aria-label="脱敏预览"
-                value={preview}
-                readOnly={!editingPreview}
-                spellCheck={false}
-                onChange={(e) => {
-                  setPreview(e.target.value)
-                  if (editingPreview) setPreviewModified(true)
-                }}
-                className={cn('min-h-[150px] font-mono text-xs leading-relaxed', editingPreview ? 'bg-background' : 'bg-muted opacity-90')}
-              />
-              {editingPreview && <p className="mt-2 text-xs text-muted-foreground">提交时会重新扫描，若仍检测到未处置的敏感信息会被拒绝。</p>}
-            </div>
-
-            {error && <p className="mt-3 text-[13px] text-destructive">{error}</p>}
+        </div>)}
+      </div>}
+      {selections.length > 0 && <section className="shrink-0 border-t px-6 py-3" aria-label="所选内容与保存设置">
+        <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold">{activeName}{selections.length > 1 ? ` · 已选 ${selections.length} 处` : ''}</h3><div className="flex gap-2">{selections.length > 1 && <><Button variant="outline" size="sm" disabled={locked || !current} onClick={() => mark(true)}>保护所选</Button><Button variant="outline" size="sm" disabled={locked || !current || !chosen.some((f) => findingAction(f, draft) !== 'allow')} onClick={() => mark(false)}>取消所选保护</Button></>}<Button variant="ghost" size="icon-sm" aria-label="清除选择" disabled={locked} onClick={() => setSelected([])}><X /></Button></div></div>
+        {editing && <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">{editing.unit.col ? `${columnName(editing.unit.col)}${editing.unit.row}` : `第 ${editing.unit.row} 行`}</Badge>
+            {editItems.length > 1 && <><span className="text-sm text-muted-foreground">片段 {editingIndex + 1} / {editItems.length}</span><Button size="sm" variant="ghost" disabled={locked || editingIndex === 0} onClick={() => setEditingId(editItems[editingIndex - 1].id)}>上一片段</Button><Button size="sm" variant="ghost" disabled={locked || editingIndex === editItems.length - 1} onClick={() => setEditingId(editItems[editingIndex + 1].id)}>下一片段</Button></>}
           </div>
-        )}
-
-        <SheetFooter>
-          <Button variant="outline" className="text-destructive hover:text-destructive" disabled={submitting || loading} onClick={() => setRejectOpen(true)}>
-            拒绝
-          </Button>
-          <Button
-            className="bg-emerald-600 text-white hover:bg-emerald-700"
-            disabled={submitting || loading}
-            onClick={() => void submit()}
-          >
-            {submitting ? '处理中…' : '同意'}
-          </Button>
-        </SheetFooter>
-
-        <AlertDialog open={rejectOpen} onOpenChange={setRejectOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>拒绝整份资料？</AlertDialogTitle>
-              <AlertDialogDescription>整份资料会被丢弃，暂存密文立即销毁；不会调用模型，也不会写入保险柜。</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>返回确认页</AlertDialogCancel>
-              <AlertDialogAction variant="destructive" onClick={() => void cancel()}>
-                确认拒绝
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </SheetContent>
-    </Sheet>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {children}
-    </label>
-  )
-}
-
-function FindingCard({
-  f,
-  edits,
-  decisions,
-  onPatch,
-  onDecision,
-}: {
-  f: Finding
-  edits: Partial<Edits> | undefined
-  decisions: Record<string, string>
-  onPatch: (part: Partial<Edits>) => void
-  onDecision: (a: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const e = edits || {}
-  const type = e.type ?? f.kind
-  const name = e.name ?? f.name ?? ''
-  const description = e.description ?? f.description ?? ''
-  const vaultKind = e.vault_kind ?? f.vault?.kind ?? 'secure_note'
-  const vaultName = e.vault_name ?? f.vault?.name ?? f.name ?? ''
-  const fieldName = e.field_name ?? f.vault?.field_name ?? f.name ?? ''
-  const action = decisions[f.id] || f.suggested_action
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="overflow-hidden rounded-lg border bg-card">
-      <CollapsibleTrigger asChild>
-        <button type="button" className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-accent/50">
-          <ChevronRight className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
-          <Badge
-            className={cn(
-              'border-transparent',
-              f.kind === 'credential' && 'bg-destructive/10 text-destructive',
-              f.kind === 'pii' && 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-              f.kind !== 'credential' && f.kind !== 'pii' && 'bg-muted text-muted-foreground',
-            )}
-          >
-            {KIND_LABELS[f.kind] || f.kind}
-          </Badge>
-          <span className="font-semibold">{f.name || f.rule}</span>
-          <span className="ml-auto whitespace-nowrap rounded-full bg-muted px-2 py-px text-[11px] text-foreground">{ACTION_LABELS[action] || action}</span>
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="grid gap-2.5 px-3 pb-3">
-        {f.context && <pre className="whitespace-pre-wrap break-all rounded-md bg-muted p-2 font-mono text-xs leading-relaxed text-muted-foreground">{f.context}</pre>}
-        <Field label="类型">
-          <Select value={type} onValueChange={(v) => onPatch({ type: v })}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TYPE_OPTIONS.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {KIND_LABELS[t] || t}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="可读名称">
-          <Input value={name} onChange={(ev) => onPatch({ name: ev.target.value })} />
-        </Field>
-        <Field label="说明">
-          <Input value={description} onChange={(ev) => onPatch({ description: ev.target.value })} />
-        </Field>
-        <Field label="保存动作">
-          <div className="flex flex-col gap-1">
-            {(f.allowed_actions || []).map((a) => (
-              <label key={a} className="flex cursor-pointer items-center gap-2 text-[13px]">
-                <input type="radio" name={`fd-${f.id}`} value={a} checked={action === a} onChange={() => onDecision(a)} className="size-[15px] accent-emerald-600" />
-                {ACTION_LABELS[a] || a}
-              </label>
-            ))}
+          <div className="flex flex-wrap items-end gap-3">
+            {protectedFragment ? <>
+              {(['name', 'description'] as const).map((key) => <Field key={key} className="min-w-40 flex-1 gap-2" data-invalid={key === 'name' && !(draft.edits[fragment.id]?.name ?? fragment.name).trim()}>
+                <FieldLabel htmlFor={`${fragment.id}-${key}`}>{key === 'name' ? '名称' : '备注（可选）'}</FieldLabel>
+                <Input id={`${fragment.id}-${key}`} maxLength={200} disabled={locked} aria-invalid={key === 'name' && !(draft.edits[fragment.id]?.name ?? fragment.name).trim()} value={draft.edits[fragment.id]?.[key] ?? fragment[key]} onChange={(e) => change({ ...draft, edits: { ...draft.edits, [fragment.id]: { ...draft.edits[fragment.id], [key]: e.target.value } } })} />
+              </Field>)}
+              <Button variant="outline" disabled={locked || !current} className="border-destructive/40 text-destructive hover:text-destructive" onClick={() => change({ ...draft, decisions: { ...draft.decisions, [fragment.id]: 'allow' } })}><LockKeyholeOpen data-icon="inline-start" />取消保护</Button>
+            </> : <><span className="mb-2 flex-1 text-sm text-muted-foreground">未保护 · 将明文发送</span><Button variant="outline" disabled={locked || !current || !editing.unit.text.trim()} onClick={() => fragment ? change({ ...draft, decisions: { ...draft.decisions, [fragment.id]: 'store' } }) : mark(true, [editing.unit.id])}><LockKeyhole data-icon="inline-start" />{fragment ? '恢复保护' : '保护内容'}</Button></>}
+            {protectedFragment && fragment.start >= editing.unit.start && fragment.end <= editing.unit.end && (fragment.start !== editing.unit.start || fragment.end !== editing.unit.end) && <Button variant="outline" disabled={locked || !current} onClick={() => mark(true, [editing.unit.id])}>{editing.unit.col ? '保护整个单元格' : '保护整行'}</Button>}
           </div>
-        </Field>
-        <Field label="保险柜条目类型">
-          <Select value={vaultKind} onValueChange={(v) => onPatch({ vault_kind: v })}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {VAULT_KINDS.map((k) => (
-                <SelectItem key={k} value={k}>
-                  {k === 'login' ? 'Login（账号密码）' : 'Secure Note（字段）'}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="保险柜条目名称">
-          <Input value={vaultName} onChange={(ev) => onPatch({ vault_name: ev.target.value })} />
-        </Field>
-        <Field label="字段名称（Secure Note）">
-          <Input value={fieldName} onChange={(ev) => onPatch({ field_name: ev.target.value })} />
-        </Field>
-        <p className="font-mono text-[11px] text-muted-foreground">
-          引用 {f.ref_id} · 置信度 {Math.round((f.confidence || 0) * 100)}%
-        </p>
-      </CollapsibleContent>
-    </Collapsible>
-  )
+        </div>}
+
+      </section>}
+        </div>
+      </div>
+      {(error || reviewError || invalid) && <div role="alert" className="px-6 py-2 text-sm text-destructive">{invalid ? '名称不能为空，请补全后继续。' : reviewError || error}{reviewError && <Button variant="link" size="sm" onClick={() => setReload((n) => n + 1)}>重新加载</Button>}</div>}
+      <SheetFooter className="mt-0 shrink-0 flex-row items-center justify-between border-t px-6 py-3"><div>{history.length > 0 && <Button size="sm" variant="outline" disabled={locked} onClick={undo}><RotateCcw data-icon="inline-start" />撤销</Button>}</div><div className="flex gap-2">
+        <Button variant="ghost" className="text-destructive" disabled={locked} onClick={() => setRejectOpen(true)}>拒绝导入</Button>
+        <Button className="bg-emerald-600 text-white hover:bg-emerald-700" disabled={locked || !current || invalid} onClick={() => void confirm()}>{busy === 'confirm' ? '正在提交…' : '确认并开始维护'}</Button>
+      </div></SheetFooter>
+      <AlertDialog open={rejectOpen} onOpenChange={setRejectOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>拒绝整份资料？</AlertDialogTitle><AlertDialogDescription>暂存密文将被销毁，不执行维护计划。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>返回审查</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => void reject()}>确定拒绝</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    </SheetContent>
+  </Sheet>
 }

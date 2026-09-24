@@ -12,12 +12,16 @@ export function useWiki(initialPath?: string | null) {
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
+    setLoaded(false)
+    setError(null)
     try {
       const rows = await api.wikiPages()
       setPages(rows)
-      setLoaded(true)
-    } catch {
+    } catch (e) {
       setPages([])
+      setError(e instanceof Error ? e.message : '知识库加载失败')
+    } finally {
+      setLoaded(true)
     }
   }, [])
 

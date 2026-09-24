@@ -72,3 +72,20 @@ describe('维护聚合过期保护与轮询', () => {
     await act(async () => { resolveB([]) })
   })
 })
+
+it('后台计划无需维护任务也持续轮询，完成后停止', async () => {
+  vi.useFakeTimers()
+  let status = 'queued'
+  apiMock.reports.mockImplementation(async () => [{ id: 1, session_id: 'a', status: 'pending', plan_status: status }])
+  apiMock.tasks.mockResolvedValue([])
+  await mount('a')
+  status = 'generating'
+  await act(async () => { await vi.advanceTimersByTimeAsync(2500) })
+  expect(latest!.reports[0].plan_status).toBe('generating')
+  status = 'ready'
+  await act(async () => { await vi.advanceTimersByTimeAsync(2500) })
+  expect(latest!.reports[0].plan_status).toBe('ready')
+  const calls = apiMock.reports.mock.calls.length
+  await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
+  expect(apiMock.reports).toHaveBeenCalledTimes(calls)
+})

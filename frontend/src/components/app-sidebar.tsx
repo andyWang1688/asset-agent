@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, ChevronDown, ListTodo, MessageSquare, MoreHorizontal, Plus, Settings } from 'lucide-react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
@@ -13,7 +13,7 @@ import { fmtTime } from '@/lib/format'
 import type { ChatEntry, SessionInfo } from '@/lib/types'
 import { useApp, type Tab } from '@/store/app-state'
 import { useTasks } from '@/hooks/use-tasks'
-import type { useChat, ChatMessage } from '@/hooks/use-chat'
+import type { useChat } from '@/hooks/use-chat'
 import { cn } from '@/lib/utils'
 
 const PRIMARY: { tab: Tab; label: string; icon: typeof MessageSquare }[] = [
@@ -39,7 +39,6 @@ interface SessionGroup {
   mode: SessionInfo['mode']
   pinned: boolean
   ids: number[]
-  messages: ChatMessage[]
 }
 
 function dayLabel(time: string): string {
@@ -77,7 +76,6 @@ function groupSessions(sessions: SessionInfo[], rows: ChatEntry[]): SessionGroup
       mode: s.mode,
       pinned: s.pinned,
       ids: list.map((r) => r.id),
-      messages: list.map((r) => ({ q: r.question, a: r.answer, cites: r.citations || [] })),
     })
     seen.add(s.session_id)
   }
@@ -94,7 +92,6 @@ function groupSessions(sessions: SessionInfo[], rows: ChatEntry[]): SessionGroup
       mode: 'ask',
       pinned: first.pinned,
       ids: list.map((r) => r.id),
-      messages: list.map((r) => ({ q: r.question, a: r.answer, cites: r.citations || [] })),
     })
   }
   groups.sort((a, b) => (a.pinned === b.pinned ? (a.time < b.time ? 1 : -1) : a.pinned ? -1 : 1))
@@ -103,32 +100,36 @@ function groupSessions(sessions: SessionInfo[], rows: ChatEntry[]): SessionGroup
 
 function HistoryNav({ chat }: { chat: ReturnType<typeof useChat> }) {
   const { setTab } = useApp()
-  const { sessionId } = chat
+  const { sessionId, historyVersion } = chat
   const { isMobile, setOpenMobile } = useSidebar()
   const [groups, setGroups] = useState<SessionGroup[]>([])
   const [renaming, setRenaming] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
+  const loadVersion = useRef(0)
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current
     try {
       const [sessions, chats] = await Promise.all([api.listSessions(), api.chatHistory()])
+      if (version !== loadVersion.current) return
       setGroups(groupSessions(sessions, chats))
     } catch {
-      setGroups([])
+      if (version === loadVersion.current) setGroups([])
     }
   }, [])
 
   useEffect(() => {
     void load()
-  }, [load, sessionId])
+    return () => { loadVersion.current += 1 }
+  }, [load, sessionId, historyVersion])
 
   const done = () => {
     if (isMobile) setOpenMobile(false)
   }
 
   const openSession = (g: SessionGroup) => {
-    chat.openSession(g.id, g.mode, g.messages, g.title)
+    void chat.openSessionById(g.id)
     setTab('chat')
     done()
   }

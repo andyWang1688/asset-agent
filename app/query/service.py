@@ -49,12 +49,31 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
         history = db.list_chat_history(session_id, settings.chat_memory_rounds)
     # 默认 LLM Wiki 引擎：先读 index，再 read/search，不依赖向量/embedding/重排。
     engine = engine or WikiQuestionAnswerEngine(settings)
-    result = await engine.answer(provider, safe_question, history=history, on_event=on_event)
+    policy = PolicyStore(settings.policy_file).load()
+    progress_sent = False
+
+    async def safe_progress(event: dict) -> None:
+        # 流式推理可能跨任意分片包含敏感值，不能先发送再复扫。
+        # 进度只允许程序生成的提示和固定动作名，不透传模型原文/参数。
+        nonlocal progress_sent
+        if on_event is None:
+            return
+        kind = event.get("type")
+        if kind == "reasoning" and not progress_sent:
+            progress_sent = True
+            text, _ = redactor.sanitize_llm_output("正在核对知识库与来源。", policy=policy)
+            await on_event({"type": "reasoning", "text": text})
+        elif kind == "action" and event.get("action") in {"index", "list", "read", "search"}:
+            await on_event({"type": "action", "action": event["action"]})
+        elif kind == "retry":
+            await on_event({"type": "retry"})
+
+    result = await engine.answer(provider, safe_question, history=history,
+                                 on_event=safe_progress if on_event else None)
     # 只信任已确认来源登记的精确私密引用，合法长名称原样通过；伪造标签不豁免。
     valid = redactor.registered_refs(db.all_source_refs())
     # 回答里的链接目标只对真正读过的页面路径豁免；标签/正文仍完整扫描。
     safe_wiki_paths = set(result.get("read_pages") or [])
-    policy = PolicyStore(settings.policy_file).load()
     clean, hits_found = redactor.sanitize_llm_output(
         result["answer"], policy=policy, valid=valid, safe_wiki_paths=safe_wiki_paths
     )

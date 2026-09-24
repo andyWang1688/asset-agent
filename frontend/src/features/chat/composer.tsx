@@ -10,7 +10,7 @@ export type ChatMode = 'ask' | 'maintain'
 
 const PLACEHOLDER: Record<ChatMode, string> = {
   ask: '询问你的资产知识库…',
-  maintain: '粘贴要整理的资料，或添加 TXT / Markdown 文件…',
+  maintain: '粘贴资料，或添加 PDF / Excel / Word / CSV / TXT / Markdown 文件…',
 }
 
 const MAX_HEIGHT = 180
@@ -110,7 +110,7 @@ export function Composer({
             <input
               ref={fileRef}
               type="file"
-              accept=".md,.txt,.text"
+              accept=".md,.txt,.text,.pdf,.xlsx,.xls,.csv,.docx"
               className="hidden"
               onChange={(e) => {
                 onFileChange(e.target.files?.[0] ?? null)

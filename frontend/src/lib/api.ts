@@ -11,6 +11,7 @@ import type {
   ModelBody,
   ModelRow,
   PendingSubmission,
+  MaintenanceReceipt,
   PolicyResp,
   PrivateRefMeta,
   Preset,
@@ -26,6 +27,8 @@ import type {
   SessionMode,
   SettingsStatus,
   SubmissionView,
+  ReviewResponse,
+  ManualMark,
   TaskRow,
   TestResult,
   WikiDoc,
@@ -110,16 +113,27 @@ export const api = {
 
   pendingSubmissions: () => request<PendingSubmission[]>('/api/pending/submissions'),
   submissionView: (id: number) => request<SubmissionView>(`/api/pending/submissions/${id}`),
+  reviewSubmission: (
+    id: number,
+    sessionId: string,
+    decisions: Record<string, string> = {},
+    edits: FindingEdits = {},
+    manual: ManualMark[] = [],
+  ) => request<ReviewResponse>(`/api/pending/submissions/${id}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, decisions, edits, manual }),
+  }),
   confirmSubmission: (
     id: number,
     decisions: Record<string, string>,
     sessionId: string,
     edits: FindingEdits,
     editedText?: string,
+    manual: ManualMark[] = [],
   ) =>
-    request<IngestResult>(`/api/pending/submissions/${id}/confirm`, {
+    request<MaintenanceReceipt>(`/api/pending/submissions/${id}/confirm`, {
       method: 'POST',
-      body: JSON.stringify({ decisions, edits, edited_text: editedText, session_id: sessionId }),
+      body: JSON.stringify({ decisions, edits, edited_text: editedText, session_id: sessionId, manual }),
     }),
   cancelSubmission: (id: number) =>
     request<{ cancelled: boolean }>(`/api/pending/submissions/${id}/cancel`, { method: 'POST' }),

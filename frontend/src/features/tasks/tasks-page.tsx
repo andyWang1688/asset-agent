@@ -1,18 +1,19 @@
 import { Fragment, useEffect, useState } from 'react'
-import { CheckCircle2, CircleAlert, CircleDashed, RefreshCw } from 'lucide-react'
+import { ArrowUpRight, CheckCircle2, ChevronRight, CircleAlert, CircleDashed, FileText, MessageSquare, RefreshCw } from 'lucide-react'
 import { SegmentedTabs } from '@/components/segmented-tabs'
-import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useTasks } from '@/hooks/use-tasks'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { api } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { ReportSnapshot, TaskRow } from '@/lib/types'
+import type { TaskRow } from '@/lib/types'
 import { useApp } from '@/store/app-state'
 
 type TaskState = 'processing' | 'done' | 'failed'
@@ -20,6 +21,7 @@ type TaskFilter = 'all' | TaskState
 
 /** 耗时 = updated_at - created_at；未结束或无差值显示 — */
 function duration(task: TaskRow): string {
+  if (toState(task.status) === 'processing') return '—'
   const t = (s: string) => new Date(s.replace(' ', 'T')).getTime()
   const ms = t(task.updated_at) - t(task.created_at)
   if (!Number.isFinite(ms) || ms <= 0) return '—'
@@ -58,55 +60,10 @@ function TaskStatus({ state }: { state: TaskState }) {
   )
 }
 
-const REPORT_STATUS: Record<ReportSnapshot['status'], string> = {
-  pending: '待确认',
-  confirmed: '已确认',
-  auto: '自动处理',
-  rejected: '已拒绝',
-}
-
-function ReportPanel({ reportId }: { reportId: number }) {
-  const [report, setReport] = useState<ReportSnapshot | null>(null)
-  const [loading, setLoading] = useState(true)
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    void api
-      .reportView(reportId)
-      .then((r) => { if (!cancelled) setReport(r) })
-      .catch(() => { if (!cancelled) setReport(null) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [reportId])
-
-  if (loading) return <Skeleton className="mt-3 h-24 w-full" />
-  if (!report) return null
-  return (
-    <div className="mt-3 grid gap-2 rounded-md border p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge
-          variant={report.status === 'rejected' ? 'destructive' : 'secondary'}
-          className={report.status === 'pending' ? 'text-amber-600' : undefined}
-        >
-          {REPORT_STATUS[report.status]}
-        </Badge>
-        <span className="text-xs text-muted-foreground">{report.original_name || '手动输入'}</span>
-      </div>
-      <pre className="max-h-[260px] overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-muted p-2.5 font-mono text-xs leading-relaxed">
-        {report.preview || '（无内容）'}
-      </pre>
-      {report.entries.length > 0 && (
-        <div className="rounded-md border p-2.5 text-xs">
-          <p className="font-medium">报告条目</p>
-          <ul className="mt-1.5 grid gap-1 text-muted-foreground">
-            {report.entries.map((e) => (
-              <li key={e.finding_id}>[{e.type}] {e.name} · {e.action}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  )
+const STAGE_LABEL: Record<string, string> = {
+  planning_pending: '等待处理', planning: '生成维护计划', drafting: '编写 Wiki 页面',
+  saving: '保存资料与敏感信息', pending: '等待维护', processing: '更新 Wiki',
+  credential_pending: '等待保险柜保存', retry: '等待维护',
 }
 
 function TaskExpand({ task }: { task: TaskRow }) {
@@ -114,71 +71,82 @@ function TaskExpand({ task }: { task: TaskRow }) {
   const state = toState(task.status)
   const changes = task.result?.changes ?? []
   const conflicts = task.result?.conflicts ?? []
+  const [titles, setTitles] = useState<Map<string, string>>(new Map())
+  const needsTitles = changes.length > 0 || conflicts.some((c) => c.between?.length)
+  useEffect(() => {
+    if (!needsTitles) return
+    let active = true
+    void api.wikiPages().then((pages) => {
+      if (active) setTitles(new Map(pages.map((page) => [page.path, page.title])))
+    }).catch(() => {
+      if (active) setTitles(new Map())
+    })
+    return () => { active = false }
+  }, [needsTitles, task.updated_at])
+
+  const pageLink = (path: string) => (
+    <Button key={path} variant="ghost" size="sm" title={path}
+      className="h-auto min-h-8 w-full min-w-0 justify-start py-2"
+      onClick={() => openWikiDoc(path)}>
+      <FileText data-icon="inline-start" className="text-muted-foreground" />
+      <span className="min-w-0 flex-1 text-left whitespace-normal break-words">
+        {titles.get(path)?.trim() || path.split('/').pop()?.replace(/\.md$/i, '') || path}
+      </span>
+      <ArrowUpRight data-icon="inline-end" className="text-muted-foreground" />
+    </Button>
+  )
+
   return (
-    <div className="border-t bg-muted/30 px-4 py-4">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div>
-          <p className="text-xs text-muted-foreground">来源会话</p>
-          <p className="mt-1 truncate font-mono text-sm">{task.session_id || '—'}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">任务</p>
-          <p className="mt-1 font-mono text-sm">#{task.id}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">状态</p>
-          <p className="mt-1 text-sm">{STATE_META[state].label}</p>
-        </div>
-      </div>
-      {task.error && (
-        <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm whitespace-pre-wrap text-destructive">
-          {task.error}
+    <section aria-label="任务详情" className="flex flex-col gap-5 bg-muted/30 px-4 py-5 sm:px-6">
+      {state === 'processing' && <p aria-label="当前阶段" className="text-sm text-muted-foreground">{STAGE_LABEL[task.status] ?? '正在维护…'}</p>}
+      {(task.error || state === 'failed') && (
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertTitle>失败原因</AlertTitle>
+          <AlertDescription className="whitespace-pre-wrap break-words">{task.error || '本次维护未完成。'}</AlertDescription>
+        </Alert>
+      )}
+      {(changes.length > 0 || conflicts.length > 0) && (
+        <div className={cn('grid gap-6', changes.length > 0 && conflicts.length > 0 && 'lg:grid-cols-2')}>
+          {changes.length > 0 && (
+            <section aria-label="更新页面" className="flex min-w-0 flex-col gap-2">
+              <h4 className="text-sm font-medium">更新页面 <span className="ml-1 text-xs text-muted-foreground">{changes.length}</span></h4>
+              <ul className="flex flex-col gap-1">{changes.map((path) => <li key={path} className="min-w-0">{pageLink(path)}</li>)}</ul>
+            </section>
+          )}
+          {conflicts.length > 0 && (
+            <section aria-label="待核对事项" className="flex min-w-0 flex-col gap-2">
+              <h4 className="flex items-center gap-2 text-sm font-medium"><CircleAlert className="size-4 text-amber-600" />待核对事项 <span className="text-xs text-muted-foreground">{conflicts.length}</span></h4>
+              <ul className="flex flex-col divide-y">
+                {conflicts.map((c, i) => (
+                  <li key={i} className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0">
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{c.note || '请核对相关页面中的信息。'}</p>
+                    {c.between?.map(pageLink)}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
       )}
-      {state === 'processing' && (
-        <p className="mt-3 text-sm text-muted-foreground">
-          编译进行中，完成后这里会列出更新的页面。任务锁定，不能取消或重试。
-        </p>
-      )}
-      {changes.length > 0 && (
-        <div className="mt-3">
-          <p className="text-xs text-muted-foreground">更新页面</p>
-          <div className="mt-1.5 flex flex-wrap gap-2">
-            {changes.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => openWikiDoc(c)}
-                className="rounded-md border bg-background px-2 py-1 font-mono text-xs transition-colors hover:bg-muted"
-              >
-                {c}
-              </button>
-            ))}
-          </div>
+      {state === 'done' && changes.length === 0 && <p className="text-sm text-muted-foreground">本次未更新 Wiki 页面。</p>}
+      <Separator />
+      <footer className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span title={task.created_at}>开始 {fmtTime(task.created_at)}</span>
+          <span title={task.updated_at}>{state === 'processing' ? '最近更新' : '结束'} {fmtTime(task.updated_at)}</span>
+          {state !== 'processing' && <span>耗时 {duration(task)}</span>}
         </div>
-      )}
-      {conflicts.length > 0 && (
-        <div className="mt-3 rounded-md border border-amber-600/30 bg-amber-600/5 p-3 text-sm text-amber-600">
-          <p className="text-xs font-medium">冲突</p>
-          <ul className="mt-1.5 grid gap-1">
-            {conflicts.map((c, i) => (
-              <li key={i}>{c.note}{c.between?.length ? `（${c.between.join('、')}）` : ''}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {task.session_id && (
-        <Button variant="outline" size="sm" className="mt-3" onClick={() => requestOpenSession(task.session_id!)}>
-          回到原会话
-        </Button>
-      )}
-      {task.report_id != null && <ReportPanel reportId={task.report_id} />}
-    </div>
+        {task.session_id && <Button variant="outline" size="sm" onClick={() => requestOpenSession(task.session_id!)}><MessageSquare data-icon="inline-start" />回到原会话</Button>}
+      </footer>
+    </section>
   )
 }
 
 export function TasksPage() {
   const { rows, load, error } = useTasks()
+  const compact = useIsMobile(767)
+  const hideResult = useIsMobile(1023)
   const [filter, setFilter] = useState<TaskFilter>('all')
   const [q, setQ] = useState('')
   const [expanded, setExpanded] = useState<number | null>(null)
@@ -237,14 +205,14 @@ export function TasksPage() {
             </EmptyHeader>
           </Empty>
         ) : (
-          <Table>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-28">状态</TableHead>
+                <TableHead className="w-32">状态</TableHead>
                 <TableHead>来源</TableHead>
-                <TableHead className="w-36">时间</TableHead>
-                <TableHead className="w-20 text-right">耗时</TableHead>
-                <TableHead className="w-64">结果</TableHead>
+                <TableHead className="hidden w-36 md:table-cell">时间</TableHead>
+                <TableHead className="hidden w-20 text-right md:table-cell">耗时</TableHead>
+                <TableHead className="hidden w-64 lg:table-cell">结果</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -260,25 +228,30 @@ export function TasksPage() {
                       onClick={() => setExpanded(open ? null : t.id)}
                     >
                       <TableCell>
-                        <TaskStatus state={state} />
+                        <Button variant="ghost" size="sm" aria-label={`${open ? '收起' : '展开'}任务详情：${t.original_name || '知识库维护'}`}
+                          aria-expanded={open} aria-controls={`task-details-${t.id}`}
+                          onClick={(e) => { e.stopPropagation(); setExpanded(open ? null : t.id) }}>
+                          <ChevronRight data-icon="inline-start" className={cn('transition-transform duration-300', open && 'rotate-90')} />
+                          <TaskStatus state={state} />
+                        </Button>
                       </TableCell>
-                      <TableCell className="max-w-64 truncate text-sm">{t.original_name || `来源 #${t.source_id}`}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{fmtTime(t.created_at)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs text-muted-foreground">{duration(t)}</TableCell>
-                      <TableCell className="truncate text-sm">
+                      <TableCell className="max-w-64 truncate text-sm" title={t.original_name || undefined}>{t.original_name || `来源 #${t.source_id}`}</TableCell>
+                      <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">{fmtTime(t.created_at)}</TableCell>
+                      <TableCell className="hidden text-right font-mono text-xs text-muted-foreground md:table-cell">{duration(t)}</TableCell>
+                      <TableCell className="hidden truncate text-sm lg:table-cell">
                         {state === 'failed' ? (
                           <span className="text-destructive">{t.error?.split('\n')[0]}</span>
                         ) : state === 'processing' ? (
-                          <span className="text-muted-foreground">正在编译 Wiki…</span>
+                          <span className="text-muted-foreground">{STAGE_LABEL[t.status] ?? '正在维护…'}</span>
                         ) : (
                           <span className="text-muted-foreground">更新 {changes.length} 页</span>
                         )}
                       </TableCell>
                     </TableRow>
                     <TableRow className="border-0 hover:bg-transparent">
-                      <TableCell colSpan={5} className="p-0">
+                      <TableCell colSpan={compact ? 2 : hideResult ? 4 : 5} className="p-0">
                         <Collapsible open={open}>
-                          <CollapsibleContent className="overflow-hidden [animation-duration:300ms] data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+                          <CollapsibleContent id={`task-details-${t.id}`} className="overflow-hidden [animation-duration:300ms] data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
                             <TaskExpand task={t} />
                           </CollapsibleContent>
                         </Collapsible>
