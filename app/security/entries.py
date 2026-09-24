@@ -4,7 +4,7 @@ Finding 原值、真实 span、引用 ID 由程序控制，客户端只能改固
 （类型/可读名称/说明/保存动作/保险柜条目类型与名称）。可编辑字符串统一做安全校验，
 不能把秘密挪进标题/说明再明文落库。
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..crypto import sha256_hex
 from . import redactor
@@ -114,11 +114,25 @@ def build_entries(findings: list[Finding], decisions: dict, edits: dict | None =
 
 
 def build_all_entries(findings, instruction_findings, decisions, edits=None,
-                      namespace="", policy=None, sources=None):
+                      namespace="", policy=None, sources=None, documents=None):
     """分别构建文件条目与整理要求条目（不同命名空间，避免引用 ID 跨来源碰撞）。"""
     known_ids = {f.id for f in list(findings) + list(instruction_findings)}
-    file_entries = build_entries(findings, decisions, edits, namespace=namespace,
-                                 policy=policy, sources=sources, known_ids=known_ids)
+    if documents:
+        file_entries = []
+        for doc in documents:
+            group = [f for f in findings if doc['start'] <= f.start < f.end <= doc['end']]
+            doc_namespace = doc['sha256'] + "\x00" + doc['name']
+            group_entries = build_entries(group, decisions, edits, namespace=doc_namespace,
+                                          policy=policy, sources=sources, known_ids=known_ids)
+            for entry in group_entries:
+                f = entry.finding
+                # 使用文件内坐标，报告 Finding ID 仍保留本批定位信息。
+                local_id = f"{f.detector}:{f.rule}:{f.start-doc['start']}:{f.end-doc['start']}"
+                entry.ref_id = redactor.ref_id_for(replace(f, id=local_id), doc_namespace)
+            file_entries.extend(group_entries)
+    else:
+        file_entries = build_entries(findings, decisions, edits, namespace=namespace,
+                                     policy=policy, sources=sources, known_ids=known_ids)
     instr_entries = build_entries(instruction_findings, decisions, edits,
                                   namespace=namespace + ":instr",
                                   policy=policy, sources=sources, known_ids=known_ids)

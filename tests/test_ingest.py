@@ -97,9 +97,10 @@ async def test_ingest_duplicate(settings):
     r1 = await finish_queued(settings, creds, r1)
     r2 = await receiver.ingest(settings, creds, text="同样的内容 A", knowledge_provider_getter=lambda: provider,
                                session_id=sid)
-    assert r2["duplicate"] is True
+    assert r2["task_id"] != r1["task_id"]
+    r2 = await finish_queued(settings, creds, r2)
     assert r2["source_id"] == r1["source_id"]
-    assert len(db.list_tasks()) == 1
+    assert len(db.list_tasks()) == 2
 
 
 class FailingProvider:

@@ -211,9 +211,10 @@ export function ChatPage({ chat }: { chat: ReturnType<typeof useChat> }) {
     const m = (mode ?? draftMode) as ChatMode
     if (m === 'ask') {
       const err = await ask(value.trim())
+      if (err === undefined) return
       if (err) setError(err)
       else {
-        setValue('')
+        setValue((current) => current === value ? '' : current)
         setFiles([])
       }
       return

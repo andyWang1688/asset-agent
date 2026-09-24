@@ -89,13 +89,6 @@ async def ingest(
         raise ValueError("内容为空")
 
     sha = crypto.sha256_hex(json.dumps([(d["sha256"], d["name"]) for d in documents])) if documents else crypto.sha256_hex(text)
-    # 幂等：已处理（confirmed=1）内容直接返回既有来源，不重复创建凭证/Wiki 页面；
-    # 失败轮重投例外：同一内容在任务失败后重发起维护，复用来源但另起报告与任务；
-    # confirmed=0 占位由 finalize 的 claim 阶段处理（崩溃遗留复用或冲突返回）
-    existing = db.get_source_by_sha256(sha)
-    if existing and existing["confirmed"] and not is_file and finalize_mod.retry_source_id(sha) is None:
-        return {"source_id": existing["id"], "duplicate": True, "message": "内容已存在，未重复处理", "secrets": []}
-
     store = policy_store or PolicyStore(settings.policy_file)
     policy = store.load()
 
@@ -151,7 +144,7 @@ async def ingest(
     decisions_default = {f.id: f.suggested_action for f in combined_findings}
     file_entries, instr_entries = entries_mod.build_all_entries(
         findings, instruction_findings, decisions_default,
-        namespace=sha, policy=policy, sources=sources,
+        namespace=sha, policy=policy, sources=sources, documents=documents,
     )
     all_entries = file_entries + instr_entries
     preview, _ = entries_mod.apply_entries(text, file_entries)

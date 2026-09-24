@@ -2,7 +2,7 @@
 
 个人使用、由 AI 维护的知识库。把资料交给维护对话，系统先检查敏感内容，再把处理后的资料整理成互相链接的 Markdown Wiki；需要时，在问答对话里查找答案和出处。
 
-[产品说明](docs/PRODUCT.md) · [1.0 发布说明](docs/releases/v1.0.0.md) · [本地开发](docs/development-first-slice.md)
+[产品说明](docs/PRODUCT.md) · [1.0.1 发布说明](docs/releases/v1.0.1.md) · [本地开发](docs/development-first-slice.md)
 
 ## 如何工作
 
@@ -35,7 +35,7 @@
 ```bash
 git clone https://github.com/andyWang1688/asset-agent.git
 cd asset-agent
-git checkout v1.0.0
+git checkout v1.0.1
 ./scripts/setup.sh
 docker compose up -d --build
 ```

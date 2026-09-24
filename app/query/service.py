@@ -45,11 +45,15 @@ async def answer(settings: Settings, provider: LLMProvider, question: str,
     # 对话记忆：每次请求从 chat_log 水合最近 N 轮问答（唯一持久化事实源），
     # 窗口裁剪只取最近 chat_memory_rounds 轮，记忆组件自身不做任何持久化。
     history = []
+    policy = PolicyStore(settings.policy_file).load()
+    valid = redactor.registered_refs(db.all_source_refs())
     if session_id and settings.chat_memory_rounds > 0:
-        history = db.list_chat_history(session_id, settings.chat_memory_rounds)
+        history = [dict(row) for row in db.list_chat_history(session_id, settings.chat_memory_rounds)]
+        for entry in history:
+            for key in ("question", "answer"):
+                entry[key], _ = redactor.sanitize_llm_output(entry[key], policy=policy, valid=valid)
     # 默认 LLM Wiki 引擎：先读 index，再 read/search，不依赖向量/embedding/重排。
     engine = engine or WikiQuestionAnswerEngine(settings)
-    policy = PolicyStore(settings.policy_file).load()
     progress_sent = False
 
     async def safe_progress(event: dict) -> None:

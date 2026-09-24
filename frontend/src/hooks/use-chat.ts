@@ -145,7 +145,7 @@ export function useChat() {
       let answered = false
       try {
         const { sessionId: sid } = await ensureSession('ask')
-        if (myGen !== gen.current) return null
+        if (myGen !== gen.current) return undefined
         await api.streamQuery(question, sid, {
           onReasoning: (text) => {
             if (myGen === gen.current) appendTrace({ kind: 'reasoning', text })
@@ -177,7 +177,7 @@ export function useChat() {
             streamError = message
           },
         })
-        if (myGen !== gen.current) return null // 会话已切换/新建，丢弃过期响应
+        if (myGen !== gen.current) return undefined // 过期响应与成功（null）区分，调用者不能清空草稿
         if (streamError) {
           setMessages((prev) => prev.slice(0, -1))
           return streamError
@@ -189,7 +189,7 @@ export function useChat() {
         setHistoryVersion((v) => v + 1)
         return null
       } catch (e) {
-        if (myGen !== gen.current) return null
+        if (myGen !== gen.current) return undefined
         setMessages((prev) => prev.slice(0, -1))
         return errMsg(e)
       } finally {

@@ -1,5 +1,6 @@
 """1.0 发布门槛：临时目录、合成资料、真实 API / Worker，模型与保险柜隔离。"""
 import json
+from pathlib import Path
 import pytest
 import app.main as main
 from app import db
@@ -276,3 +277,66 @@ def test_completed_task_is_not_rolled_back_if_journal_cleanup_fails(client, monk
     monkeypatch.setattr(Transaction, 'commit', original)
     assert client.portal.call(recover, s, client.review_vault)
     assert db.get_task(tid)['status'] == 'done' and len(db.list_sources()) == 2
+
+
+def test_repeated_manual_input_creates_new_round(client):
+    from tests.test_maintenance_plan_flow import finish
+    from tests.fakes import FixturePlanningProvider
+    sid, body = submit(client)
+    first = finish(client, sid, body)
+    main.app.state.ctx.worker.get_provider = lambda: FixturePlanningProvider()
+    sid, body = submit(client)
+    second = finish(client, sid, body)
+    assert first['task_id'] != second['task_id']
+    assert first['source_id'] == second['source_id']
+    assert len(db.list_tasks()) == 2
+    assert len(db.list_reports_by_session(client.review_session)) == 2
+    assert len(client.review_vault.created) == 1
+
+
+@pytest.mark.parametrize('reorder', [False, True])
+def test_source_identity_is_independent_of_batch(client, reorder):
+    from tests.fakes import FixturePlanningProvider
+    original = ('one.txt', ('password=' + SECRET).encode())
+    first = accept(client, upload(client, [original]))
+    client.portal.call(main.app.state.ctx.worker.tick)
+    source = db.sources_for_task(first)[0]
+    raw = {str(p): p.read_bytes() for p in main.app.state.ctx.settings.inbox_dir.iterdir()}
+    main.app.state.ctx.worker.get_provider = lambda: FixturePlanningProvider()
+    other = ('two.txt', b'password=AnotherFixtureSecret42!')
+    batch = [other, original] if reorder else [original, other]
+    view = upload(client, batch)
+    second = accept(client, view)
+    client.portal.call(main.app.state.ctx.worker.tick)
+    assert db.get_task(second)['status'] == 'done', db.get_task(second)['error']
+    reused = db.sources_for_task(second)[int(reorder)]
+    assert reused['id'] == source['id']
+    assert reused['private_path'] == source['private_path']
+    assert json.loads(reused['secret_refs'])[0]['ref_id'] == json.loads(source['secret_refs'])[0]['ref_id']
+    assert len(db.list_sources()) == 2
+    assert all(Path(p).read_bytes() == data for p, data in raw.items())
+
+
+@pytest.mark.parametrize('same_source', [False, True])
+def test_deleted_vault_item_is_recreated(client, monkeypatch, same_source):
+    from tests.fakes import FixturePlanningProvider
+    first = accept(client, upload(client, [('one.txt', ('password=' + SECRET).encode())]))
+    client.portal.call(main.app.state.ctx.worker.tick)
+    assert db.get_task(first)['status'] == 'done'
+    list_items = client.review_vault.list_items
+    async def without_deleted_item(): return (await list_items())[1:]
+    monkeypatch.setattr(client.review_vault, 'list_items', without_deleted_item)
+    main.app.state.ctx.worker.get_provider = lambda: FixturePlanningProvider()
+    file = ('one.txt', ('password=' + SECRET).encode()) if same_source else (
+        'two.txt', ('new text\npassword=' + SECRET).encode())
+    second = accept(client, upload(client, [file]))
+    client.portal.call(main.app.state.ctx.worker.tick)
+    assert db.get_task(second)['status'] == 'done'
+    assert len(client.review_vault.created) == 2
+    report = db.report_view(db.get_task(second)['report_id'])
+    assert report['entries'][0]['vault']['item_id'] == 'vw-2'
+    assert db.find_ref_metadata(report['entries'][0]['ref_id'])['item_id'] == 'vw-2'
+    third = accept(client, upload(client, [('three.txt', ('another text\npassword=' + SECRET).encode())]))
+    client.portal.call(main.app.state.ctx.worker.tick)
+    assert db.get_task(third)['status'] == 'done'
+    assert len(client.review_vault.created) == 2

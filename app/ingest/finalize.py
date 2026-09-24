@@ -143,20 +143,22 @@ async def _store_credentials(
     绝不用「同名条目」吞掉不同秘密，也不复用与报告目标不一致的既有条目。"""
     if not any(e.action == ACTION_STORE for e in entries):
         return [], []
-    known: dict[tuple, dict] = {}
-    for r in db.all_source_refs():
-        if r.get("saved") and r.get("item_id"):
-            key = (r.get("value_hash"), r.get("vault_kind"), r.get("vault_name"), r.get("field_name"))
-            known.setdefault(key, {"item_id": r["item_id"]})
     try:
-        for m in await creds.list_items():
-            if m.value_hash:
-                key = (m.value_hash, m.kind, m.name, m.field_name)
-                known.setdefault(key, {"item_id": m.item_id})
+        items = await creds.list_items()
     except CredentialError:
         if transaction.active.get() is not None:
             raise
-        pass  # 保险柜查询失败时仍保留本机已确认的精确条目映射。
+        items = None  # 旧内部调用查询失败时仍保留本机已确认的精确映射。
+    live_ids = {m.item_id for m in items} if items is not None else None
+    known: dict[tuple, dict] = {}
+    for r in db.all_source_refs():
+        if r.get("saved") and r.get("item_id") and (live_ids is None or r["item_id"] in live_ids):
+            key = (r.get("value_hash"), r.get("vault_kind"), r.get("vault_name"), r.get("field_name"))
+            known.setdefault(key, {"item_id": r["item_id"]})
+    for m in items or []:
+        if m.value_hash:
+            key = (m.value_hash, m.kind, m.name, m.field_name)
+            known.setdefault(key, {"item_id": m.item_id})
 
     refs_out: list[dict] = []
     pending_pairs: list[tuple[int, str]] = []
@@ -345,7 +347,7 @@ async def _finalize_locked(
     dec = validate_decisions(combined, decisions)
     file_entries, instr_entries = entries_mod.build_all_entries(
         findings, instruction_findings, dec, edits,
-        namespace=sha, policy=policy, sources=sources,
+        namespace=sha, policy=policy, sources=sources, documents=documents,
     )
     all_entries = file_entries + instr_entries
 

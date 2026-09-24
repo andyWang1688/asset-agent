@@ -17,7 +17,6 @@ from ..ingest.finalize import (
     finalize,
     locate_allow_spans,
     rescan_guard,
-    retry_source_id,
     validate_decisions,
 )
 from ..security import report as report_mod
@@ -73,7 +72,7 @@ def summary_counts(findings: list[Finding]) -> dict:
 
 
 def _lock_report(row, findings, instruction_findings, decisions, edits, sources, namespace, policy,
-                 original_name, text, edited_text, refs, instruction: str | None) -> None:
+                 original_name, text, edited_text, refs, instruction: str | None, documents=None) -> None:
     """确认后锁定报告：补全保险柜字段与脱敏预览，此后不可再修改。"""
     rid = row["report_id"]
     if not rid:
@@ -84,7 +83,7 @@ def _lock_report(row, findings, instruction_findings, decisions, edits, sources,
         return
     file_entries, instr_entries = entries_mod.build_all_entries(
         findings, instruction_findings, decisions, edits,
-        namespace=namespace, policy=policy, sources=sources,
+        namespace=namespace, policy=policy, sources=sources, documents=documents,
     )
     all_entries = file_entries + instr_entries
     preview = edited_text if edited_text is not None else entries_mod.apply_entries(text, file_entries)[0]
@@ -208,7 +207,7 @@ def view(settings: Settings, row) -> dict:
 
     default_decisions = {f.id: f.suggested_action for f in combined}
     file_entries, instr_entries = entries_mod.build_all_entries(findings, instruction_findings,
-        default_decisions, namespace=sha, policy=policy, sources=sources)
+        default_decisions, namespace=sha, policy=policy, sources=sources, documents=payload.get("documents"))
     preview, _ = entries_mod.apply_entries(text, file_entries)
     entries_by_id = {e.finding.id: e for e in file_entries + instr_entries}
 
@@ -261,6 +260,20 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
                   edits: dict | None = None, session_id: str | None = None,
                   security_provider=None, knowledge_provider_getter=None,
                   plan_token: str | None = None, require_plan: bool = False, manual: list | None = None, task_id: int | None = None) -> dict:
+    from .plans import operation_lock
+
+    # 同一提交只能完成一次；来源复用不意味着允许重复确认同一份报告。
+    async with operation_lock():
+        return await _confirm_locked(
+            settings, creds, policy_store, submission_id, decisions, edited_text, edits, session_id,
+            security_provider, knowledge_provider_getter, plan_token, require_plan, manual, task_id)
+
+
+async def _confirm_locked(settings: Settings, creds: CredentialStore, policy_store: PolicyStore,
+                          submission_id: int, decisions: dict, edited_text: str | None,
+                          edits: dict | None, session_id: str | None,
+                          security_provider, knowledge_provider_getter,
+                          plan_token: str | None, require_plan: bool, manual: list | None, task_id: int | None) -> dict:
     """逐项裁决 → 复扫校验 → 落盘/凭证/任务。仍有未处置 Finding 时不得调用云端模型。
     edited_text：用户在确认页修改过的脱敏预览，提交后必须重新扫描。
     knowledge 模型未配置时在创建任务前拒绝确认（提交保持待确认，配置后重试）。"""
@@ -312,7 +325,7 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
     try:
         file_entries, instr_entries = entries_mod.build_all_entries(
             findings, instruction_findings, dec, edits,
-            namespace=sha, policy=policy, sources=sources,
+            namespace=sha, policy=policy, sources=sources, documents=payload.get("documents"),
         )
     except ValueError as e:
         raise SubmissionError(str(e)) from e
@@ -336,16 +349,6 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
 
         checked_plan(settings, policy_store, row, dec, edits, edited_text, plan_token, manual)
 
-    existing = db.get_source_by_sha256(sha)
-    if existing and existing["confirmed"] and not payload.get("is_file") and retry_source_id(sha) is None:
-        # 已处理内容幂等返回；失败轮重投除外（复用来源，另起报告与任务）；
-        # confirmed=0 的占位交由 finalize 的 claim 阶段处理（复用/冲突）
-        db.resolve_submission(submission_id, "confirmed")
-        _lock_report(row, findings, instruction_findings, dec, edits, sources, sha, policy,
-                     original_name, text, None, [], instruction)
-        return {"source_id": existing["id"], "duplicate": True,
-                "message": "内容已存在，未重复处理", "secrets": []}
-
     try:
         result = await finalize(
             settings, creds, text=text, sha=sha, kind=kind, original_name=original_name,
@@ -353,12 +356,12 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
             edited_text=edited_text, security_provider=security_provider,
             session_id=row["session_id"], edits=edits, instruction=instruction,
             instruction_findings=instruction_findings, sources=sources,
-            reuse_source=bool(payload.get("is_file")), task_id=task_id, documents=payload.get("documents"),
+            reuse_source=True, task_id=task_id, documents=payload.get("documents"),
         )
     except DuplicateSourceError as dup:
         db.resolve_submission(submission_id, "confirmed")
         _lock_report(row, findings, instruction_findings, dec, edits, sources, sha, policy,
-                     original_name, text, None, [], instruction)
+                     original_name, text, None, [], instruction, documents=payload.get("documents"))
         db.log_security("submission_confirmed", f"提交 #{submission_id} 内容已存在（来源 #{dup.source_id}），幂等跳过")
         return {"source_id": dup.source_id, "duplicate": True,
                 "message": "内容已存在，未重复处理", "secrets": []}
@@ -369,7 +372,7 @@ async def confirm(settings: Settings, creds: CredentialStore, policy_store: Poli
 
     db.resolve_submission(submission_id, "confirmed")  # 清除密文，销毁临时明文
     _lock_report(row, findings, instruction_findings, dec, edits, sources, sha, policy,
-                 original_name, text, edited_text, result.get("refs"), instruction)
+                 original_name, text, edited_text, result.get("refs"), instruction, documents=payload.get("documents"))
     if row["report_id"]:
         db.set_task_report(result["task_id"], row["report_id"])
     for f in findings:
