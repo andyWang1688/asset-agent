@@ -417,11 +417,13 @@ async def test_duplicate_submission_idempotent(settings):
     fid = view["findings"][0]["id"]
     await submissions.confirm(settings, creds, _store(settings), r1["submission_id"], {fid: "store"})
     assert len(creds.created) == 1
-    # 已确认后再提交相同内容 → 来源重复，不重复创建凭证/Wiki
+    # 已确认后再提交相同内容 → 独立报告与任务，复用来源和凭证。
     r3 = await _submit(settings, creds, "password=Sup3rSecret! 内容", session_id=sid)
-    assert r3["duplicate"] is True
+    assert r3["submission_id"] != r1["submission_id"]
+    await submissions.confirm(settings, creds, _store(settings), r3["submission_id"], {fid: "store"})
     assert len(creds.created) == 1
-    assert len(db.list_tasks()) == 1
+    assert len(db.list_tasks()) == 2
+    assert len(db.list_sources()) == 1
 
 
 async def test_resubmit_same_text_after_cancel(settings):

@@ -94,3 +94,16 @@ async def test_no_session_no_history(settings):
     provider = _ans("回答")
     await service.answer(settings, provider, "新问题")
     assert "旧问" not in provider.calls[-1]["user"]
+
+
+async def test_history_rescanned_after_security_policy_change(settings):
+    from app.security.policy import PolicyStore
+
+    provider = _ans("青松计划将在周二开始")
+    await service.answer(settings, provider, "介绍青松计划", session_id="policy-change")
+    PolicyStore(settings.policy_file).add_custom_rule(
+        {"name": "project_code", "pattern": "青松计划", "kind": "pii", "enabled": True})
+    await service.answer(settings, provider, "请继续介绍", session_id="policy-change")
+    prompt = provider.calls[-1]["user"]
+    assert "青松计划" not in prompt
+    assert "周二开始" in prompt

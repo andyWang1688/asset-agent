@@ -80,7 +80,7 @@ def inspect(settings, policy_store, submission_id, session_id, decisions=None, e
     sources = {f.id: "整理要求" for f in instruction_findings}
     file_entries, instr_entries = entries.build_all_entries(
         findings, instruction_findings, dec, edits, namespace=payload["sha256"],
-        policy=payload.get("policy") or policy_store.load(), sources=sources,
+        policy=payload.get("policy") or policy_store.load(), sources=sources, documents=payload.get("documents"),
     )
     return {
         "documents": build_documents(payload, file_entries, instr_entries),

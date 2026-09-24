@@ -60,7 +60,7 @@ def enqueue(settings, policy_store, submission_id, decisions, *, session_id,
     dec = validate_decisions(findings + instructions, decisions)
     file_entries, instr_entries = entries.build_all_entries(findings, instructions, dec, edits, namespace=payload['sha256'],
                               policy=payload.get('policy') or policy_store.load(),
-                              sources={f.id: '整理要求' for f in instructions})
+                              sources={f.id: '整理要求' for f in instructions}, documents=payload.get('documents'))
     draft = dict(decisions=dec, edits=edits or {}, edited_text=edited_text, manual=manual or [])
     fingerprint = request_hash(dec, edits, edited_text, policy_store.load(), manual)
     payload['plan_draft'] = draft
@@ -248,7 +248,7 @@ async def prepare(settings, policy_store, submission_id, decisions, *, session_i
     sources = {f.id: '整理要求' for f in instr_findings}
     file_entries, instr_entries = entries.build_all_entries(
         findings, instr_findings, dec, edits, namespace=payload['sha256'],
-        policy=snapshot_policy, sources=sources,
+        policy=snapshot_policy, sources=sources, documents=payload.get('documents'),
     )
     all_entries = file_entries + instr_entries
     preview, allowed = entries.apply_entries(payload['text'], file_entries)
