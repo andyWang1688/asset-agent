@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import type { WikiDoc, WikiPage } from '@/lib/types'
 
@@ -10,6 +10,7 @@ export function useWiki(initialPath?: string | null) {
   const [doc, setDoc] = useState<WikiDoc | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const requestId = useRef(0)
 
   const load = useCallback(async () => {
     setLoaded(false)
@@ -26,16 +27,20 @@ export function useWiki(initialPath?: string | null) {
   }, [])
 
   const open = useCallback(async (p: string) => {
+    const id = ++requestId.current
     setPath(p)
+    setDoc(null)
     setLoading(true)
     setError(null)
     try {
-      setDoc(await api.wikiPage(p))
+      const page = await api.wikiPage(p)
+      if (id === requestId.current) setDoc(page)
     } catch (e) {
+      if (id !== requestId.current) return
       setDoc(null)
       setError(e instanceof Error ? e.message : '页面加载失败')
     } finally {
-      setLoading(false)
+      if (id === requestId.current) setLoading(false)
     }
   }, [])
 
